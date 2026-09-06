@@ -298,8 +298,24 @@ enum CostChartHighlightVerifier {
                     + "\(CostChartHoverMotion.clearResponse) vs \(CostChartHoverMotion.hoverResponse)"
             )
         }
-        if CostChartHoverMotion.lift <= 0 {
-            failures.append("the selected bar expected a lift, got \(CostChartHoverMotion.lift)")
+        // The highlight's shape is a mark under the baseline, not a change to the bar: a bar the
+        // reader is comparing by height cannot change height under the pointer.
+        if CostChartHoverMotion.markerHeight <= 0 || CostChartHoverMotion.markerGap <= 0 {
+            failures.append(
+                "the selected bar expected a mark below it, got \(CostChartHoverMotion.markerHeight)"
+                    + " thick at \(CostChartHoverMotion.markerGap) below the baseline"
+            )
+        }
+        let markerWidths = [0.0, 0.5, 1.0].map(CostChartHoverMotion.markerWidth)
+        if markerWidths.last != 1 || markerWidths[0] <= 0 || markerWidths[0] >= markerWidths[1]
+            || markerWidths[1] >= markerWidths[2] {
+            failures.append(
+                "the mark expected to open from a stub to the bar's full width, got \(markerWidths)"
+            )
+        }
+        if CostChartHoverMotion.markerWidth(share: -1) != CostChartHoverMotion.markerWidth(share: 0)
+            || CostChartHoverMotion.markerWidth(share: 2) != 1 {
+            failures.append("the mark's width expected to clamp outside the crossover")
         }
         let hoverMotion = CostChartHoverMotion.animation(clearingHover: false, reduceMotion: false)
         let clearMotion = CostChartHoverMotion.animation(clearingHover: true, reduceMotion: false)

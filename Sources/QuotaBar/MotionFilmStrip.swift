@@ -352,9 +352,10 @@ private struct DisclosureFrame: View {
     }
 }
 
-/// The chart's highlight between two bars. Tone and the 5pt lift cross over together, because the
-/// highlight is meant to read as one shape moving rather than as one bar dimming and another
-/// brightening.
+/// The chart's highlight between two bars. Tone and the mark under the baseline cross over
+/// together, because the highlight is meant to read as one shape moving rather than as one bar
+/// dimming and another brightening. Only the mark moves: the bars keep the heights they are being
+/// compared on.
 private struct ChartHighlightFrame: View {
     let from: Double
     let to: Double?
@@ -395,15 +396,19 @@ private struct ChartHighlightFrame: View {
             HStack(alignment: .bottom, spacing: 8) {
                 ForEach(Array(Self.values.enumerated()), id: \.offset) { index, value in
                     let share = self.share(index)
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(tint.opacity(
-                            CostChartHighlightPolicy.restingOpacity
-                                + (1 - CostChartHighlightPolicy.restingOpacity) * share
-                        ))
-                        .frame(
-                            width: Self.barWidth,
-                            height: Self.maxHeight * value / 90 + CostChartHoverMotion.lift * share
-                        )
+                    VStack(spacing: CostChartHoverMotion.markerGap) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(tint.opacity(
+                                CostChartHighlightPolicy.restingOpacity
+                                    + (1 - CostChartHighlightPolicy.restingOpacity) * share
+                            ))
+                            .frame(width: Self.barWidth, height: Self.maxHeight * value / 90)
+                        Capsule(style: .continuous)
+                            .fill(tint)
+                            .frame(width: Self.barWidth, height: CostChartHoverMotion.markerHeight)
+                            .scaleEffect(x: CostChartHoverMotion.markerWidth(share: share), y: 1)
+                            .opacity(share)
+                    }
                 }
             }
             Text(self.label)
@@ -498,21 +503,26 @@ private struct ChartLabelSwapFrame: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(tint)
                     .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
-                    .frame(
-                        height: max(4, Self.chartHeight * self.ratio(for: day))
-                            + (isSelected ? CostChartHoverMotion.lift : 0)
-                    )
+                    .frame(height: max(4, Self.chartHeight * self.ratio(for: day)))
                     .frame(maxWidth: .infinity)
+                    .overlay(alignment: .bottom) {
+                        if isSelected {
+                            Capsule(style: .continuous)
+                                .fill(tint)
+                                .frame(height: CostChartHoverMotion.markerHeight)
+                                .offset(y: CostChartHoverMotion.markerBand)
+                        }
+                    }
                     .overlay(alignment: .top) {
                         if isSelected { self.label.offset(y: -14) }
                     }
             }
         }
         .frame(width: Self.chartWidth, height: Self.chartHeight)
-        // Room for the lift and the label above it, the way the card reserves it.
-        .padding(.top, 14 + CostChartHoverMotion.lift)
+        // Room for the label above and the mark below, the way the card reserves them.
+        .padding(.top, 14)
         .padding(.horizontal, 14)
-        .padding(.bottom, 12)
+        .padding(.bottom, 12 + CostChartHoverMotion.markerBand)
         .frame(width: 280, alignment: .bottom)
         .background(Color(white: 0.13))
     }

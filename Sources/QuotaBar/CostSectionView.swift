@@ -12,9 +12,9 @@ struct CostSectionView: View {
     private static let chartHeight: CGFloat = 56
     private static let barSpacing: CGFloat = 4
     private static let labelOffsetY: CGFloat = -14
-    /// Room for the selected bar's lift plus its label, so neither the card nor the KPI row above
-    /// it moves when the highlight changes bars.
-    private static let chartTopPadding = -Self.labelOffsetY + CostChartHoverMotion.lift
+    /// Room for the selected bar's label, so neither the card nor the KPI row above it moves when
+    /// the highlight changes bars.
+    private static let chartTopPadding = -Self.labelOffsetY
     /// Four covers a normal day for either provider; the rest collapse behind a "+N more" line
     /// the reader can open.
     private static let maxBreakdownRows = 4
@@ -172,6 +172,9 @@ struct CostSectionView: View {
         }
         .frame(height: Self.chartHeight)
         .padding(.top, Self.chartTopPadding)
+        // The mark under the selected bar is drawn outside the bars, so the band it needs is
+        // reserved here rather than taken out of the gap to the day's detail.
+        .padding(.bottom, CostChartHoverMotion.markerBand)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
@@ -191,10 +194,11 @@ struct CostSectionView: View {
             // Opacity as a modifier rather than folded into the fill, so the tone change is a
             // plain animatable value.
             .opacity(opacity)
-            // A day with a trace of spend still deserves a visible sliver. The selected bar stands
-            // up on top of that, which is what makes the highlight a shape and not only a tone.
-            .frame(height: self.barHeight(valueRatio: ratio, isSelected: isSelected))
+            // A day with a trace of spend still deserves a visible sliver. Height is the day's
+            // own quantity and nothing else: the highlight is the tone plus the mark below.
+            .frame(height: self.barHeight(valueRatio: ratio))
             .frame(maxWidth: .infinity)
+            .overlay(alignment: .bottom) { self.marker(isSelected: isSelected) }
             .overlay(alignment: .top) {
                 if isSelected {
                     self.label(for: day)
@@ -208,8 +212,21 @@ struct CostSectionView: View {
         CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
     }
 
-    private func barHeight(valueRatio: Double, isSelected: Bool) -> CGFloat {
-        max(4, Self.chartHeight * valueRatio) + (isSelected ? CostChartHoverMotion.lift : 0)
+    private func barHeight(valueRatio: Double) -> CGFloat {
+        max(4, Self.chartHeight * valueRatio)
+    }
+
+    /// The mark that says which bar the reading belongs to, under the shared baseline where it has
+    /// no height to distort. Every bar carries one; an unselected bar's is closed to a stub and
+    /// invisible, so the pair on either side of a move opens and closes on the same spring instead
+    /// of appearing and disappearing.
+    private func marker(isSelected: Bool) -> some View {
+        Capsule(style: .continuous)
+            .fill(Theme.accent(for: self.snapshot.provider))
+            .frame(height: CostChartHoverMotion.markerHeight)
+            .scaleEffect(x: CostChartHoverMotion.markerWidth(share: isSelected ? 1 : 0), y: 1)
+            .opacity(isSelected ? 1 : 0)
+            .offset(y: CostChartHoverMotion.markerBand)
     }
 
     private func labelSize(for day: CostDay) -> CGSize {
@@ -381,8 +398,12 @@ struct CostSectionView: View {
     /// The band the bars occupy, and the top of the breakdown under them, both measured from the
     /// top of the tracked block.
     private var chartBandHeight: CGFloat {
-        self.bars.isEmpty ? 0 : Self.chartTopPadding + Self.chartHeight
+        self.bars.isEmpty ? 0 : Self.chartBottom + CostChartHoverMotion.markerBand
     }
+
+    /// The baseline every bar stands on, which is where the pointer stops being on a bar. The mark
+    /// under it is not a target: the reader points at bars.
+    private static let chartBottom = Self.chartTopPadding + Self.chartHeight
 
     private var breakdownTop: CGFloat {
         self.bars.isEmpty ? 0 : self.chartBandHeight + Self.sectionSpacing
@@ -504,10 +525,7 @@ struct CostSectionView: View {
         let barHeights = self.bars.map { day in
             let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
             let ratio = maxValue > 0 ? value / maxValue : 0
-            return Double(self.barHeight(
-                valueRatio: ratio,
-                isSelected: day.dayKey == selectedDayKey
-            ))
+            return Double(self.barHeight(valueRatio: ratio))
         }
         let labelSizes = self.bars.map { day in
             day.dayKey == selectedDayKey ? self.labelSize(for: day) : nil
@@ -515,7 +533,7 @@ struct CostSectionView: View {
         return CostChartHighlightPolicy.region(
             at: location,
             width: width,
-            chartBottom: self.chartBandHeight,
+            chartBottom: self.bars.isEmpty ? 0 : Self.chartBottom,
             barHeights: barHeights,
             labelSizes: labelSizes,
             labelOffsetY: Self.labelOffsetY,

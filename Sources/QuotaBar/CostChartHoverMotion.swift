@@ -7,18 +7,36 @@ import SwiftUI
 /// is allowed to take longer and to arrive with zero velocity — the shape `QuotaCelebrationReplay`
 /// already uses to come back from the landing.
 ///
-/// The selected bar also stands up a little, so the highlight reads as a shape and not only as a
-/// tone. That is a state rather than a motion: Reduce Motion changes how the bar gets there, never
-/// how tall it is once it has.
+/// The selected bar is also marked by a rule under the baseline, so the highlight reads as a shape
+/// and not only as a tone. The mark sits below the bars rather than on them because every bar's
+/// height is a quantity the reader is comparing: a bar that grows under the pointer is a bar whose
+/// height briefly means something other than what it means everywhere else on the chart. That is a
+/// state rather than a motion: Reduce Motion changes how the mark arrives, never where it sits.
 ///
 /// The label on that bar has a second change of its own — a click swaps its unit between tokens
 /// and cost — and it lives here too, so everything the highlight can do is timed in one place.
 enum CostChartHoverMotion {
-    /// How much taller the selected bar stands. Small enough that the chart's proportions still
-    /// read, large enough to see from the corner of the eye while reading the label.
-    static let lift: CGFloat = 5
+    /// The mark under the selected bar: as thick as the bar's own corner radius, and far enough
+    /// below the baseline to read as a separate thing rather than as part of the bar.
+    static let markerHeight: CGFloat = 2
+    static let markerGap: CGFloat = 3
+    /// The strip the mark needs under the chart. The chart reserves it whether or not a bar is
+    /// selected, so the card is the same height with the pointer on it as without.
+    static var markerBand: CGFloat { Self.markerGap + Self.markerHeight }
 
-    /// A move between bars, on the spring that carries the height with the tone.
+    /// How wide the mark is on a bar that is not selected, as a share of the bar's width. It opens
+    /// out of the bar's centre and closes back into it, so a move between neighbours reads as one
+    /// mark travelling rather than as two fading past each other.
+    static let markerRestWidth: Double = 0.3
+
+    /// The mark's width on a bar that is `share` of the way selected, 0 to 1. The film strip walks
+    /// this between two bars; the card only ever asks for the ends.
+    static func markerWidth(share: Double) -> Double {
+        let share = min(1, max(0, share))
+        return Self.markerRestWidth + (1 - Self.markerRestWidth) * share
+    }
+
+    /// A move between bars, on the spring that carries the mark with the tone.
     static let hoverResponse: TimeInterval = 0.27
     /// Internal rather than private so the README film strip can sample the same spring.
     static let hoverDamping: Double = 0.9
