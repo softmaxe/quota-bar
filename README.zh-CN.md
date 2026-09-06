@@ -21,6 +21,7 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 
 - 显示会话与每周剩余额度、重置时间、使用节奏和可用 credits。
 - 按日期和模型展示本地 Codex、Claude 的 token 用量与预估成本。
+- Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
 - 将同一账号的 OpenCode 和 Pi Agent OpenAI OAuth 用量计入 Codex。
 - 在一个菜单栏图标中切换供应商，两家独立刷新。
 - 使用内置费率、公开的 [models.dev](https://models.dev) 目录和手动费率。
@@ -120,7 +121,13 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` assistant 用量会被计入。Pi Agent 用量不会改变额度条，成本使用 QuotaBar 的模型价格估算，不代表 OpenAI 账单。
 
-大量历史数据的首次扫描可能较慢。扫描结果会缓存在 SQLite 中：Codex 和 Claude 从上次读取的位置继续，OpenCode 和 Pi Agent 通过稳定 ID 去重。价格目录缓存 24 小时。手动费率只影响新用量，历史数据保留扫描时的价格。
+### Current storage and pricing behavior
+
+The first scan of a large history may take time. QuotaBar keeps a compact SQLite usage history with the day, model, harness, token counts, and estimated cost, plus identifiers and scan positions for deduplication. Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. Deleting source sessions does not delete recorded usage, even after restarting QuotaBar. Standard Codex rollout UUIDs prevent archive moves and copies from counting twice. The chart still shows the last 30 days; older records remain stored. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+
+On first use, QuotaBar copies any existing cost database from `~/Library/Caches/QuotaBar/cost-usage/` to the persistent location below, including committed SQLite WAL data. The old cache remains intact. Only usage already scanned can survive source deletion; sessions deleted before QuotaBar scanned them cannot be recovered. Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
+
+Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay its earlier records. Astra uses its complete built-in rates when a catalog entry omits cache or long-context prices. Its built-in rates follow the [official Astra model pricing](https://developers.openai.com/api/docs/models/gpt-6-astra).
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
@@ -163,6 +170,8 @@ make run            # Build and run in the foreground
 make test           # Run assertions and animation verifiers
 make probe          # Check both provider integrations
 make probe-cost     # Rescan local logs; may refresh model prices
+make benchmark-startup # Measure status-item construction offline in a debug build
+make benchmark-cost # Measure Codex scans with offline pricing; reads local logs
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild README images; requires ffmpeg
 make clean
