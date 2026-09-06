@@ -110,6 +110,10 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 将指针移到图表中的某一天，可以查看模型明细。点击高亮日期，可以在 token 和成本之间切换图表。
 
+<p align="center">
+  <img src="docs/images/chart-hover.gif" width="560" alt="基线下方的标记跟随指针所在的日期，明细随之变化">
+</p>
+
 | 来源 | 本地数据 |
 | --- | --- |
 | Codex | `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions`；未设置时使用 `~/.codex` 下的同名目录 |

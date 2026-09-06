@@ -110,6 +110,10 @@ QuotaBar calculates token and cost totals from local session data. It does not u
 
 Hover a day in the chart to see its model breakdown. Click the highlighted day to switch the chart between tokens and cost.
 
+<p align="center">
+  <img src="docs/images/chart-hover.gif" width="560" alt="A mark under the chart baseline following the hovered day as its breakdown changes">
+</p>
+
 | Source | Local data |
 | --- | --- |
 | Codex | `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`, or the same paths under `~/.codex` |
