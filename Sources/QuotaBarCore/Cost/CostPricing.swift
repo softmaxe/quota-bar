@@ -24,6 +24,19 @@ public struct ModelPricing: Sendable, Equatable {
     public let cacheWrite1hAbove: Double?
     public let cacheReadAbove: Double?
 
+    /// Every optional rate, paired with the key the override file spells it with. One list, so a
+    /// new rate cannot reach the file without also reaching everything that reads it back.
+    public static let optionalRates: [(json: String, value: KeyPath<ModelPricing, Double?>)] = [
+        ("cacheWrite", \.cacheWrite),
+        ("cacheWrite1h", \.cacheWrite1h),
+        ("cacheRead", \.cacheRead),
+        ("inputAbove", \.inputAbove),
+        ("outputAbove", \.outputAbove),
+        ("cacheWriteAbove", \.cacheWriteAbove),
+        ("cacheWrite1hAbove", \.cacheWrite1hAbove),
+        ("cacheReadAbove", \.cacheReadAbove),
+    ]
+
     public init(
         input: Double,
         output: Double,

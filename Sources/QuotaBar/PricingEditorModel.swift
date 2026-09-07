@@ -77,6 +77,22 @@ struct PricingRow: Identifiable, Equatable {
     var cacheWrite1hAbove: String
     var cacheReadAbove: String
 
+    /// Every optional rate column, paired with the pricing field it mirrors. One list, so a new
+    /// rate cannot reach the table without also reaching the reset that clears it.
+    static let optionalRateColumns: [(
+        column: WritableKeyPath<PricingRow, String>,
+        rate: KeyPath<ModelPricing, Double?>
+    )] = [
+        (\.cacheWrite, \.cacheWrite),
+        (\.cacheWrite1h, \.cacheWrite1h),
+        (\.cacheRead, \.cacheRead),
+        (\.inputAbove, \.inputAbove),
+        (\.outputAbove, \.outputAbove),
+        (\.cacheWriteAbove, \.cacheWriteAbove),
+        (\.cacheWrite1hAbove, \.cacheWrite1hAbove),
+        (\.cacheReadAbove, \.cacheReadAbove),
+    ]
+
     var id: String { "\(self.provider.rawValue)|\(self.model)" }
 
     var isPriced: Bool {
@@ -304,7 +320,7 @@ final class PricingEditorModel: ObservableObject {
             set: { newValue in
                 guard let index = self.indexByID[id] else { return }
                 self.rows[index][keyPath: keyPath] = newValue
-                self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
+                self.recomputeUnsavedChanges()
             }
         )
     }
@@ -312,23 +328,30 @@ final class PricingEditorModel: ObservableObject {
     /// Restores a row to what it would be with no override.
     func reset(id: String) {
         guard let index = self.indexByID[id] else { return }
-        let fallback = self.defaults[id] ?? nil
-        self.rows[index].input = Self.text(fallback?.input)
-        self.rows[index].output = Self.text(fallback?.output)
-        self.rows[index].cacheWrite = Self.text(fallback?.cacheWrite)
-        self.rows[index].cacheWrite1h = Self.text(fallback?.cacheWrite1h)
-        self.rows[index].cacheRead = Self.text(fallback?.cacheRead)
-        self.rows[index].thresholdTokens = Self.integerText(fallback?.thresholdTokens)
-        self.rows[index].inputAbove = Self.text(fallback?.inputAbove)
-        self.rows[index].outputAbove = Self.text(fallback?.outputAbove)
-        self.rows[index].cacheWriteAbove = Self.text(fallback?.cacheWriteAbove)
-        self.rows[index].cacheWrite1hAbove = Self.text(fallback?.cacheWrite1hAbove)
-        self.rows[index].cacheReadAbove = Self.text(fallback?.cacheReadAbove)
-        self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
+        self.applyFallback(at: index)
+        self.recomputeUnsavedChanges()
     }
 
     func resetAll() {
-        for row in self.rows { self.reset(id: row.id) }
+        for index in self.rows.indices { self.applyFallback(at: index) }
+        // One scan after the whole table, rather than one per row reset.
+        self.recomputeUnsavedChanges()
+    }
+
+    private func applyFallback(at index: Int) {
+        let fallback = self.defaults[self.rows[index].id] ?? nil
+        self.rows[index].input = Self.text(fallback?.input)
+        self.rows[index].output = Self.text(fallback?.output)
+        self.rows[index].thresholdTokens = Self.integerText(fallback?.thresholdTokens)
+        for field in PricingRow.optionalRateColumns {
+            self.rows[index][keyPath: field.column] = Self.text(
+                fallback.flatMap { $0[keyPath: field.rate] }
+            )
+        }
+    }
+
+    private func recomputeUnsavedChanges() {
+        self.hasUnsavedChanges = self.rows.contains { self.originalRows[$0.id] != $0 }
     }
 
     /// Writes only the rows that differ from their fallback, so the override file stays small

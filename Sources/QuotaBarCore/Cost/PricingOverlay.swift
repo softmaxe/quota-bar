@@ -148,15 +148,10 @@ public enum PricingOverlayStore {
         var root: [String: Any] = [:]
         for (model, pricing) in overrides {
             var entry: [String: Any] = ["input": pricing.input, "output": pricing.output]
-            if let cacheWrite = pricing.cacheWrite { entry["cacheWrite"] = cacheWrite }
-            if let value = pricing.cacheWrite1h { entry["cacheWrite1h"] = value }
-            if let cacheRead = pricing.cacheRead { entry["cacheRead"] = cacheRead }
             if let threshold = pricing.thresholdTokens { entry["thresholdTokens"] = threshold }
-            if let value = pricing.inputAbove { entry["inputAbove"] = value }
-            if let value = pricing.outputAbove { entry["outputAbove"] = value }
-            if let value = pricing.cacheWriteAbove { entry["cacheWriteAbove"] = value }
-            if let value = pricing.cacheWrite1hAbove { entry["cacheWrite1hAbove"] = value }
-            if let value = pricing.cacheReadAbove { entry["cacheReadAbove"] = value }
+            for rate in ModelPricing.optionalRates {
+                if let value = pricing[keyPath: rate.value] { entry[rate.json] = value }
+            }
             root[model] = entry
         }
 
