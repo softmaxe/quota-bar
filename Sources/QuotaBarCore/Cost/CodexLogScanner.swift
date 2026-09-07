@@ -183,31 +183,10 @@ enum CodexLogScanner {
     ) throws {
         let data = Data(line)
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-
-        if root["type"] as? String == "turn_context" {
-            if let payload = root["payload"] as? [String: Any] {
-                if let tier = payload["service_tier"] as? String {
-                    state.serviceTier = Self.serviceTier(tier)
-                }
-                if let model = (payload["model"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
-                    // Normalize on the way in so dated aliases aggregate as one model.
-                    state.model = CostPricing.normalizeCodexModel(model)
-                }
-            }
-            return
-        }
-
-        if root["type"] as? String == "event_msg",
-           let payload = root["payload"] as? [String: Any],
-           payload["type"] as? String == "thread_settings_applied" {
-            let settings = payload["thread_settings"] as? [String: Any]
-            state.serviceTier = Self.serviceTier(settings?["service_tier"] as? String)
-            return
-        }
+        let payload = root["payload"] as? [String: Any] ?? [:]
+        if Self.applyContext(root: root, payload: payload, state: &state) { return }
 
         guard root["type"] as? String == "event_msg",
-              let payload = root["payload"] as? [String: Any],
               payload["type"] as? String == "token_count",
               let info = payload["info"] as? [String: Any],
               let usage = info["last_token_usage"] as? [String: Any] else { return }
@@ -283,22 +262,7 @@ enum CodexLogScanner {
             guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
                   let payload = root["payload"] as? [String: Any] else { return }
 
-            if root["type"] as? String == "turn_context" {
-                if let tier = payload["service_tier"] as? String {
-                    state.serviceTier = Self.serviceTier(tier)
-                }
-                guard let value = (payload["model"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return }
-                state.model = CostPricing.normalizeCodexModel(value)
-                return
-            }
-
-            if root["type"] as? String == "event_msg",
-               payload["type"] as? String == "thread_settings_applied" {
-                let settings = payload["thread_settings"] as? [String: Any]
-                state.serviceTier = Self.serviceTier(settings?["service_tier"] as? String)
-                return
-            }
+            if Self.applyContext(root: root, payload: payload, state: &state) { return }
 
             guard root["type"] as? String == "event_msg",
                   payload["type"] as? String == "token_count",
@@ -309,8 +273,32 @@ enum CodexLogScanner {
         return state
     }
 
-    private static func serviceTier(_ raw: String?) -> CostPricing.CodexServiceTier {
-        CostPricing.CodexServiceTier.parse(raw)
+    /// The two lines that only move the scan's state: a turn context announcing the model and
+    /// service tier, and the thread settings that can change the tier mid-file. Returns whether
+    /// the line was one of them, so a fresh scan and a resumed replay read them the same way.
+    private static func applyContext(
+        root: [String: Any],
+        payload: [String: Any],
+        state: inout ResumeState
+    ) -> Bool {
+        guard let type = root["type"] as? String else { return false }
+        if type == "turn_context" {
+            if let tier = payload["service_tier"] as? String {
+                state.serviceTier = CostPricing.CodexServiceTier.parse(tier)
+            }
+            if let model = (payload["model"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
+                // Normalize on the way in so dated aliases aggregate as one model.
+                state.model = CostPricing.normalizeCodexModel(model)
+            }
+            return true
+        }
+        if type == "event_msg", payload["type"] as? String == "thread_settings_applied" {
+            let settings = payload["thread_settings"] as? [String: Any]
+            state.serviceTier = CostPricing.CodexServiceTier.parse(settings?["service_tier"] as? String)
+            return true
+        }
+        return false
     }
 
     /// The integer fields of a `*_token_usage` object, which is what makes two events comparable.
