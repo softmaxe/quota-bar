@@ -1,31 +1,9 @@
 import Foundation
 
-public enum PiAgentScanStatus: Sendable, Equatable {
-    case idle
-    case accountMismatch
-    case nonOAuth
-    case error(String)
-
-    public var message: String? {
-        switch self {
-        case .idle: nil
-        case .accountMismatch: "Pi Agent usage is not included because its OpenAI account differs from Codex."
-        case .nonOAuth: "Pi Agent usage is not included because OpenAI OAuth is not active."
-        case .error: "Pi Agent usage could not be scanned. Existing totals were kept."
-        }
-    }
-}
-
 enum PiAgentLogScanner {
     struct Result {
         let touched: Int
         let status: PiAgentScanStatus
-    }
-
-    private enum Eligibility {
-        case eligible
-        case ineligible(PiAgentScanStatus)
-        case indeterminate
     }
 
     private struct PiAuth: Decodable {
@@ -62,18 +40,14 @@ enum PiAgentLogScanner {
 
     private static func scanSessions(
         _ directory: URL,
-        eligibility: Eligibility,
+        eligibility: ExternalAgentEligibility,
         cache: CostCache,
         overlay: PricingOverlay?
     ) -> Result {
         do {
             let rows = try self.readRows(in: directory)
-            let included: Bool
-            let status: PiAgentScanStatus
-            switch eligibility {
-            case .eligible: included = true; status = .idle
-            case let .ineligible(reason): included = false; status = reason
-            case .indeterminate: return Result(touched: 0, status: .error("auth"))
+            guard let (included, status) = eligibility.resolved else {
+                return Result(touched: 0, status: .error("auth"))
             }
 
             try cache.beginTransaction()
@@ -165,18 +139,20 @@ enum PiAgentLogScanner {
         max(0, (value as? NSNumber)?.intValue ?? 0)
     }
 
-    private static func eligibility(agentDirectory: URL, env: [String: String]) -> Eligibility {
+    private static func eligibility(
+        agentDirectory: URL,
+        env: [String: String]
+    ) -> ExternalAgentEligibility {
         do {
             let piData = try Data(contentsOf: agentDirectory.appendingPathComponent("auth.json"))
-            let pi = try JSONDecoder().decode(PiAuth.self, from: piData).openAICodex
             let codexAccountId = try CodexCredentialsStore.accountId(env: env)
-            guard let pi else { return .indeterminate }
-            guard pi.type?.lowercased() == "oauth" else { return .ineligible(.nonOAuth) }
-            guard let left = pi.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !left.isEmpty,
-                  let right = codexAccountId, !right.isEmpty else {
-                return .indeterminate
-            }
-            return left == right ? .eligible : .ineligible(.accountMismatch)
+            guard let pi = try JSONDecoder()
+                .decode(PiAuth.self, from: piData).openAICodex else { return .indeterminate }
+            return .matchingCodexAccount(
+                type: pi.type,
+                accountId: pi.accountId,
+                codexAccountId: codexAccountId
+            )
         } catch {
             return .indeterminate
         }

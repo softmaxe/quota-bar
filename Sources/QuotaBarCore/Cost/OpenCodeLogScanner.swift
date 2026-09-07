@@ -1,32 +1,10 @@
 import Foundation
 import SQLite3
 
-public enum OpenCodeScanStatus: Sendable, Equatable {
-    case idle
-    case accountMismatch
-    case nonOAuth
-    case error(String)
-
-    public var message: String? {
-        switch self {
-        case .idle: nil
-        case .accountMismatch: "OpenCode usage is not included because its OpenAI account differs from Codex."
-        case .nonOAuth: "OpenCode usage is not included because OpenAI OAuth is not active."
-        case .error: "OpenCode usage could not be scanned. Existing totals were kept."
-        }
-    }
-}
-
 enum OpenCodeLogScanner {
     struct Result {
         let touched: Int
         let status: OpenCodeScanStatus
-    }
-
-    private enum Eligibility {
-        case eligible
-        case ineligible(OpenCodeScanStatus)
-        case indeterminate
     }
 
     private struct AuthFile: Decodable {
@@ -72,7 +50,7 @@ enum OpenCodeLogScanner {
 
     private static func scanDatabase(
         _ url: URL,
-        eligibility: Eligibility,
+        eligibility: ExternalAgentEligibility,
         cache: CostCache,
         overlay: PricingOverlay?
     ) -> Result {
@@ -89,16 +67,7 @@ enum OpenCodeLogScanner {
             let rows = try self.readRows(db)
             try self.exec(db, "COMMIT")
 
-            let included: Bool
-            let status: OpenCodeScanStatus
-            switch eligibility {
-            case .eligible:
-                included = true
-                status = .idle
-            case let .ineligible(reason):
-                included = false
-                status = reason
-            case .indeterminate:
+            guard let (included, status) = eligibility.resolved else {
                 return Result(touched: 0, status: .error("auth"))
             }
 
@@ -142,18 +111,20 @@ enum OpenCodeLogScanner {
         }
     }
 
-    private static func eligibility(dataDirectory: URL, env: [String: String]) -> Eligibility {
+    private static func eligibility(
+        dataDirectory: URL,
+        env: [String: String]
+    ) -> ExternalAgentEligibility {
         do {
             let openCodeData = try Data(contentsOf: dataDirectory.appendingPathComponent("auth.json"))
-            let openCode = try JSONDecoder().decode(AuthFile.self, from: openCodeData).openai
             let codexAccountId = try CodexCredentialsStore.accountId(env: env)
-            guard let openCode else { return .indeterminate }
-            guard openCode.type?.lowercased() == "oauth" else { return .ineligible(.nonOAuth) }
-            guard let left = openCode.accountId?.trimmingCharacters(in: .whitespacesAndNewlines), !left.isEmpty,
-                  let right = codexAccountId, !right.isEmpty else {
-                return .indeterminate
-            }
-            return left == right ? .eligible : .ineligible(.accountMismatch)
+            guard let openCode = try JSONDecoder()
+                .decode(AuthFile.self, from: openCodeData).openai else { return .indeterminate }
+            return .matchingCodexAccount(
+                type: openCode.type,
+                accountId: openCode.accountId,
+                codexAccountId: codexAccountId
+            )
         } catch {
             return .indeterminate
         }

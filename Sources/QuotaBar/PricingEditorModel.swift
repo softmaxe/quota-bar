@@ -177,8 +177,8 @@ final class PricingEditorModel: ObservableObject {
 
         await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
         self.externalScanStatuses = await [
-            self.costService.currentOpenCodeScanStatus().message,
-            self.costService.currentPiAgentScanStatus().message,
+            self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
+            self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
         ].compactMap { $0 }
 
         // The table is on screen by now, so the catalog refresh costs the user nothing. It
