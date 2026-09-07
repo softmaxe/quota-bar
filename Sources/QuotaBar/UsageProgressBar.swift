@@ -270,9 +270,7 @@ struct UsageProgressBar: View {
         self.replayStartPercent = nil
         // The clock owns the visible fill from the persisted pre-reset value to the new reading.
         // The handoff when it stops lands on that real value without a snap.
-        var snap = Transaction()
-        snap.disablesAnimations = true
-        withTransaction(snap) { self.displayedPercent = self.clamped }
+        self.snapDisplayedPercent()
         self.celebration.start(duration: QuotaCelebration.duration)
         return true
     }
@@ -287,22 +285,24 @@ struct UsageProgressBar: View {
         else { return }
 
         self.replayStartPercent = self.clamped
-        var snap = Transaction()
-        snap.disablesAnimations = true
-        withTransaction(snap) { self.displayedPercent = self.clamped }
+        self.snapDisplayedPercent()
         self.celebration.start(duration: QuotaCelebrationReplay.duration)
+    }
+
+    /// Writes the fill straight to the renderer with no interpolation, so the next animation
+    /// starts from this value instead of blending across it.
+    private func snapDisplayedPercent(to value: Double? = nil) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { self.displayedPercent = value ?? self.clamped }
     }
 
     private func apply(_ fill: UsageBarFillPolicy.Fill) {
         switch fill {
         case .snap:
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { self.displayedPercent = self.clamped }
+            self.snapDisplayedPercent()
         case let .sweepFromEmpty(duration):
-            var snap = Transaction()
-            snap.disablesAnimations = true
-            withTransaction(snap) { self.displayedPercent = 0 }
+            self.snapDisplayedPercent(to: 0)
             // The empty state has to reach the renderer before the sweep is queued, or SwiftUI
             // coalesces both writes and interpolates from the old value instead of from zero.
             DispatchQueue.main.async {
