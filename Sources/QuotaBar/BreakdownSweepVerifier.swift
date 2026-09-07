@@ -125,11 +125,6 @@ enum BreakdownSweepVerifier {
                 VerifierReport.fail("failed to render the card at \(height)pt", label: Self.label)
             }
             if let reference, strip != reference {
-                let a = Array(reference), b = Array(strip)
-                let row = (0..<min(a.count, b.count)).first { a[$0] != b[$0] }.map { $0 / (Self.cardWidth == 280 ? 2240 : 1) } ?? -1
-                print("diag: height=\(height) bytes=\(strip.count) vs \(reference.count) firstDiffRow~\(row)")
-            }
-            if let reference, strip != reference {
                 failures.append(
                     "the card moved above the breakdown \(Int(progress * 100))% through the sweep"
                 )
