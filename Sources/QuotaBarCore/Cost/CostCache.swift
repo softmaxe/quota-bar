@@ -157,6 +157,17 @@ final class CostCache {
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
         try self.addColumnIfMissing(table: "claude_message", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
+
+        // `freezeLegacyPrices` runs on every refresh and, in steady state, matches nothing: rows
+        // written by the current scanners always carry both columns. A partial index keeps that
+        // query from reading tables that only ever grow, in exchange for indexing the handful of
+        // pre-migration rows still waiting to be priced.
+        for table in ["claude_message", "codex_day", "opencode_part", "pi_message"] {
+            try self.exec("""
+            CREATE INDEX IF NOT EXISTS \(table)_unpriced ON \(table)(cost_usd)
+            WHERE cost_usd IS NULL OR unpriced_tokens IS NULL
+            """)
+        }
     }
 
     /// Codex turns carry no message identity, but a turn appears in exactly one rollout file,
