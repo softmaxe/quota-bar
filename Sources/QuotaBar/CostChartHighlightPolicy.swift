@@ -48,12 +48,6 @@ enum CostChartHighlightPolicy {
         return hoveredDayKey
     }
 
-    /// Every pointer move replaces the current hover with the bar or label under the pointer. A
-    /// gap or a point below the chart has no day key, so it clears the hover.
-    static func hoveredDayKey(afterMovingTo dayKey: String?) -> String? {
-        dayKey
-    }
-
     /// Detail keeps a valid pinned bar, takes a new hover, or falls back to the newest current bar.
     static func detailDayKey(
         afterMovingTo dayKey: String?,
@@ -70,7 +64,7 @@ enum CostChartHighlightPolicy {
     /// The one quiet tone every unselected day shares.
     static let restingOpacity = 0.55
 
-    static func opacity(dayKey: String, selectedDayKey: String?, valueRatio _: Double) -> Double {
+    static func opacity(dayKey: String, selectedDayKey: String?) -> Double {
         dayKey == selectedDayKey ? 1.0 : Self.restingOpacity
     }
 

@@ -185,8 +185,7 @@ struct CostSectionView: View {
         // Exactly one selected bar is fully opaque; every other day shares one quiet tone.
         let opacity = CostChartHighlightPolicy.opacity(
             dayKey: day.dayKey,
-            selectedDayKey: selectedDayKey,
-            valueRatio: ratio
+            selectedDayKey: selectedDayKey
         )
         let isSelected = day.dayKey == selectedDayKey
         return RoundedRectangle(cornerRadius: 2)
@@ -507,15 +506,16 @@ struct CostSectionView: View {
             self.isToggleHovered = region == .breakdownToggle
         }
         guard !self.bars.isEmpty else { return }
+        // Every pointer move replaces the hover with the bar or label under the pointer. A gap or
+        // a point below the chart has no day key, so it clears the hover.
         let key = self.dayKey(for: region)
-        let nextKey = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: key)
         let nextDetailKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: key,
             currentDayKey: self.detailDayKey,
             availableDayKeys: self.barDayKeys,
             defaultDayKey: self.bars.last?.dayKey
         )
-        if self.hoveredDayKey != nextKey { self.select(nextKey) }
+        if self.hoveredDayKey != key { self.select(key) }
         if self.detailDayKey != nextDetailKey { self.detailDayKey = nextDetailKey }
     }
 

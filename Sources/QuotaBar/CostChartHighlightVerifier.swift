@@ -169,35 +169,19 @@ enum CostChartHighlightVerifier {
             failures.append("hover selection expected yesterday, got \(hoverSelection ?? "nil")")
         }
 
-        let acrossGap = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: nil)
-        if acrossGap != nil {
-            failures.append("gap between bars expected hover to clear, got \(acrossGap ?? "nil")")
-        }
-
-        let ontoNextBar = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: today)
-        if ontoNextBar != today {
-            failures.append("moving onto a bar expected it to take hover, got \(ontoNextBar ?? "nil")")
-        }
-
-        let shortInactive = CostChartHighlightPolicy.opacity(
+        let selectedOpacity = CostChartHighlightPolicy.opacity(dayKey: today, selectedDayKey: today)
+        let inactiveOpacity = CostChartHighlightPolicy.opacity(
             dayKey: yesterday,
-            selectedDayKey: today,
-            valueRatio: 0.1
+            selectedDayKey: today
         )
-        let tallInactive = CostChartHighlightPolicy.opacity(
-            dayKey: yesterday,
-            selectedDayKey: today,
-            valueRatio: 1.0
-        )
-        let idleOpacity = CostChartHighlightPolicy.opacity(
-            dayKey: yesterday,
-            selectedDayKey: nil,
-            valueRatio: 1.0
-        )
-        if shortInactive != tallInactive || idleOpacity != CostChartHighlightPolicy.restingOpacity {
+        let idleOpacity = CostChartHighlightPolicy.opacity(dayKey: yesterday, selectedDayKey: nil)
+        if selectedOpacity != 1.0
+            || inactiveOpacity != CostChartHighlightPolicy.restingOpacity
+            || idleOpacity != CostChartHighlightPolicy.restingOpacity
+        {
             failures.append(
-                "inactive bars expected one resting opacity, got "
-                    + "\(shortInactive)/\(tallInactive)/\(idleOpacity)"
+                "expected the selected bar opaque and every other day at the resting tone, got "
+                    + "\(selectedOpacity)/\(inactiveOpacity)/\(idleOpacity)"
             )
         }
 
@@ -469,11 +453,10 @@ enum CostChartHighlightVerifier {
         } else {
             keyInDetail = nil
         }
-        let afterMovingIntoDetail = CostChartHighlightPolicy.hoveredDayKey(afterMovingTo: keyInDetail)
-        if afterMovingIntoDetail != nil {
+        if keyInDetail != nil {
             failures.append(
                 "moving into the detail area expected hover to clear, got "
-                    + "\(afterMovingIntoDetail ?? "nil")"
+                    + "\(keyInDetail ?? "nil")"
             )
         }
 
@@ -488,9 +471,7 @@ enum CostChartHighlightVerifier {
                 return nil
             }
         }
-        var labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: dayKey(for: region(24, 70))
-        )
+        var labelSequenceHoveredDayKey = dayKey(for: region(24, 70))
         let selectedLabelSizes: [CGSize?] = [CGSize(width: 24, height: 12), nil]
         let bridgeRegion = region(
             24,
@@ -498,9 +479,7 @@ enum CostChartHighlightVerifier {
             barHeights: [15, 56],
             labelSizes: selectedLabelSizes
         )
-        labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: dayKey(for: bridgeRegion)
-        )
+        labelSequenceHoveredDayKey = dayKey(for: bridgeRegion)
         let labelSizesAfterBridge = labelSequenceHoveredDayKey == nil
             ? [CGSize?](repeating: nil, count: 2)
             : selectedLabelSizes
@@ -517,9 +496,7 @@ enum CostChartHighlightVerifier {
             labelSizes: selectedLabelSizes
         )
         let labelDayKey = dayKey(for: labelRegion)
-        labelSequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: labelDayKey
-        )
+        labelSequenceHoveredDayKey = labelDayKey
         let labelClickMode = labelDayKey.map {
             CostChartHighlightPolicy.labelMode(
                 afterClicking: $0,
@@ -539,9 +516,7 @@ enum CostChartHighlightVerifier {
             )
         }
         let initialDayKey = dayKey(for: region(47, 70))
-        var sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: initialDayKey
-        )
+        var sequenceHoveredDayKey = initialDayKey
         var sequenceDetailDayKey = defaultDetailDayKey
         sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: initialDayKey,
@@ -550,9 +525,7 @@ enum CostChartHighlightVerifier {
             defaultDayKey: today
         )
         let aboveShortBarDayKey = dayKey(for: region(47, 30))
-        sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: aboveShortBarDayKey
-        )
+        sequenceHoveredDayKey = aboveShortBarDayKey
         sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: aboveShortBarDayKey,
             currentDayKey: sequenceDetailDayKey,
@@ -560,9 +533,7 @@ enum CostChartHighlightVerifier {
             defaultDayKey: today
         )
         let modelRowDayKey = dayKey(for: region(47, detailTop + 5))
-        sequenceHoveredDayKey = CostChartHighlightPolicy.hoveredDayKey(
-            afterMovingTo: modelRowDayKey
-        )
+        sequenceHoveredDayKey = modelRowDayKey
         sequenceDetailDayKey = CostChartHighlightPolicy.detailDayKey(
             afterMovingTo: modelRowDayKey,
             currentDayKey: sequenceDetailDayKey,
