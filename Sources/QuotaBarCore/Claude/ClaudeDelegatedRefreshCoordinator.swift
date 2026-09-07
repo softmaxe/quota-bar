@@ -140,7 +140,10 @@ public actor ClaudeDelegatedRefreshCoordinator {
     private let locator: ClaudeCLILocator
     private let environment: [String: String]
     private let now: @Sendable () -> TimeInterval
-    private var lastAttemptAt: TimeInterval?
+    private var cooldownGate = RefreshCooldownGate(
+        minimumInterval: ClaudeDelegatedRefreshCoordinator.cooldown,
+        tolerance: 0
+    )
     private var isRunning = false
 
     public init(
@@ -166,8 +169,7 @@ public actor ClaudeDelegatedRefreshCoordinator {
         }
 
         let currentTime = self.now()
-        if let lastAttemptAt = self.lastAttemptAt,
-           currentTime - lastAttemptAt < Self.cooldown {
+        guard self.cooldownGate.remaining(at: currentTime) == 0 else {
             throw ClaudeDelegatedRefreshError.cooldown
         }
 
@@ -175,7 +177,7 @@ public actor ClaudeDelegatedRefreshCoordinator {
             throw ClaudeDelegatedRefreshError.cliUnavailable
         }
 
-        self.lastAttemptAt = currentTime
+        self.cooldownGate.recordRefresh(at: currentTime)
         self.isRunning = true
         defer { self.isRunning = false }
 
@@ -201,8 +203,6 @@ public actor ClaudeDelegatedRefreshCoordinator {
             default:
                 throw ClaudeDelegatedRefreshError.processFailed
             }
-        } catch is CancellationError {
-            throw ClaudeDelegatedRefreshError.processFailed
         } catch {
             throw ClaudeDelegatedRefreshError.processFailed
         }
