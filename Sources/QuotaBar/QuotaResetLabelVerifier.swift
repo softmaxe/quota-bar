@@ -2,7 +2,6 @@
 import QuotaBarCore
 import AppKit
 import Foundation
-import Metal
 import SwiftUI
 
 /// Proves the reset label's two faces read correctly, and that clicking one swaps to the other.
@@ -86,23 +85,15 @@ enum QuotaResetLabelVerifier {
 
     }
 
-    private static func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
-        let components = DateComponents(
-            timeZone: Self.calendar.timeZone,
-            year: year,
-            month: month,
-            day: day,
-            hour: hour,
-            minute: minute
-        )
-        guard let date = Self.calendar.date(from: components) else {
-            VerifierReport.fail("could not build a fixture date", label: "quota-reset-label verification")
-        }
-        return date
-    }
-
-    private static func currentDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
-        let calendar = Calendar.current
+    private static func date(
+        _ year: Int,
+        _ month: Int,
+        _ day: Int,
+        _ hour: Int,
+        _ minute: Int,
+        calendar: Calendar? = nil
+    ) -> Date {
+        let calendar = calendar ?? Self.calendar
         let components = DateComponents(
             timeZone: calendar.timeZone,
             year: year,
@@ -112,12 +103,17 @@ enum QuotaResetLabelVerifier {
             minute: minute
         )
         guard let date = calendar.date(from: components) else {
-            VerifierReport.fail(
-                "could not build current-zone fixture date",
-                label: "quota-reset-label verification"
-            )
+            VerifierReport.fail("could not build a fixture date", label: "quota-reset-label verification")
         }
         return date
+    }
+
+    /// Foundation separates the time from AM/PM with a narrow no-break space, which is right on
+    /// screen and unreadable in a diff; the fixtures spell it as a plain space.
+    private static func normalized(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
     }
 
     private static func expect(
@@ -126,18 +122,15 @@ enum QuotaResetLabelVerifier {
         now: Date,
         _ expected: String
     ) {
-        // Foundation separates the time from AM/PM with a narrow no-break space, which is right
-        // on screen and unreadable in a diff; the fixtures spell it as a plain space.
-        let actual = QuotaResetLabel.text(
-            resetsAt: resetsAt,
-            mode: mode,
-            now: now,
-            calendar: Self.calendar,
-            locale: Self.locale
+        let normalized = Self.normalized(
+            QuotaResetLabel.text(
+                resetsAt: resetsAt,
+                mode: mode,
+                now: now,
+                calendar: Self.calendar,
+                locale: Self.locale
+            )
         )
-        let normalized = actual
-            .replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
         Self.require(
             normalized == expected,
             "expected \"\(expected)\", got \"\(normalized)\""
@@ -149,17 +142,11 @@ enum QuotaResetLabelVerifier {
     }
 
     private static func layoutFailures() -> [String] {
-        // NSHostingView on a headless Intel runner without Metal aborts inside MTLLoader.
         // The arm64 runner already proved the 280pt card does not truncate; Intel can skip.
-        if ProcessInfo.processInfo.environment["QUOTA_BAR_SKIP_GPU_RENDER_CHECK"] == "1" {
-            return []
-        }
-        if MTLCreateSystemDefaultDevice() == nil {
-            return []
-        }
-        let now = Self.currentDate(2026, 8, 30, 9, 0)
+        guard GPURenderCheck.skipReason == nil else { return [] }
+        let now = Self.date(2026, 8, 30, 9, 0, calendar: .current)
         let countdownReset = now.addingTimeInterval((7 * 86_400) + (3 * 3_600))
-        let clockReset = Self.currentDate(2026, 9, 6, 12, 45)
+        let clockReset = Self.date(2026, 9, 6, 12, 45, calendar: .current)
         return Self.layoutFailures(mode: .countdown, now: now, reset: countdownReset)
             + Self.layoutFailures(mode: .clock, now: now, reset: clockReset)
     }
@@ -171,9 +158,7 @@ enum QuotaResetLabelVerifier {
     ) -> [String] {
         var failures: [String] = []
         let resetText = QuotaResetLabel.text(resetsAt: reset, mode: mode, now: now)
-        let normalizedResetText = resetText
-            .replacingOccurrences(of: "\u{202F}", with: " ")
-            .replacingOccurrences(of: "\u{00A0}", with: " ")
+        let normalizedResetText = Self.normalized(resetText)
         let expectedResetText = mode == .countdown
             ? "Resets in 7d 3h"
             : "Resets Sep 6, 12:45 PM"

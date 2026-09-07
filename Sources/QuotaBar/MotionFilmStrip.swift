@@ -74,6 +74,28 @@ enum MotionFilmStrip {
         )
     }
 
+    /// Every film strip is the same loop: walk a list of states, sample each one every `step`
+    /// until its span runs out, and number the frames continuously across all of them.
+    private static func strip<State, Frame: View>(
+        _ states: [State],
+        into root: URL,
+        named name: String,
+        span: (State) -> TimeInterval,
+        frame: (State, TimeInterval) -> Frame
+    ) {
+        var index = 0
+        for state in states {
+            let duration = span(state)
+            var time: TimeInterval = 0
+            while time < duration {
+                Self.write(frame(state, time), frame: index, into: root)
+                time += Self.step
+                index += 1
+            }
+        }
+        print("wrote \(index) \(name) frames to \(root.path)")
+    }
+
     // MARK: - Settings tab pill
 
     /// `--dump-tab-switch <dir>`: General to Pricing and back, on the two edge durations the real
@@ -83,20 +105,9 @@ enum MotionFilmStrip {
         let travel = max(TabSwitchMotion.leadDuration, TabSwitchMotion.trailDuration)
         let hold: TimeInterval = 0.55
 
-        var index = 0
-        for movingRight in [true, false] {
-            var time: TimeInterval = 0
-            while time < travel + hold {
-                Self.write(
-                    TabPillFrame(elapsed: min(time, travel), movingRight: movingRight),
-                    frame: index,
-                    into: root
-                )
-                time += Self.step
-                index += 1
-            }
+        Self.strip([true, false], into: root, named: "tab switch") { _ in travel + hold } frame: {
+            TabPillFrame(elapsed: min($1, travel), movingRight: $0)
         }
-        print("wrote \(index) tab switch frames to \(root.path)")
     }
 
     // MARK: - Pricing disclosure
@@ -109,20 +120,9 @@ enum MotionFilmStrip {
         let opening = DisclosureMotion.openDuration + DisclosureMotion.rowDelay(index: rows - 1)
         let hold: TimeInterval = 0.7
 
-        var index = 0
-        for isOpening in [true, false] {
-            var time: TimeInterval = 0
-            while time < opening + hold {
-                Self.write(
-                    DisclosureFrame(elapsed: time, isOpening: isOpening, rows: rows),
-                    frame: index,
-                    into: root
-                )
-                time += Self.step
-                index += 1
-            }
+        Self.strip([true, false], into: root, named: "disclosure") { _ in opening + hold } frame: {
+            DisclosureFrame(elapsed: $1, isOpening: $0, rows: rows)
         }
-        print("wrote \(index) disclosure frames to \(root.path)")
     }
 
     // MARK: - Cost chart highlight
@@ -132,40 +132,21 @@ enum MotionFilmStrip {
     static func dumpChartMotion(directory: String) {
         let root = OffscreenCapture.directory(directory)
         // The last move uses the clear-hover timing so the film strip includes both curves.
-        let moves: [(from: Int, to: Int?, usesClearTiming: Bool)] = [
-            (7, 1, false),
-            (1, 2, false),
-            (2, 5, false),
-            (5, nil, true),
+        let moves: [(from: Int, to: Int?, response: Double, damping: Double)] = [
+            (7, 1, CostChartHoverMotion.hoverResponse, CostChartHoverMotion.hoverDamping),
+            (1, 2, CostChartHoverMotion.hoverResponse, CostChartHoverMotion.hoverDamping),
+            (2, 5, CostChartHoverMotion.hoverResponse, CostChartHoverMotion.hoverDamping),
+            (5, nil, CostChartHoverMotion.clearResponse, CostChartHoverMotion.clearDamping),
         ]
 
-        var index = 0
-        for move in moves {
-            let response = move.usesClearTiming
-                ? CostChartHoverMotion.clearResponse
-                : CostChartHoverMotion.hoverResponse
-            let damping = move.usesClearTiming
-                ? CostChartHoverMotion.clearDamping
-                : CostChartHoverMotion.hoverDamping
-            // Long enough for the envelope to be invisible: e^(-ζω₀t) under a thousandth.
-            let settle = response * 1.6
-            var time: TimeInterval = 0
-            while time < settle {
-                let progress = Self.spring(time, response: response, damping: damping)
-                Self.write(
-                    ChartHighlightFrame(
-                        from: Double(move.from),
-                        to: move.to.map(Double.init),
-                        progress: progress
-                    ),
-                    frame: index,
-                    into: root
-                )
-                time += Self.step
-                index += 1
-            }
+        // Each move runs long enough for the envelope to be invisible: e^(-ζω₀t) under a thousandth.
+        Self.strip(moves, into: root, named: "chart motion") { $0.response * 1.6 } frame: { move, time in
+            ChartHighlightFrame(
+                from: Double(move.from),
+                to: move.to.map(Double.init),
+                progress: Self.spring(time, response: move.response, damping: move.damping)
+            )
         }
-        print("wrote \(index) chart motion frames to \(root.path)")
     }
 
     // MARK: - Cost chart label
@@ -178,23 +159,14 @@ enum MotionFilmStrip {
         let root = OffscreenCapture.directory(directory)
         let hold: TimeInterval = 0.9
 
-        var index = 0
-        for mode in [CostChartLabelMode.cost, .tokens] {
-            var time: TimeInterval = 0
-            while time < CostChartHoverMotion.swapDuration + hold {
-                Self.write(
-                    ChartLabelSwapFrame(
-                        mode: mode,
-                        progress: Self.easeOut(time, duration: CostChartHoverMotion.swapDuration)
-                    ),
-                    frame: index,
-                    into: root
-                )
-                time += Self.step
-                index += 1
-            }
+        Self.strip([CostChartLabelMode.cost, .tokens], into: root, named: "label toggle") { _ in
+            CostChartHoverMotion.swapDuration + hold
+        } frame: { mode, time in
+            ChartLabelSwapFrame(
+                mode: mode,
+                progress: Self.easeOut(time, duration: CostChartHoverMotion.swapDuration)
+            )
         }
-        print("wrote \(index) label toggle frames to \(root.path)")
     }
 }
 
@@ -263,7 +235,7 @@ private struct TabPillFrame: View {
             }
         }
         .frame(width: 320, height: 76)
-        .background(Color(white: 0.13))
+        .background(OffscreenCapture.groundColor)
     }
 }
 
@@ -348,7 +320,7 @@ private struct DisclosureFrame: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(width: 420, height: 200, alignment: .top)
-        .background(Color(white: 0.13))
+        .background(OffscreenCapture.groundColor)
     }
 }
 
@@ -418,7 +390,7 @@ private struct ChartHighlightFrame: View {
         }
         .padding(18)
         .frame(width: 340, height: 160, alignment: .bottomLeading)
-        .background(Color(white: 0.13))
+        .background(OffscreenCapture.groundColor)
     }
 }
 
@@ -524,7 +496,7 @@ private struct ChartLabelSwapFrame: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 12 + CostChartHoverMotion.markerBand)
         .frame(width: 280, alignment: .bottom)
-        .background(Color(white: 0.13))
+        .background(OffscreenCapture.groundColor)
     }
 }
 #endif

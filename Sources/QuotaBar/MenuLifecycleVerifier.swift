@@ -11,8 +11,7 @@ enum MenuLifecycleVerifier {
 
     private static func run(benchmarkOnly: Bool) -> Never {
         let suite = "QuotaBarMenuLifecycleVerifier"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
+        let defaults = EphemeralDefaults.make(suite)
         func finish(_ code: Int32) -> Never {
             defaults.removePersistentDomain(forName: suite)
             exit(code)
@@ -46,7 +45,7 @@ enum MenuLifecycleVerifier {
         var display = ProviderDisplay()
         display.error = "Offline fixture"
         store.debugSetDisplay(display, for: settings.menuBarProvider)
-        self.drain()
+        RunLoopDrain.run()
         require(!controller.debugHasMenu, "a background update built the hidden menu")
 
         let menu = NSMenu()
@@ -57,7 +56,7 @@ enum MenuLifecycleVerifier {
         let updates = controller.debugCardUpdateCount
         display.isSignedOut = true
         store.debugSetDisplay(display, for: settings.menuBarProvider)
-        self.drain()
+        RunLoopDrain.run()
         require(controller.debugCardUpdateCount == updates, "background updates laid out a closed card")
         controller.menuWillOpen(menu)
         require(controller.debugStatusLine() == "Not signed in", "reopening showed stale state")
@@ -68,13 +67,6 @@ enum MenuLifecycleVerifier {
         controller.menuDidClose(menu)
         print("Menu creation is deferred; closed cards stay idle and reopen with current state")
         finish(0)
-    }
-
-    private static func drain() {
-        let deadline = Date().addingTimeInterval(0.05)
-        while Date() < deadline {
-            _ = RunLoop.main.run(mode: .default, before: deadline)
-        }
     }
 }
 #endif

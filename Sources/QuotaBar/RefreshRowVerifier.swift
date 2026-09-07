@@ -14,9 +14,8 @@ enum RefreshRowVerifier {
     private static var defaults: UserDefaults?
 
     static func run() -> Never {
-        let defaults = UserDefaults(suiteName: Self.suite) ?? .standard
+        let defaults = EphemeralDefaults.make(Self.suite)
         Self.defaults = defaults
-        defaults.removePersistentDomain(forName: Self.suite)
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -38,17 +37,17 @@ enum RefreshRowVerifier {
         store.debugRecordRefresh(at: now)
         controller.menuWillOpen(NSMenu())
         controller.debugStartRefreshRowClock()
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "59s", enabled: false, step: "just after a refresh")
 
         // The row advances on its own clock, with nothing else publishing.
         now = 1_030
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "half a cooldown later")
 
         // A click during the cooldown is refused by the row itself, so the store is never asked.
         controller.debugClickRefreshRow()
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "after a refused click")
 
         // An automatic Claude 401 is different from an ordinary API cooldown: the existing row
@@ -57,7 +56,7 @@ enum RefreshRowVerifier {
         recovery.error = "Claude credentials need recovery."
         recovery.canAttemptCredentialRecovery = true
         store.debugSetDisplay(recovery, for: settings.menuBarProvider)
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,
             "Refresh",
@@ -67,7 +66,7 @@ enum RefreshRowVerifier {
         )
 
         store.debugSetDisplay(ProviderDisplay(), for: settings.menuBarProvider)
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,
             "Refresh",
@@ -78,7 +77,7 @@ enum RefreshRowVerifier {
 
         // And the row comes back by itself, without the menu being reopened.
         now = 1_059
-        Self.drainMainRunLoop()
+        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "once the cooldown elapsed")
 
         controller.debugStopRefreshRowClock()
@@ -135,18 +134,11 @@ enum RefreshRowVerifier {
         )
     }
 
-    /// Menu tracking mode, because that is the mode the row's clock is scheduled in.
-    private static func drainMainRunLoop(for duration: TimeInterval = 0.05) {
-        let deadline = Date().addingTimeInterval(duration)
-        while Date() < deadline {
-            _ = RunLoop.main.run(mode: .eventTracking, before: deadline)
-        }
-    }
 
     /// The only way out, so the throwaway domain is dropped on the failing paths too. `defer`
     /// cannot do this job: `exit()` terminates the process without unwinding the stack.
     private static func finish(_ code: Int32) -> Never {
-        Self.defaults?.removePersistentDomain(forName: Self.suite)
+        EphemeralDefaults.clear(Self.suite)
         exit(code)
     }
 

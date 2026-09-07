@@ -26,11 +26,8 @@ enum QuotaRecoveryVerifier {
     private static func trackerFailures() -> [String] {
         var failures: [String] = []
         let suite = "QuotaBarQuotaRecoveryVerifier"
-        guard let defaults = UserDefaults(suiteName: suite) else {
-            return ["the verifier could not open a throwaway defaults domain"]
-        }
-        defaults.removePersistentDomain(forName: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = EphemeralDefaults.make(suite)
+        defer { EphemeralDefaults.clear(suite) }
 
         let tracker = QuotaRecoveryTracker(defaults: defaults)
         let epoch = Date(timeIntervalSince1970: 2_000_000_000)

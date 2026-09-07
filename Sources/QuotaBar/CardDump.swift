@@ -14,8 +14,7 @@ enum CardDump {
 
         // A throwaway defaults domain keeps the dump from touching real preferences, and the
         // fixtures keep the machine's own logs and saved rates out of the render.
-        let defaults = UserDefaults(suiteName: "QuotaBarSettingsDump") ?? .standard
-        defaults.removePersistentDomain(forName: "QuotaBarSettingsDump")
+        let defaults = EphemeralDefaults.make("QuotaBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
         let pricing = PricingEditorModel(
             costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
@@ -47,26 +46,46 @@ enum CardDump {
         )
     }
 
+    /// The settings window is a tab bar over a 620x460 pane and the pricing pane is that pane on
+    /// its own, so the height comes from the view rather than from a constant here. The pane loads
+    /// its rows asynchronously, so the capture lets the run loop turn first.
     private static func captureSettings(_ view: AnyView, named name: String, into root: URL) {
-        let hosting = NSHostingView(rootView: view)
-        hosting.appearance = NSAppearance(named: .darkAqua)
-        // The settings window is a tab bar over a 620x460 pane and the pricing pane is that pane
-        // on its own, so the height comes from the view rather than from a constant here.
-        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-
-        // The pane loads its rows asynchronously, so let the run loop turn before capturing.
-        Self.report(
-            OffscreenCapture.writePNG(hosting, named: name, into: root, titled: true, settle: 3),
-            size: hosting.frame
+        Self.capture(
+            view,
+            named: name,
+            into: root,
+            appearance: NSAppearance(named: .darkAqua),
+            titled: true,
+            settle: 3
         )
     }
 
-    /// Both card dumps name the size they wrote, since a layout regression usually shows up there
-    /// first.
-    private static func report(_ outcome: OffscreenCapture.Outcome, size: CGRect) {
+    /// Lays a view out at its natural size and writes one PNG of it. The dumps name the size they
+    /// wrote, since a layout regression usually shows up there first; frame dumps that print their
+    /// own count pass `reporting: false`.
+    private static func capture(
+        _ view: some View,
+        named name: String,
+        into root: URL,
+        appearance: NSAppearance? = nil,
+        titled: Bool = false,
+        settle: TimeInterval = 0,
+        reporting: Bool = true
+    ) {
+        let hosting = NSHostingView(rootView: view)
+        hosting.appearance = appearance
+        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+        let outcome = OffscreenCapture.writePNG(
+            hosting,
+            named: name,
+            into: root,
+            titled: titled,
+            settle: settle
+        )
+        guard reporting else { return }
         switch outcome {
         case let .written(url):
-            print("wrote \(url.path) (\(Int(size.width))x\(Int(size.height)))")
+            print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
         case let .failed(reason):
             print(reason)
         }
@@ -154,17 +173,16 @@ enum CardDump {
             ("expanded", true, true),
         ]
         for state in states {
-            let hosting = NSHostingView(rootView: CostSectionView(
-                snapshot: cost,
-                previewHoveredDayKey: today.dayKey,
-                previewTodayDayKey: today.dayKey,
-                isBreakdownExpanded: state.expanded,
-                previewToggleHovered: state.toggleHovered
-            ).padding(14).frame(width: 280))
-            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-            Self.report(
-                OffscreenCapture.writePNG(hosting, named: state.name, into: root),
-                size: hosting.frame
+            Self.capture(
+                CostSectionView(
+                    snapshot: cost,
+                    previewHoveredDayKey: today.dayKey,
+                    previewTodayDayKey: today.dayKey,
+                    isBreakdownExpanded: state.expanded,
+                    previewToggleHovered: state.toggleHovered
+                ).padding(14).frame(width: 280),
+                named: state.name,
+                into: root
             )
         }
     }
@@ -178,13 +196,16 @@ enum CardDump {
         guard let today = cost.days.last else { return }
 
         for (index, day) in cost.days.enumerated() {
-            let hosting = NSHostingView(rootView: CostSectionView(
-                snapshot: cost,
-                previewHoveredDayKey: day.dayKey,
-                previewTodayDayKey: today.dayKey
-            ).padding(14).frame(width: 280))
-            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-            _ = OffscreenCapture.writePNG(hosting, named: String(format: "frame-%04d", index), into: root)
+            Self.capture(
+                CostSectionView(
+                    snapshot: cost,
+                    previewHoveredDayKey: day.dayKey,
+                    previewTodayDayKey: today.dayKey
+                ).padding(14).frame(width: 280),
+                named: String(format: "frame-%04d", index),
+                into: root,
+                reporting: false
+            )
         }
         print("wrote \(cost.days.count) chart hover frames to \(root.path)")
     }
@@ -338,20 +359,15 @@ enum CardDump {
             guard let today = cost.days.last,
                   let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
             for (name, hoveredDayKey) in [("idle", nil), ("hover", hovered.dayKey)] {
-                let hosting = NSHostingView(rootView: CostSectionView(
-                    snapshot: cost,
-                    previewHoveredDayKey: hoveredDayKey,
-                    previewTodayDayKey: today.dayKey
-                ).padding(14).frame(width: 280))
-                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-                let outcome = OffscreenCapture.writePNG(
-                    hosting,
+                Self.capture(
+                    CostSectionView(
+                        snapshot: cost,
+                        previewHoveredDayKey: hoveredDayKey,
+                        previewTodayDayKey: today.dayKey
+                    ).padding(14).frame(width: 280),
                     named: "\(provider.rawValue)-\(name)",
                     into: root
                 )
-                if case let .written(url) = outcome {
-                    print("wrote \(url.path)")
-                }
             }
         }
 
@@ -361,22 +377,20 @@ enum CardDump {
         for (baseName, provider, snapshot) in cases {
             for (suffix, resetMode) in resetModes {
                 let name = baseName + suffix
-                let view = MenuCardView(
-                    provider: provider,
-                    display: ProviderDisplay(
-                        snapshot: snapshot,
-                        cost: costs[provider],
-                        error: errors[baseName]
+                Self.capture(
+                    MenuCardView(
+                        provider: provider,
+                        display: ProviderDisplay(
+                            snapshot: snapshot,
+                            cost: costs[provider],
+                            error: errors[baseName]
+                        ),
+                        isRefreshing: false,
+                        animatesFill: false,
+                        quotaResetDisplayMode: resetMode
                     ),
-                    isRefreshing: false,
-                    animatesFill: false,
-                    quotaResetDisplayMode: resetMode
-                )
-                let hosting = NSHostingView(rootView: view)
-                hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-                Self.report(
-                    OffscreenCapture.writePNG(hosting, named: name, into: root),
-                    size: hosting.frame
+                    named: name,
+                    into: root
                 )
             }
         }

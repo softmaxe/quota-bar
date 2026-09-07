@@ -75,7 +75,7 @@ private struct CelebrationCardFrame: View {
         }
         .padding(.horizontal, 14)
         .frame(width: 280, height: 96, alignment: .center)
-        .background(Color(white: 0.13))
+        .background(OffscreenCapture.groundColor)
         .environment(\.colorScheme, .dark)
     }
 

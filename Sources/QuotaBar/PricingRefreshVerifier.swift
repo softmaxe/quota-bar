@@ -42,8 +42,7 @@ enum PricingRefreshVerifier {
 
     private static func verify() async -> Never {
         let suite = "QuotaBarPricingRefreshVerifier"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
+        let defaults = EphemeralDefaults.make(suite)
         func finish(_ message: String? = nil) -> Never {
             defaults.removePersistentDomain(forName: suite)
             if let message {

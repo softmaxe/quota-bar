@@ -12,6 +12,10 @@ enum OffscreenCapture {
     /// own — without one the dark-mode text comes out white on white.
     private static let ground = NSColor(white: 0.13, alpha: 1)
 
+    /// The same ground, for the `renderPNG` path: `ImageRenderer` composites no window behind the
+    /// view, so those dumps paint it themselves rather than coming out white on white.
+    static var groundColor: Color { Color(nsColor: Self.ground) }
+
     enum Outcome {
         case written(URL)
         case failed(String)

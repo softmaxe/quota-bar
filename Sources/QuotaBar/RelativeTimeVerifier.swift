@@ -12,9 +12,8 @@ enum RelativeTimeVerifier {
     private static var defaults: UserDefaults?
 
     static func run() -> Never {
-        let defaults = UserDefaults(suiteName: Self.suite) ?? .standard
+        let defaults = EphemeralDefaults.make(Self.suite)
         Self.defaults = defaults
-        defaults.removePersistentDomain(forName: Self.suite)
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -76,7 +75,7 @@ enum RelativeTimeVerifier {
     /// The only way out, so the throwaway domain is dropped on the failing paths too. `defer`
     /// cannot do this job: `exit()` terminates the process without unwinding the stack.
     private static func finish(_ code: Int32) -> Never {
-        Self.defaults?.removePersistentDomain(forName: Self.suite)
+        EphemeralDefaults.clear(Self.suite)
         exit(code)
     }
 
