@@ -46,7 +46,7 @@ enum CostAggregator {
                 }
             }
 
-            let byModel = Dictionary(uniqueKeysWithValues: dayTokens.map { key, tokens in
+            let byModel = Dictionary(uniqueKeysWithValues: dayTokens.lazy.map { key, tokens in
                 (key, ModelDayUsage(tokens: tokens, costUSD: dayCostByModel[key]))
             })
 
@@ -61,16 +61,24 @@ enum CostAggregator {
         days.sort { $0.dayKey < $1.dayKey }
 
         let todayKey = DayKey.today(calendar: calendar, now: now)
-        let today = days.last { $0.dayKey == todayKey }
-        let latest = days.last
+        var todayCostUSD = 0.0
+        var windowCostUSD = 0.0
+        var latestTokens = 0
+        var windowTokens = 0
+        for day in days {
+            if day.dayKey == todayKey { todayCostUSD = day.costUSD ?? 0 }
+            windowCostUSD += day.costUSD ?? 0
+            latestTokens = day.tokens.total
+            windowTokens += latestTokens
+        }
 
         return CostSnapshot(
             provider: provider,
             days: days,
-            todayCostUSD: today?.costUSD ?? 0,
-            windowCostUSD: days.reduce(0) { $0 + ($1.costUSD ?? 0) },
-            latestTokens: latest?.tokens.total ?? 0,
-            windowTokens: days.reduce(0) { $0 + $1.tokens.total },
+            todayCostUSD: todayCostUSD,
+            windowCostUSD: windowCostUSD,
+            latestTokens: latestTokens,
+            windowTokens: windowTokens,
             topModel: Self.topModel(cost: modelCost, tokens: modelTokens),
             hasUnpricedTokens: hasUnpriced,
             scannedAt: now

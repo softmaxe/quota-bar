@@ -26,7 +26,15 @@ package enum ISO8601 {
     /// Fast path for the shape written by Codex and Claude logs. Less common ISO8601 variants
     /// keep the formatter fallback above so this optimization does not narrow accepted input.
     private static func parseCanonicalUTC(_ raw: String) -> Date? {
-        let bytes = Array(raw.utf8)
+        let contiguousResult: Date?? = raw.utf8.withContiguousStorageIfAvailable { bytes in
+            Self.parseCanonicalUTC(bytes)
+        }
+        if let result = contiguousResult { return result }
+        return Self.parseCanonicalUTC(Array(raw.utf8))
+    }
+
+    private static func parseCanonicalUTC<Bytes>(_ bytes: Bytes) -> Date?
+    where Bytes: RandomAccessCollection, Bytes.Index == Int, Bytes.Element == UInt8 {
         guard bytes.count == 20 || (22...30).contains(bytes.count),
               bytes[4] == UInt8(ascii: "-"), bytes[7] == UInt8(ascii: "-"),
               bytes[10] == UInt8(ascii: "T"), bytes[13] == UInt8(ascii: ":"),
@@ -64,7 +72,8 @@ package enum ISO8601 {
         return Date(timeIntervalSince1970: Double(seconds) + Double(milliseconds) / 1_000)
     }
 
-    private static func decimal(_ bytes: [UInt8], _ start: Int, _ count: Int) -> Int? {
+    private static func decimal<Bytes>(_ bytes: Bytes, _ start: Int, _ count: Int) -> Int?
+    where Bytes: RandomAccessCollection, Bytes.Index == Int, Bytes.Element == UInt8 {
         var value = 0
         for index in start..<(start + count) {
             let byte = bytes[index]

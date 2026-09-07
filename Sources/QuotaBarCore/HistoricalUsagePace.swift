@@ -59,15 +59,17 @@ public enum HistoricalUsagePace {
         let gridCount = UsageWeekProfile.gridPointCount
         let denominator = Double(gridCount - 1)
         var expectedCurve = Array(repeating: 0.0, count: gridCount)
-        // The weights do not vary across grid points, so they are built once rather than once
-        // per point.
-        let medianWeights = weighted.map(\.weight)
+        // Reuse the median's pair storage rather than allocating a values array at every point.
+        var medianPairs = Array(repeating: (value: 0.0, weight: 0.0), count: weighted.count)
         for index in 0..<gridCount {
             let u = Double(index) / denominator
-            let median = Self.weightedMedian(
-                values: weighted.map { $0.week.curve[index] },
-                weights: medianWeights
-            )
+            for pairIndex in weighted.indices {
+                medianPairs[pairIndex] = (
+                    value: weighted[pairIndex].week.curve[index],
+                    weight: weighted[pairIndex].weight
+                )
+            }
+            let median = Self.weightedMedian(pairs: &medianPairs)
             let linear = 100 * u
             // Past demand can exceed what the quota sustains. Blending toward it is fine, but
             // capping at the linear baseline stops a heavy history from reporting a reserve.
@@ -193,12 +195,17 @@ public enum HistoricalUsagePace {
 
     public static func weightedMedian(values: [Double], weights: [Double]) -> Double {
         guard values.count == weights.count, !values.isEmpty else { return 0 }
-        let pairs = zip(values, weights)
+        var pairs = zip(values, weights)
             .map { (value: $0, weight: max(0, $1)) }
-            .sorted { $0.value < $1.value }
+        return Self.weightedMedian(pairs: &pairs)
+    }
+
+    private static func weightedMedian(pairs: inout [(value: Double, weight: Double)]) -> Double {
+        guard !pairs.isEmpty else { return 0 }
+        pairs.sort { $0.value < $1.value }
         let totalWeight = pairs.reduce(0.0) { $0 + $1.weight }
         if totalWeight <= Self.epsilon {
-            return values.sorted()[values.count / 2]
+            return pairs[pairs.count / 2].value
         }
 
         let threshold = totalWeight / 2
