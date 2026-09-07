@@ -208,13 +208,10 @@ final class CostCache {
 
     /// Largest completed scan first, for choosing one retained copy of a Codex rollout.
     func codexTrackedPaths() throws -> [String] {
-        var stmt: OpaquePointer?
+        let stmt = try self.prepared(
+            "SELECT path FROM file_cursor WHERE provider = 'codex' ORDER BY offset DESC, size DESC, path"
+        )
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db,
-            "SELECT path FROM file_cursor WHERE provider = 'codex' ORDER BY offset DESC, size DESC, path",
-            -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
         var paths: [String] = []
         var result = sqlite3_step(stmt)
         while result == SQLITE_ROW {
@@ -226,15 +223,11 @@ final class CostCache {
     }
 
     func cursor(forPath path: String) -> FileCursor? {
-        var stmt: OpaquePointer?
+        let stmt = try? self.prepared(
+            "SELECT inode, size, offset, prefix_digest, resume_state FROM file_cursor WHERE path = ?"
+        )
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            "SELECT inode, size, offset, prefix_digest, resume_state FROM file_cursor WHERE path = ?",
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { return nil }
+        guard stmt != nil else { return nil }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return FileCursor(
@@ -249,19 +242,12 @@ final class CostCache {
     }
 
     func setCursor(_ cursor: FileCursor, forPath path: String, provider: Provider) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
+        let stmt = try self.prepared("""
             INSERT OR REPLACE INTO file_cursor
                 (path, provider, inode, size, offset, prefix_digest, resume_state)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, provider.rawValue, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 3, Int64(cursor.inode))
@@ -273,9 +259,7 @@ final class CostCache {
         } else {
             sqlite3_bind_null(stmt, 7)
         }
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+        try self.step(stmt)
     }
 
     /// Drops everything derived from a file, for when it was rewritten rather than appended to.
@@ -285,15 +269,10 @@ final class CostCache {
             "DELETE FROM claude_message WHERE path = ?",
             "DELETE FROM file_cursor WHERE path = ?",
         ] {
-            var stmt: OpaquePointer?
+            let stmt = try self.prepared(sql)
             defer { sqlite3_finalize(stmt) }
-            guard sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil) == SQLITE_OK else {
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
             sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
+            try self.step(stmt)
         }
     }
 
@@ -312,11 +291,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
+        let stmt = try self.prepared("""
             INSERT INTO codex_day
                 (path, day, model, long_context, is_fast, input, output, cache_write,
                  cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -329,26 +304,15 @@ final class CostCache {
                 cache_read = cache_read + excluded.cache_read,
                 cost_usd = COALESCE(cost_usd, 0) + excluded.cost_usd,
                 unpriced_tokens = COALESCE(unpriced_tokens, 0) + excluded.unpriced_tokens
-            """,
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 3, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 4, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 5, isFast ? 1 : 0)
-        sqlite3_bind_int64(stmt, 6, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 7, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        try self.step(stmt)
     }
 
     func addClaudeMessage(
@@ -360,11 +324,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
+        let stmt = try self.prepared("""
             INSERT INTO claude_message
                 (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
                  cache_read, cost_usd, unpriced_tokens)
@@ -385,34 +345,20 @@ final class CostCache {
             -- that grew the reply supersedes what is already stored. Everything else is a replay
             -- of a message this cache already has, and must not overwrite the finished figure.
             WHERE excluded.output > claude_message.output
-            """,
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        sqlite3_bind_int64(stmt, 6, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 7, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        try self.step(stmt)
     }
 
     func hasCompletedOpenCodeBackfill() throws -> Bool {
-        var stmt: OpaquePointer?
+        let stmt = try self.prepared("SELECT value FROM opencode_state WHERE key = 'backfill_complete'")
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db, "SELECT value FROM opencode_state WHERE key = 'backfill_complete'", -1, &stmt, nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
         return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) != 0
     }
 
@@ -431,9 +377,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, """
+        let stmt = try self.prepared("""
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
                  output, cache_write, cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -458,9 +402,8 @@ final class CostCache {
                OR excluded.cache_write IS NOT opencode_part.cache_write
                OR excluded.cache_write_1h IS NOT opencode_part.cache_write_1h
                OR excluded.cache_read IS NOT opencode_part.cache_read
-            """, -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
         sqlite3_bind_int64(stmt, 3, legacyInferred ? 1 : 0)
@@ -468,16 +411,8 @@ final class CostCache {
         sqlite3_bind_text(stmt, 5, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 6, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 7, isFast ? 1 : 0)
-        sqlite3_bind_int64(stmt, 8, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 11, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 12, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 13, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 14, Int64(costUSD == nil ? totals.total : 0))
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+        self.bindUsage(stmt, from: 8, totals: totals, costUSD: costUSD)
+        try self.step(stmt)
     }
 
     func addPiMessage(
@@ -489,9 +424,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, """
+        let stmt = try self.prepared("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
                  cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -509,24 +442,15 @@ final class CostCache {
                OR excluded.cache_write IS NOT pi_message.cache_write
                OR excluded.cache_write_1h IS NOT pi_message.cache_write_1h
                OR excluded.cache_read IS NOT pi_message.cache_read
-            """, -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        sqlite3_bind_int64(stmt, 6, Int64(totals.input))
-        sqlite3_bind_int64(stmt, 7, Int64(totals.output))
-        sqlite3_bind_int64(stmt, 8, Int64(totals.cacheWrite))
-        sqlite3_bind_int64(stmt, 9, Int64(totals.cacheWrite1h))
-        sqlite3_bind_int64(stmt, 10, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, 11, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, 12, Int64(costUSD == nil ? totals.total : 0))
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        try self.step(stmt)
     }
 
     // MARK: - Reads
@@ -558,18 +482,12 @@ final class CostCache {
     /// their own cost, so later override edits cannot flow backward into these rows.
     func freezeLegacyPrices(provider: Provider, overlay: PricingOverlay?) throws {
         let table = Self.table(for: provider)
-        var select: OpaquePointer?
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
+        let select = try self.prepared("""
             SELECT rowid, model, long_context, input, output, cache_write, cache_write_1h, cache_read
             FROM \(table)
             WHERE cost_usd IS NULL OR unpriced_tokens IS NULL
-            """,
-            -1,
-            &select,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            """)
+        defer { sqlite3_finalize(select) }
 
         var legacy: [(rowID: Int64, costUSD: Double, unpricedTokens: Int)] = []
         while sqlite3_step(select) == SQLITE_ROW {
@@ -592,84 +510,43 @@ final class CostCache {
             )
             legacy.append((rowID, cost ?? 0, cost == nil ? totals.total : 0))
         }
-        sqlite3_finalize(select)
 
+        // One statement reused across the backlog rather than one prepare per row.
+        let update = try self.prepared(
+            "UPDATE \(table) SET cost_usd = ?, unpriced_tokens = ? WHERE rowid = ?"
+        )
+        defer { sqlite3_finalize(update) }
         for row in legacy {
-            var update: OpaquePointer?
-            guard sqlite3_prepare_v2(
-                self.db,
-                "UPDATE \(table) SET cost_usd = ?, unpriced_tokens = ? WHERE rowid = ?",
-                -1,
-                &update,
-                nil
-            ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            sqlite3_reset(update)
             sqlite3_bind_double(update, 1, row.costUSD)
             sqlite3_bind_int64(update, 2, Int64(row.unpricedTokens))
             sqlite3_bind_int64(update, 3, row.rowID)
-            guard sqlite3_step(update) == SQLITE_DONE else {
-                sqlite3_finalize(update)
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
-            sqlite3_finalize(update)
+            try self.step(update)
         }
     }
 
     /// Day -> (model, tier) -> frozen usage, for days at or after `fromDay`.
     func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: StoredUsage]] {
-        let table = Self.table(for: provider)
-        let fastExpression = provider == .codex ? "is_fast" : "FALSE"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
-            SELECT day, model, long_context, \(fastExpression),
-                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
-                   SUM(COALESCE(cost_usd, 0)), SUM(COALESCE(unpriced_tokens, 0))
-            FROM \(table)
-            WHERE day >= ?
-            GROUP BY day, model, long_context, \(fastExpression)
-            """,
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
-        sqlite3_bind_text(stmt, 1, fromDay, -1, sqliteTransient)
-
         var result: [String: [ModelTier: StoredUsage]] = [:]
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let day = String(cString: sqlite3_column_text(stmt, 0))
-            let key = ModelTier(
-                source: provider == .codex ? .codex : .claude,
-                model: String(cString: sqlite3_column_text(stmt, 1)),
-                longContext: sqlite3_column_int64(stmt, 2) != 0,
-                isFast: sqlite3_column_int64(stmt, 3) != 0
-            )
-            let totals = TokenTotals(
-                input: Int(sqlite3_column_int64(stmt, 4)),
-                output: Int(sqlite3_column_int64(stmt, 5)),
-                cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
-                cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
-                cacheRead: Int(sqlite3_column_int64(stmt, 8))
-            )
-            result[day, default: [:]][key] = StoredUsage(
-                tokens: totals,
-                costUSD: sqlite3_column_double(stmt, 9),
-                unpricedTokens: Int(sqlite3_column_int64(stmt, 10))
-            )
-        }
-        if provider == .codex {
-            try self.mergeIncludedUsage(
-                table: "opencode_part",
-                source: .openCode,
-                supportsFast: true,
-                fromDay: fromDay,
-                into: &result
-            )
-            try self.mergeIncludedUsage(
-                table: "pi_message",
-                source: .piAgent,
-                supportsFast: false,
+        try self.readUsage(
+            table: Self.table(for: provider),
+            source: provider == .codex ? .codex : .claude,
+            supportsFast: provider == .codex,
+            includedOnly: false,
+            fromDay: fromDay,
+            into: &result
+        )
+        // The other agents write into Codex's column, so their tables fold into the same days.
+        guard provider == .codex else { return result }
+        for extra in [
+            (table: "opencode_part", source: CostUsageSource.openCode, supportsFast: true),
+            (table: "pi_message", source: CostUsageSource.piAgent, supportsFast: false),
+        ] where try self.tableExists(extra.table) {
+            try self.readUsage(
+                table: extra.table,
+                source: extra.source,
+                supportsFast: extra.supportsFast,
+                includedOnly: true,
                 fromDay: fromDay,
                 into: &result
             )
@@ -677,27 +554,27 @@ final class CostCache {
         return result
     }
 
-    private func mergeIncludedUsage(
+    /// One day/model/tier rollup of a usage table, summed into `result`. Every usage table has the
+    /// same shape; `supportsFast` covers the ones without a fast tier and `includedOnly` the ones
+    /// whose rows can be excluded from the total.
+    private func readUsage(
         table: String,
         source: CostUsageSource,
         supportsFast: Bool,
+        includedOnly: Bool,
         fromDay: String,
         into result: inout [String: [ModelTier: StoredUsage]]
     ) throws {
-        guard try self.tableExists(table) else { return }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
         let fastExpression = supportsFast ? "is_fast" : "FALSE"
-        let sql = """
+        let stmt = try self.prepared("""
             SELECT day, model, long_context, \(fastExpression),
                    SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
-                   SUM(cost_usd), SUM(unpriced_tokens)
-            FROM \(table) WHERE included = 1 AND day >= ?
+                   SUM(COALESCE(cost_usd, 0)), SUM(COALESCE(unpriced_tokens, 0))
+            FROM \(table)
+            WHERE \(includedOnly ? "included = 1 AND " : "")day >= ?
             GROUP BY day, model, long_context, \(fastExpression)
-            """
-        guard sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
+            """)
+        defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, fromDay, -1, sqliteTransient)
         while sqlite3_step(stmt) == SQLITE_ROW {
             let day = String(cString: sqlite3_column_text(stmt, 0))
@@ -718,6 +595,7 @@ final class CostCache {
                 costUSD: sqlite3_column_double(stmt, 9),
                 unpricedTokens: Int(sqlite3_column_int64(stmt, 10))
             )
+            // One tier can land in more than one table, so the day's figure is their sum.
             if let existing = result[day]?[tier] {
                 result[day]?[tier] = StoredUsage(
                     tokens: existing.tokens + usage.tokens,
@@ -733,20 +611,13 @@ final class CostCache {
     /// Distinct model names and token totals recorded for a provider, most-used first.
     func distinctModelUsage(provider: Provider) throws -> [(model: String, tokens: Int)] {
         let table = Self.table(for: provider)
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            """
+        let stmt = try self.prepared("""
             SELECT model, SUM(input + output + cache_write + cache_read) AS tokens
             FROM \(table)
             GROUP BY model
             ORDER BY tokens DESC
-            """,
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
+            """)
+        defer { sqlite3_finalize(stmt) }
 
         var models: [(model: String, tokens: Int)] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
@@ -758,12 +629,10 @@ final class CostCache {
         guard provider == .codex else { return models }
         var totals = Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) })
         for extraTable in ["opencode_part", "pi_message"] where try self.tableExists(extraTable) {
-            var extra: OpaquePointer?
+            let extra = try self.prepared(
+                "SELECT model, SUM(input + output + cache_write + cache_read) FROM \(extraTable) WHERE included = 1 GROUP BY model"
+            )
             defer { sqlite3_finalize(extra) }
-            let sql = "SELECT model, SUM(input + output + cache_write + cache_read) FROM \(extraTable) WHERE included = 1 GROUP BY model"
-            guard sqlite3_prepare_v2(self.db, sql, -1, &extra, nil) == SQLITE_OK else {
-                throw CostCacheError.statementFailed(self.lastErrorMessage)
-            }
             while sqlite3_step(extra) == SQLITE_ROW {
                 totals[String(cString: sqlite3_column_text(extra, 0)), default: 0] += Int(sqlite3_column_int64(extra, 1))
             }
@@ -772,6 +641,41 @@ final class CostCache {
     }
 
     // MARK: - Helpers
+
+    /// Prepares one statement or throws with SQLite's own message. The caller finalizes it.
+    private func prepared(_ sql: String) throws -> OpaquePointer? {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(stmt)
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        return stmt
+    }
+
+    /// The five token columns and the cost pair every usage row ends with, bound from `index`.
+    /// A row priced at scan time carries its cost; an unpriced one carries its tokens instead, so
+    /// a later override edit can still find and reprice it.
+    private func bindUsage(
+        _ stmt: OpaquePointer?,
+        from index: Int32,
+        totals: TokenTotals,
+        costUSD: Double?
+    ) {
+        sqlite3_bind_int64(stmt, index, Int64(totals.input))
+        sqlite3_bind_int64(stmt, index + 1, Int64(totals.output))
+        sqlite3_bind_int64(stmt, index + 2, Int64(totals.cacheWrite))
+        sqlite3_bind_int64(stmt, index + 3, Int64(totals.cacheWrite1h))
+        sqlite3_bind_int64(stmt, index + 4, Int64(totals.cacheRead))
+        sqlite3_bind_double(stmt, index + 5, costUSD ?? 0)
+        sqlite3_bind_int64(stmt, index + 6, Int64(costUSD == nil ? totals.total : 0))
+    }
+
+    /// Runs a statement expected to produce no rows.
+    private func step(_ stmt: OpaquePointer?) throws {
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+    }
 
     private func exec(_ sql: String) throws {
         var error: UnsafeMutablePointer<CChar>?
@@ -788,11 +692,8 @@ final class CostCache {
     }
 
     private func columnExists(table: String, name: String) throws -> Bool {
-        var stmt: OpaquePointer?
+        let stmt = try self.prepared("PRAGMA table_info(\(table))")
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(self.db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK else {
-            throw CostCacheError.statementFailed(self.lastErrorMessage)
-        }
         while sqlite3_step(stmt) == SQLITE_ROW {
             if String(cString: sqlite3_column_text(stmt, 1)) == name { return true }
         }
@@ -800,15 +701,8 @@ final class CostCache {
     }
 
     private func tableExists(_ table: String) throws -> Bool {
-        var stmt: OpaquePointer?
+        let stmt = try self.prepared("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            self.db,
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
         sqlite3_bind_text(stmt, 1, table, -1, sqliteTransient)
         return sqlite3_step(stmt) == SQLITE_ROW
     }
