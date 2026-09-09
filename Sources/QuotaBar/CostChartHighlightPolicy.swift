@@ -175,7 +175,7 @@ enum CostChartHighlightPolicy {
     }
 }
 
-/// The vertical metrics of the breakdown block under the chart: one summary line, a model row per
+/// The vertical metrics of the breakdown block under the chart: a summary header, a model row per
 /// entry, and the row that opens or closes the models that did not fit. The view lays the block
 /// out from these and the pointer is hit-tested against them, so the two readings cannot drift.
 struct CostBreakdownLayout {

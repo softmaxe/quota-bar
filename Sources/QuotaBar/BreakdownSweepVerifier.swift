@@ -43,12 +43,7 @@ enum BreakdownSweepVerifier {
             snapshot: CardDump.loadedSnapshot(provider),
             cost: Self.unevenCost(provider)
         )
-        let layout = CostBreakdownLayout(
-            summaryHeight: 14,
-            rowHeight: 13,
-            toggleHeight: 12,
-            spacing: 3
-        )
+        let layout = CostSectionView.breakdownLayout
         let rowStripHeight = layout.rowsHeight(rows: 1)
         let selectedDayKey = unevenDisplay.cost?.days.first?.dayKey
         if let cost = unevenDisplay.cost, let selectedDayKey {
