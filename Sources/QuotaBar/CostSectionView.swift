@@ -485,10 +485,12 @@ struct CostSectionView: View {
                     .font(.system(size: 11, weight: .medium))
                     .frame(height: 14)
                 HStack(alignment: .firstTextBaseline, spacing: 18) {
-                    Text(Formatters.cost(day.costUSD ?? 0))
+                    let cost = Formatters.cost(day.costUSD ?? 0)
+                    let tokens = "\(Formatters.tokens(day.tokens.total)) tokens"
+                    Text(self.selectedLabelMode == .tokens ? tokens : cost)
                         .font(.system(size: 17, weight: .medium))
                         .layoutPriority(1)
-                    Text("\(Formatters.tokens(day.tokens.total)) tokens")
+                    Text(self.selectedLabelMode == .tokens ? cost : tokens)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
