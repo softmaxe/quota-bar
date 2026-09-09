@@ -18,11 +18,11 @@ struct CostSectionView: View {
     /// Four covers a normal day for either provider; the rest collapse behind a "+N more" line
     /// the reader can open.
     private static let maxBreakdownRows = 4
-    private static let breakdownLayout = CostBreakdownLayout(
-        summaryHeight: 14,
+    static let breakdownLayout = CostBreakdownLayout(
+        summaryHeight: 60,
         rowHeight: 13,
         toggleHeight: 12,
-        spacing: 3
+        spacing: 7
     )
     /// The gap between the chart and the breakdown under it, and the one the card's own stack
     /// puts between every section. Both are the same 10 pt, and the pointer is read against the
@@ -294,14 +294,10 @@ struct CostSectionView: View {
         // Each line carries the gap above it rather than leaving it to the stack: the rows that
         // open and close have to take their gap with them, or closing one would leave its seam.
         VStack(alignment: .leading, spacing: 0) {
-            Text(self.hoverLine)
-                .font(.system(size: 11))
-                .foregroundStyle(self.detailDay == nil ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                // Every line in this block is pinned to the height the layout reserves for it, so
-                // the row the pointer is hit-tested against is the row it is pointing at.
-                .frame(height: CGFloat(Self.breakdownLayout.summaryHeight))
+            self.daySummary
+                // The summary includes the separator and its lower inset. Keeping this entire
+                // header in the layout metrics also keeps the toggle's hit region aligned.
+                .frame(height: CGFloat(Self.breakdownLayout.summaryHeight), alignment: .top)
 
             if let day = self.detailDay {
                 let ranked = day.rankedModels(by: self.selectedLabelMode)
@@ -479,15 +475,38 @@ struct CostSectionView: View {
         return "\(tokens) · \(Formatters.cost(cost))"
     }
 
-    /// The detail day's total, or an instruction before any bar has supplied detail context.
-    private var hoverLine: String {
-        guard let day = self.detailDay else {
-            return "\(self.bars.count) days with activity · hover a bar for a day"
+    /// Date, daily totals, and model details have separate visual levels. The 5pt lower inset
+    /// joins the first model row's 7pt gap to leave 12pt beneath the separator.
+    @ViewBuilder
+    private var daySummary: some View {
+        if let day = self.detailDay {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Formatters.dayLabel(day.dayKey))
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(height: 14)
+                HStack(alignment: .firstTextBaseline, spacing: 18) {
+                    Text(Formatters.cost(day.costUSD ?? 0))
+                        .font(.system(size: 17, weight: .medium))
+                        .layoutPriority(1)
+                    Text("\(Formatters.tokens(day.tokens.total)) tokens")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .monospacedDigit()
+                .lineLimit(1)
+                .frame(height: 21, alignment: .leading)
+                .padding(.top, 7)
+                Divider()
+                    .frame(height: 1)
+                    .padding(.top, 12)
+            }
+            .padding(.bottom, 5)
+        } else {
+            Text("\(self.bars.count) days with activity · hover a bar for a day")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        var parts = [Formatters.dayLabel(day.dayKey), Formatters.cost(day.costUSD ?? 0)]
-        let tokens = day.tokens.total
-        if tokens > 0 { parts.append("\(Formatters.tokens(tokens)) tokens") }
-        return parts.joined(separator: " · ")
     }
 
     private func updateHover(at location: CGPoint?, width: CGFloat) {
