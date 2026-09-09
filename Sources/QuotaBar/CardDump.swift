@@ -359,15 +359,19 @@ enum CardDump {
             guard let today = cost.days.last,
                   let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
             for (name, hoveredDayKey) in [("idle", nil), ("hover", hovered.dayKey)] {
-                Self.capture(
-                    CostSectionView(
-                        snapshot: cost,
-                        previewHoveredDayKey: hoveredDayKey,
-                        previewTodayDayKey: today.dayKey
-                    ).padding(14).frame(width: 280),
-                    named: "\(provider.rawValue)-\(name)",
-                    into: root
-                )
+                for mode in [CostChartLabelMode.tokens, .cost] {
+                    let suffix = mode == .tokens ? "" : "-cost"
+                    Self.capture(
+                        CostSectionView(
+                            snapshot: cost,
+                            previewHoveredDayKey: hoveredDayKey,
+                            previewTodayDayKey: today.dayKey,
+                            labelMode: mode
+                        ).padding(14).frame(width: 280),
+                        named: "\(provider.rawValue)-\(name)\(suffix)",
+                        into: root
+                    )
+                }
             }
         }
 

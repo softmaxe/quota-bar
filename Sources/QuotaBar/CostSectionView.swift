@@ -62,6 +62,7 @@ struct CostSectionView: View {
     /// settled here rather than rebuilt on every read — hover moves at pointer rate.
     private let bars: [CostDay]
     private let barDayKeys: Set<String>
+    private let todayTokens: Int
 
     /// Seeds the hover state so `--dump-card` can capture what hovering looks like.
     init(
@@ -90,6 +91,7 @@ struct CostSectionView: View {
         )
 
         self.snapshot = snapshot
+        self.todayTokens = snapshot.days.first { $0.dayKey == todayDayKey }?.tokens.total ?? 0
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
         self._detailDayKey = State(initialValue: detailDayKey)
         self._selectedLabelMode = State(initialValue: labelMode)
@@ -133,12 +135,14 @@ struct CostSectionView: View {
     private var kpiGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
             GridRow {
-                self.kpi(label: "Today", value: Formatters.cost(self.snapshot.todayCostUSD))
-                self.kpi(label: self.windowCostLabel, value: Formatters.cost(self.snapshot.windowCostUSD))
-            }
-            GridRow {
-                self.kpi(label: "Latest tokens", value: Formatters.tokens(self.snapshot.latestTokens))
-                self.kpi(label: "30d tokens", value: Formatters.tokens(self.snapshot.windowTokens))
+                switch self.selectedLabelMode {
+                case .cost:
+                    self.kpi(label: "Today", value: Formatters.cost(self.snapshot.todayCostUSD))
+                    self.kpi(label: self.windowCostLabel, value: Formatters.cost(self.snapshot.windowCostUSD))
+                case .tokens:
+                    self.kpi(label: "Today tokens", value: Formatters.tokens(self.todayTokens))
+                    self.kpi(label: "30d tokens", value: Formatters.tokens(self.snapshot.windowTokens))
+                }
             }
         }
     }
