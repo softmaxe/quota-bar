@@ -66,6 +66,10 @@ public struct UsageSnapshot: Sendable, Equatable {
     public let planLabel: String?
     public let credits: CreditsSnapshot?
     public let fetchedAt: Date
+    /// The plan has no short rolling window at all, as opposed to one the response failed to
+    /// report. Only the provider can tell the two apart, so it is set there, never inferred from
+    /// `session` being nil.
+    public let sessionIsUnlimited: Bool
 
     public init(
         provider: Provider,
@@ -73,7 +77,8 @@ public struct UsageSnapshot: Sendable, Equatable {
         weekly: UsageWindow?,
         planLabel: String?,
         credits: CreditsSnapshot?,
-        fetchedAt: Date
+        fetchedAt: Date,
+        sessionIsUnlimited: Bool = false
     ) {
         self.provider = provider
         self.session = session
@@ -81,6 +86,7 @@ public struct UsageSnapshot: Sendable, Equatable {
         self.planLabel = planLabel
         self.credits = credits
         self.fetchedAt = fetchedAt
+        self.sessionIsUnlimited = session == nil && sessionIsUnlimited
     }
 }
 

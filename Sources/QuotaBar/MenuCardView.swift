@@ -111,6 +111,13 @@ struct MenuCardView: View {
             if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
                     self.window(window: session, kind: .session)
+                } else if snapshot.sessionIsUnlimited {
+                    // Held in the session slot rather than dropped, so a plan without the
+                    // five-hour cap lines up with one that has it.
+                    UnlimitedWindowRow(
+                        title: QuotaWindowKind.session.presentation.title,
+                        tint: Theme.accent(for: self.provider)
+                    )
                 }
                 if let weekly = snapshot.weekly {
                     self.window(window: weekly, kind: .weekly)
@@ -261,6 +268,31 @@ private struct QuotaWindowRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// A window the plan does not cap: the same headline, bar and trailing label as a metered row, so
+/// the card keeps its shape, but nothing on it counts down. The bar sits full and faded, since
+/// there is no balance for it to spend and a full-strength fill would read as a fresh reset.
+private struct UnlimitedWindowRow: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("\(self.title) ∞")
+                    .font(QuotaHeadline.font)
+                Spacer(minLength: 0)
+                Text("No limit")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            UsageProgressBar(percent: 100, tint: self.tint.opacity(0.35), animatesFill: false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(self.title) has no limit")
     }
 }
 

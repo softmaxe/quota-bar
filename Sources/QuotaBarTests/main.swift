@@ -21,6 +21,7 @@ do {
     Harness.expectEqual(snapshot.session?.remainingPercent, 100, "codex session remaining")
     Harness.expectEqual(snapshot.weekly?.remainingPercent, 86, "codex weekly remaining")
     Harness.expectEqual(snapshot.session?.resetsAt, Date(timeIntervalSince1970: 1000), "codex session reset")
+    Harness.expect(!snapshot.sessionIsUnlimited, "codex five-hour window is a real session limit")
     Harness.expectEqual(snapshot.weekly?.windowSeconds, 604_800, "codex weekly window length")
     Harness.expectEqual(snapshot.credits?.balance, 0, "codex credit balance")
 } catch {
@@ -60,6 +61,7 @@ do {
     let snapshot = CodexProvider.snapshot(from: response)
 
     Harness.expect(snapshot.session == nil, "codex missing five-hour utilization hides the session limit")
+    Harness.expect(snapshot.sessionIsUnlimited, "codex weekly-only response has no session limit")
     Harness.expectEqual(snapshot.weekly?.remainingPercent, 50, "codex weekly-only remaining")
 } catch {
     Harness.expect(false, "codex weekly-only usage decode threw: \(error)")
@@ -81,6 +83,7 @@ do {
     let snapshot = CodexProvider.snapshot(from: response)
 
     Harness.expect(snapshot.session == nil, "codex seven-day primary window does not become a session limit")
+    Harness.expect(snapshot.sessionIsUnlimited, "codex seven-day-only plan has no session limit")
     Harness.expectEqual(snapshot.weekly?.remainingPercent, 75, "codex seven-day primary becomes weekly")
 } catch {
     Harness.expect(false, "codex primary weekly usage decode threw: \(error)")
@@ -197,6 +200,28 @@ do {
     Harness.expect(snapshot.weekly?.resetsAt != nil, "claude fractional-seconds reset parsed")
 } catch {
     Harness.expect(false, "claude usage decode threw: \(error)")
+}
+
+// Every Claude plan has a five-hour window, so a response missing it is missing data, not a plan
+// without the limit: the card must not claim the session is unlimited.
+do {
+    let json = """
+    { "seven_day": { "utilization": 3, "resets_at": "2026-09-01T20:00:00Z" } }
+    """
+    let response = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data(json.utf8))
+    let credentials = ClaudeCredentials(
+        accessToken: "t",
+        refreshToken: nil,
+        expiresAt: nil,
+        scopes: [],
+        subscriptionType: "pro"
+    )
+    let snapshot = ClaudeProvider.snapshot(from: response, credentials: credentials)
+
+    Harness.expect(snapshot.session == nil, "claude missing five-hour window stays absent")
+    Harness.expect(!snapshot.sessionIsUnlimited, "claude missing five-hour window is not unlimited")
+} catch {
+    Harness.expect(false, "claude weekly-only usage decode threw: \(error)")
 }
 
 await CostTests.run()

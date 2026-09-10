@@ -81,16 +81,21 @@ public enum CodexProvider {
         // `primary` describes ordering, not duration. Plans with one quota can put a
         // seven-day window there, so use the reported duration to classify it.
         let primaryIsWeekly = primary?.windowSeconds.map { $0 >= 24 * 60 * 60 } == true
+        let session = primaryIsWeekly ? secondary : primary
+        let weekly = primaryIsWeekly ? primary : secondary
 
         return UsageSnapshot(
             provider: .codex,
-            session: primaryIsWeekly ? secondary : primary,
-            weekly: primaryIsWeekly ? primary : secondary,
+            session: session,
+            weekly: weekly,
             planLabel: response.planType.map(Self.planLabel),
             credits: response.credits.map {
                 CreditsSnapshot(hasCredits: $0.hasCredits, unlimited: $0.unlimited, balance: $0.balance)
             },
-            fetchedAt: now
+            fetchedAt: now,
+            // Plans without a five-hour cap still report the weekly one; that shape, and not a
+            // response with no windows at all, is what "no session limit" looks like.
+            sessionIsUnlimited: session == nil && weekly != nil
         )
     }
 
