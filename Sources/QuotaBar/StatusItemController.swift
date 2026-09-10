@@ -181,6 +181,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let snapshot = display.snapshot {
             if let session = snapshot.session {
                 parts.append("session \(Formatters.percent(session.remainingPercent)) left")
+            } else if snapshot.sessionIsUnlimited {
+                parts.append("session no limit")
             }
             if let weekly = snapshot.weekly {
                 parts.append("weekly \(Formatters.percent(weekly.remainingPercent)) left")

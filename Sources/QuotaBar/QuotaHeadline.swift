@@ -15,7 +15,8 @@ struct QuotaHeadline: View {
     /// The frame the bar is drawing, or nil when it is not celebrating.
     let frame: QuotaCelebrationFrame?
 
-    private static let font = Font.system(size: 14, weight: .semibold)
+    /// Shared with the unlimited row, which stands in the same slot and has to match it.
+    static let font = Font.system(size: 14, weight: .semibold)
 
     private var displayedPercent: Double {
         min(100, max(0, self.frame?.percent ?? self.percent))

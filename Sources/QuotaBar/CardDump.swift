@@ -342,6 +342,17 @@ enum CardDump {
         let cases: [(String, Provider, UsageSnapshot?)] = [
             ("codex-loaded", .codex, Self.loadedSnapshot(.codex)),
             ("claude-loaded", .claude, Self.loadedSnapshot(.claude)),
+            // A plan without the five-hour cap keeps the session row, drawn as unlimited.
+            ("codex-unlimited-session", .codex, UsageSnapshot(
+                provider: .codex,
+                session: nil,
+                // Burning faster than the week allows, so the tip below the unlimited row is red.
+                weekly: UsageWindow(usedPercent: 52, resetsAt: Date().addingTimeInterval(4 * 86_400 + 12 * 3600), windowSeconds: 604_800),
+                planLabel: "Pro",
+                credits: nil,
+                fetchedAt: now,
+                sessionIsUnlimited: true
+            )),
             // A rate-limited refresh keeps the numbers on screen and appends the error.
             ("claude-rate-limited", .claude, (UsageSnapshot(
                 provider: .claude,
