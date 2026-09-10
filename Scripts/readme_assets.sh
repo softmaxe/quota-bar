@@ -35,7 +35,7 @@ echo "==> hero"
 # for — so they sit top-aligned on the page ground rather than being padded to match.
 ffmpeg -v error -y \
   -i "$WORK/card/claude-loaded.png" -i "$WORK/card/codex-loaded.png" \
-  -filter_complex "color=c=0x1a1a1a:s=1240x1220[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
+  -filter_complex "color=c=0x1a1a1a:s=1240x1258[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
   -frames:v 1 "$OUT/hero.png"
 
 echo "==> quota reset gif"
