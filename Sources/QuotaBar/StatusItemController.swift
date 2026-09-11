@@ -341,7 +341,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 self?.settings.quotaResetDisplayMode = mode
                 self?.refreshOpenCard()
             },
-            providerRemaining: Self.tightestRemaining(self.store.displays, now: now),
             onProviderSelected: { [weak self] provider in
                 // The icon, the card and the refresh all follow the setting.
                 self?.settings.menuBarProvider = provider

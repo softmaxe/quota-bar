@@ -23,7 +23,7 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Charts local Codex and Claude token use and estimated cost by day and model.
 - Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
 - Includes matching OpenCode and Pi Agent OpenAI OAuth usage under Codex.
-- Shows one provider at a time as a robot in the menu bar. A switch at the top of the menu changes provider, and each provider refreshes on its own.
+- Shows one provider at a time as a robot in the menu bar. QuotaBar refreshes the selected provider; switching tabs requests a refresh for the newly selected provider, subject to its cooldown.
 - Uses built-in pricing, the public [models.dev](https://models.dev) catalog, and optional manual rate overrides.
 - Keeps the last good quota reading when a refresh fails.
 - Disables motion when macOS Reduce Motion is enabled.
@@ -87,10 +87,10 @@ claude
 Then open QuotaBar:
 
 - Click the menu bar icon to view quota and local cost.
-- Switch between Codex and Claude from the top of the menu. Each side of the switch shows that provider's lowest remaining percentage. The number for the provider you are not viewing comes from its last refresh.
+- Switch between Codex and Claude using the equal-width tabs at the top of the menu. Each tab shows the provider's name and color; quota percentages appear in the selected provider's details below.
 - Open **Settings** to choose a refresh interval or edit model rates.
 
-Selected and hovered provider names fade into a heavier weight without shifting the label layout. Their colored dots use the same full-strength accent as a highlighted chart bar; idle dots use the chart's muted tone.
+The selected tab has a highlighted background and a bold name. Hovering the other tab adds a subtle background and brightens its dot without making the name bold. Labels stay in place when you switch.
 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual `Refresh` receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 

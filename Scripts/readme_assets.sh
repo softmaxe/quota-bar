@@ -33,9 +33,12 @@ echo "==> rendering frames"
 echo "==> hero"
 # The two cards are different heights — Codex carries a credits block Claude has no equivalent
 # for — so they sit top-aligned on the page ground rather than being padded to match.
+claude_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/claude-loaded.png")
+codex_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/codex-loaded.png")
+hero_height=$(( (claude_height > codex_height ? claude_height : codex_height) + 80 ))
 ffmpeg -v error -y \
   -i "$WORK/card/claude-loaded.png" -i "$WORK/card/codex-loaded.png" \
-  -filter_complex "color=c=0x1a1a1a:s=1240x1258[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
+  -filter_complex "color=c=0x1a1a1a:s=1240x${hero_height}[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
   -frames:v 1 "$OUT/hero.png"
 
 echo "==> quota reset gif"
@@ -53,7 +56,7 @@ echo "==> reset toggle gif"
 # app too. The crop keeps the two quota rows and drops the header and the chart under them, so
 # the only thing that changes in frame is the label being clicked.
 ffmpeg -v error -y -framerate 10 -i "$WORK/reset-toggle/frame-%04d.png" \
-  -filter_complex "fps=10,crop=560:268:0:138,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -filter_complex "fps=10,crop=560:268:0:146,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
   "$OUT/reset-toggle.gif"
 
 echo "==> motion strips"
