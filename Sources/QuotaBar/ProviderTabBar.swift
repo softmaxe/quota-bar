@@ -2,15 +2,12 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// The card's provider switch: one segment per provider, each carrying what its tightest window
-/// has left, so the provider off screen can be read without switching to it.
+/// Equal-width provider navigation. Quota readings belong to the selected card below.
 ///
 /// Clicks and hover arrive through `MouseLocationReader`: the card lives in an NSMenu popup, which
 /// is never the key window, so a SwiftUI button or gesture here would never fire.
 struct ProviderTabBar: View {
     let selection: Provider
-    /// The tightest window's remaining percentage, for each provider that has been read.
-    let remaining: [Provider: Double]
     let onSelect: (Provider) -> Void
 
     @State private var hovered: Provider?
@@ -23,16 +20,11 @@ struct ProviderTabBar: View {
     @State private var clickedProvider: Provider?
 
     private static let providers = Provider.allCases
-    private static let segmentHeight: CGFloat = 22
+    private static let segmentHeight: CGFloat = 26
     private static let inset: CGFloat = 2
     private static let cornerRadius: CGFloat = 7
     private static let nameSize: CGFloat = 12
-    /// Proportional figures: the number only changes on a refresh, so there is no count to keep
-    /// steady, and a tabular "1" leaves a hole between the name and a reading like "17%".
-    private static let percentFont = NSFont.systemFont(ofSize: 10.5)
-    /// How far above the shared baseline the dot's center sits: halfway up the name's capitals,
-    /// the line SF Symbols center on. The name's capitals are what the segment centers, so the
-    /// dot lands on the pill's middle too, rather than riding the smaller figures half a point low.
+    /// Center the dot on the name's capitals rather than its full line box.
     private static let dotLift = NSFont.systemFont(ofSize: Self.nameSize).capHeight / 2
 
     /// A raised white chip on a light menu, a lighter wash on a dark one.
@@ -42,9 +34,8 @@ struct ProviderTabBar: View {
             : NSColor(white: 1, alpha: 0.96)
     })
 
-    init(selection: Provider, remaining: [Provider: Double], onSelect: @escaping (Provider) -> Void) {
+    init(selection: Provider, onSelect: @escaping (Provider) -> Void) {
         self.selection = selection
-        self.remaining = remaining
         self.onSelect = onSelect
         let span = Self.span(of: selection)
         self._pillMinX = State(initialValue: span.minX)
@@ -98,15 +89,14 @@ struct ProviderTabBar: View {
         let isEmphasized = isSelected || self.hovered == provider
         let emphasisAnimation: Animation? = CostChartHoverMotion.systemReduceMotion
             ? nil : .easeInOut(duration: 0.18)
-        // Baseline alignment, because the name and the percentage are different sizes: centering
-        // their line boxes left the smaller percentage a point above the name's baseline.
-        return HStack(alignment: .firstTextBaseline, spacing: 5) {
+        // Align the provider dot with the name's capitals.
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Circle()
                 .fill(Theme.accent(for: provider))
                 .opacity(isEmphasized ? 1 : CostChartHighlightPolicy.restingOpacity)
                 .frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Self.dotLift }
-            // Reserve the semibold width so emphasis never shifts the dot or percentage.
+            // Reserve the semibold width so emphasis never shifts the label.
             // Crossfade fixed glyphs instead of swapping font metrics in a single frame.
             Text(provider.displayName)
                 .font(.system(size: Self.nameSize, weight: .semibold))
@@ -117,22 +107,17 @@ struct ProviderTabBar: View {
                     ZStack {
                         Text(provider.displayName)
                             .font(.system(size: Self.nameSize, weight: .regular))
-                            .opacity(isEmphasized ? 0 : 1)
+                            .opacity(isSelected ? 0 : 1)
                         Text(provider.displayName)
                             .font(.system(size: Self.nameSize, weight: .semibold))
-                            .opacity(isEmphasized ? 1 : 0)
+                            .opacity(isSelected ? 1 : 0)
                     }
                     .fixedSize()
                 }
-            if let remaining = self.remaining[provider] {
-                Text(Formatters.percent(remaining))
-                    .font(Font(Self.percentFont))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
         }
         .foregroundStyle(isEmphasized ? Color.primary : Color.primary.opacity(0.75))
         .animation(emphasisAnimation, value: isEmphasized)
+        .animation(emphasisAnimation, value: isSelected)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             // The wash an unselected segment carries under the pointer: it says "clickable"
@@ -144,7 +129,7 @@ struct ProviderTabBar: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(self.accessibilityLabel(provider))
+        .accessibilityLabel(provider.displayName)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .accessibilityAction { self.select(provider) }
     }
@@ -161,11 +146,6 @@ struct ProviderTabBar: View {
         guard provider != self.selection else { return }
         self.clickedProvider = provider
         self.onSelect(provider)
-    }
-
-    private func accessibilityLabel(_ provider: Provider) -> String {
-        guard let remaining = self.remaining[provider] else { return provider.displayName }
-        return "\(provider.displayName), \(Formatters.percent(remaining)) left"
     }
 
     /// Equal segments, so a provider's slot is a fixed share of the width.
