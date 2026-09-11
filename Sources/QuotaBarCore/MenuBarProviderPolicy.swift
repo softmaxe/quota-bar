@@ -28,6 +28,12 @@ public enum MenuBarProviderPolicy {
             .min()
     }
 
+    /// Whether a snapshot's tightest window has 10% or less left, i.e. 90% or more used.
+    public static func runningLow(_ snapshot: UsageSnapshot, now: Date) -> Bool {
+        guard let remaining = Self.tightestRemaining(snapshot, now: now) else { return false }
+        return remaining <= Self.lowRemainingPercent
+    }
+
     /// Whether a provider the item is not drawing is running low. The item shows one provider at
     /// a time, so this is the one thing it has to carry about the other.
     public static func otherProviderRunningLow(
@@ -36,9 +42,7 @@ public enum MenuBarProviderPolicy {
         now: Date
     ) -> Bool {
         snapshots.contains { provider, snapshot in
-            guard provider != showing,
-                  let remaining = Self.tightestRemaining(snapshot, now: now) else { return false }
-            return remaining <= Self.lowRemainingPercent
+            provider != showing && Self.runningLow(snapshot, now: now)
         }
     }
 }

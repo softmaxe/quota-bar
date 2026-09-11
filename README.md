@@ -29,10 +29,10 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Disables motion when macOS Reduce Motion is enabled.
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: full, half, low, the other provider running low, and no data">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, the other provider running low, refresh failed, and no data">
 </p>
 
-The robot's head is the session window and its body is the weekly window. Both fill from the left with the share you have left. Claude's robot has tall eye slits and Codex's has square eyes. A plan without a session cap keeps the head full. A dot in the top-right corner means the provider you are not viewing has 10% or less left in one of its windows. The robot fades when a refresh fails, and shows empty when there is no data yet.
+The robot is the `robot-excited` mark from Material Design Icons, the same glyph Omarchy's agents widget puts in its bar. It turns red when the provider you are viewing has 10% or less left in its session or weekly window. A dot in the top-right corner means the provider you are not viewing has 10% or less left in one of its windows. The robot dims when a refresh fails and fades further when there is no data yet.
 
 ## Install
 

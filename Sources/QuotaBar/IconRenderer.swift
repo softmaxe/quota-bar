@@ -1,275 +1,185 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/IconRenderer.swift
-// Kept: the 18pt @2x pixel grid and the capsule track/fill/stroke bar.
-// Replaced: the Codex "face" and Claude "crab" with one robot shared by both providers.
-// Dropped: the Gemini/Antigravity/Factory/Warp decorations, blink/wiggle/tilt animation,
-// status overlays, and the morph cache.
+// Kept: the 18pt @2x bitmap and the image cache.
+// Replaced: the Codex "face" and Claude "crab" with the Material Design Icons robot-excited mark,
+// the glyph Omarchy's agents bar widget shows.
+// Dropped: the capsule meters, the Gemini/Antigravity/Factory/Warp decorations,
+// blink/wiggle/tilt animation, status overlays, and the morph cache.
 
-import QuotaBarCore
 import AppKit
 
 enum IconRenderer {
     private static let outputSize = NSSize(width: 18, height: 18)
     private static let outputScale: CGFloat = 2
 
-    /// Everything is laid out in device pixels on a 2× grid, then converted to points, so
-    /// edges land on pixel boundaries and the icon stays crisp at menu bar size.
-    private struct PixelGrid {
-        let scale: CGFloat
-
-        func pt(_ px: Int) -> CGFloat { CGFloat(px) / self.scale }
-
-        func rect(x: Int, y: Int, w: Int, h: Int) -> CGRect {
-            CGRect(x: self.pt(x), y: self.pt(y), width: self.pt(w), height: self.pt(h))
-        }
-    }
-
-    private static let grid = PixelGrid(scale: outputScale)
-
-    private struct RectPx {
-        let x: Int
-        let y: Int
-        let w: Int
-        let h: Int
-
-        func rect() -> CGRect { IconRenderer.grid.rect(x: self.x, y: self.y, w: self.w, h: self.h) }
-    }
-
-    static func fillWidthPixels(remaining: Double, rectWidth: Int) -> Int {
-        let clamped = max(0, min(remaining / 100, 1))
-        return max(0, min(rectWidth, Int((CGFloat(rectWidth) * CGFloat(clamped)).rounded())))
-    }
-
     // MARK: - Cache
 
     private struct CacheKey: Hashable {
-        let provider: Provider
-        let primary: Int
-        let weekly: Int
+        let hasReading: Bool
         let stale: Bool
         let badge: Bool
+        let runningLow: Bool
     }
 
     private final class Cache: @unchecked Sendable {
         private var images: [CacheKey: NSImage] = [:]
-        private var order: [CacheKey] = []
         private let lock = NSLock()
 
         func image(for key: CacheKey) -> NSImage? {
             self.lock.lock()
             defer { self.lock.unlock() }
-            guard let image = self.images[key] else { return nil }
-            if let index = self.order.firstIndex(of: key) {
-                self.order.remove(at: index)
-                self.order.append(key)
-            }
-            return image
+            return self.images[key]
         }
 
-        func store(_ image: NSImage, for key: CacheKey, limit: Int) {
+        func store(_ image: NSImage, for key: CacheKey) {
             self.lock.lock()
             defer { self.lock.unlock() }
             self.images[key] = image
-            self.order.removeAll { $0 == key }
-            self.order.append(key)
-            while self.order.count > limit {
-                self.images.removeValue(forKey: self.order.removeFirst())
-            }
         }
     }
 
     private static let cache = Cache()
-    private static let cacheLimit = 64
 
     // MARK: - Entry point
 
+    /// The robot carries no percentages, only whether the provider on show is running low.
     /// - Parameters:
-    ///   - primaryRemaining: percentage left in the session window, 0...100.
-    ///   - weeklyRemaining: percentage left in the weekly window, 0...100.
+    ///   - hasReading: false before the first snapshot arrives, which fades the robot.
     ///   - stale: dims the icon when the last refresh failed.
     ///   - otherProviderLow: raises the corner badge for the provider the icon is not drawing.
+    ///   - runningLow: paints the icon red for the provider on show.
     static func makeIcon(
-        provider: Provider,
-        primaryRemaining: Double?,
-        weeklyRemaining: Double?,
+        hasReading: Bool,
         stale: Bool,
-        otherProviderLow: Bool = false
+        otherProviderLow: Bool = false,
+        runningLow: Bool = false
     ) -> NSImage {
-        // Quantize to whole percent so small fluctuations reuse a cached image.
-        let key = CacheKey(
-            provider: provider,
-            primary: primaryRemaining.map { Int($0.rounded()) } ?? -1,
-            weekly: weeklyRemaining.map { Int($0.rounded()) } ?? -1,
-            stale: stale,
-            badge: otherProviderLow
-        )
+        let key = CacheKey(hasReading: hasReading, stale: stale, badge: otherProviderLow, runningLow: runningLow)
         if let cached = self.cache.image(for: key) { return cached }
 
         let image = self.render(
-            provider: provider,
-            primaryRemaining: primaryRemaining,
-            weeklyRemaining: weeklyRemaining,
+            hasReading: hasReading,
             stale: stale,
-            otherProviderLow: otherProviderLow
+            otherProviderLow: otherProviderLow,
+            runningLow: runningLow
         )
-        self.cache.store(image, for: key, limit: Self.cacheLimit)
+        self.cache.store(image, for: key)
         return image
     }
 
     // MARK: - Robot
 
-    /// The robot's parts in device pixels, y up. The head is the session meter and the body the
-    /// weekly one; the antenna, ears and neck carry no data and exist so the outline reads as a
-    /// robot at 18pt. Every part is mirrored about the canvas centre except the badge.
     private enum Robot {
-        static let head = RectPx(x: 5, y: 18, w: 26, h: 13)
-        static let headCornerPx = 3
-        static let body = RectPx(x: 1, y: 5, w: 34, h: 10)
-        static let bodyCornerPx = 2
+        /// MDI's 24-unit viewBox drawn at 16pt, inset 1pt, so the mark fills the 18pt canvas the
+        /// way it fills a 16px icon font slot in Omarchy's bar. Points are y up.
+        static let unit: CGFloat = 16.0 / 24.0
 
-        static let frame: [RectPx] = [
-            RectPx(x: 16, y: 33, w: 4, h: 2), // antenna tip
-            RectPx(x: 17, y: 31, w: 2, h: 2), // antenna stem
-            RectPx(x: 2, y: 22, w: 3, h: 5), // left ear
-            RectPx(x: 31, y: 22, w: 3, h: 5), // right ear
-            RectPx(x: 16, y: 15, w: 4, h: 3), // neck
-        ]
-
-        /// The one thing that still tells the providers apart: Claude keeps the crab's tall eye
-        /// slits, Codex the face's square eyes.
-        static func eyes(for provider: Provider) -> [RectPx] {
-            switch provider {
-            case .claude: [RectPx(x: 11, y: 22, w: 2, h: 5), RectPx(x: 23, y: 22, w: 2, h: 5)]
-            case .codex: [RectPx(x: 10, y: 23, w: 4, h: 4), RectPx(x: 22, y: 23, w: 4, h: 4)]
-            }
+        static func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: 1 + x * unit, y: 17 - y * unit)
         }
 
-        /// Top-right, clear of the ear, with a ring cut around it so it stays a separate dot where
-        /// it overlaps the head's corner.
-        static let badgeCenterPx = (x: 32, y: 32)
-        static let badgeRadiusPx: CGFloat = 3
-        static let badgeGapPx: CGFloat = 1.5
+        /// `robot-excited` from Material Design Icons 7.4.47 (Apache-2.0), transcribed from its
+        /// SVG path. The two chevron eyes are separate subpaths cut out by the even-odd rule.
+        static let path: NSBezierPath = {
+            let path = NSBezierPath()
+            path.windingRule = .evenOdd
+
+            func move(_ x: CGFloat, _ y: CGFloat) { path.move(to: point(x, y)) }
+            func line(_ x: CGFloat, _ y: CGFloat) { path.line(to: point(x, y)) }
+            func curve(
+                _ x1: CGFloat, _ y1: CGFloat,
+                _ x2: CGFloat, _ y2: CGFloat,
+                _ x: CGFloat, _ y: CGFloat
+            ) {
+                path.curve(to: point(x, y), controlPoint1: point(x1, y1), controlPoint2: point(x2, y2))
+            }
+
+            // Body, ears, head, and antenna.
+            move(22, 14)
+            line(21, 14)
+            curve(21, 10.13, 17.87, 7, 14, 7)
+            line(13, 7)
+            line(13, 5.73)
+            curve(13.6, 5.39, 14, 4.74, 14, 4)
+            curve(14, 2.9, 13.11, 2, 12, 2)
+            curve(10.89, 2, 10, 2.9, 10, 4) // SVG "S": first control reflects the previous one
+            curve(10, 4.74, 10.4, 5.39, 11, 5.73)
+            line(11, 7)
+            line(10, 7)
+            curve(6.13, 7, 3, 10.13, 3, 14)
+            line(2, 14)
+            curve(1.45, 14, 1, 14.45, 1, 15)
+            line(1, 18)
+            curve(1, 18.55, 1.45, 19, 2, 19)
+            line(3, 19)
+            line(3, 20)
+            curve(3, 21.11, 3.9, 22, 5, 22)
+            line(19, 22)
+            curve(20.11, 22, 21, 21.11, 21, 20)
+            line(21, 19)
+            line(22, 19)
+            curve(22.55, 19, 23, 18.55, 23, 18)
+            line(23, 15)
+            curve(23, 14.45, 22.55, 14, 22, 14)
+            path.close()
+
+            for dx: CGFloat in [0, 9] {
+                move(8.68 + dx, 17.04)
+                line(7.5 + dx, 15.86)
+                line(6.32 + dx, 17.04)
+                line(5.14 + dx, 15.86)
+                line(7.5 + dx, 13.5)
+                line(9.86 + dx, 15.86)
+                path.close()
+            }
+            return path
+        }()
+
+        /// Top-right, clear of the antenna and the head's curve, with a ring cut around it so it
+        /// stays a separate dot at any size.
+        static let badgeCenter = CGPoint(x: 16, y: 16)
+        static let badgeRadius: CGFloat = 1.5
+        static let badgeGap: CGFloat = 0.75
     }
 
     private static func render(
-        provider: Provider,
-        primaryRemaining: Double?,
-        weeklyRemaining: Double?,
+        hasReading: Bool,
         stale: Bool,
-        otherProviderLow: Bool
+        otherProviderLow: Bool,
+        runningLow: Bool
     ) -> NSImage {
-        self.renderImage {
-            let baseFill = NSColor.labelColor
-            let trackFillAlpha: CGFloat = stale ? 0.18 : 0.28
-            let trackStrokeAlpha: CGFloat = stale ? 0.28 : 0.44
-            let fillColor = baseFill.withAlphaComponent(stale ? 0.55 : 1.0)
+        // The menu bar ignores a status button's contentTintColor on template images, so red has
+        // to be baked into a non-template image. The badge turns red with it: both providers are
+        // then low.
+        self.renderImage(template: !runningLow) {
+            let baseFill = runningLow ? NSColor.systemRed : NSColor.labelColor
+            // No reading at all: a faded robot, so the icon still shows the app is alive.
+            let alpha: CGFloat = !hasReading ? 0.45 : (stale ? 0.55 : 1)
+            baseFill.withAlphaComponent(alpha).setFill()
+            Robot.path.fill()
 
-            func drawLane(rectPx: RectPx, cornerRadiusPx: Int, remaining: Double?, alpha: CGFloat) {
-                let rect = rectPx.rect()
-                let radius = Self.grid.pt(cornerRadiusPx)
-
-                let trackPath = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-                baseFill.withAlphaComponent(trackFillAlpha * alpha).setFill()
-                trackPath.fill()
-
-                // Stroke an inset path so the 1pt outline stays inside the pixel bounds.
-                let strokeWidthPx = 2
-                let insetPx = strokeWidthPx / 2
-                let strokeRect = Self.grid.rect(
-                    x: rectPx.x + insetPx,
-                    y: rectPx.y + insetPx,
-                    w: max(0, rectPx.w - insetPx * 2),
-                    h: max(0, rectPx.h - insetPx * 2)
-                )
-                let strokePath = NSBezierPath(
-                    roundedRect: strokeRect,
-                    xRadius: Self.grid.pt(max(0, cornerRadiusPx - insetPx)),
-                    yRadius: Self.grid.pt(max(0, cornerRadiusPx - insetPx))
-                )
-                strokePath.lineWidth = CGFloat(strokeWidthPx) / Self.outputScale
-                baseFill.withAlphaComponent(trackStrokeAlpha * alpha).setStroke()
-                strokePath.stroke()
-
-                // Clip to the lane and paint a plain rect so the progress edge stays straight.
-                guard let remaining else { return }
-                let fillWidthPx = Self.fillWidthPixels(remaining: remaining, rectWidth: rectPx.w)
-                guard fillWidthPx > 0 else { return }
-                NSGraphicsContext.current?.cgContext.saveGState()
-                trackPath.addClip()
-                fillColor.withAlphaComponent(alpha).setFill()
-                NSBezierPath(rect: Self.grid.rect(
-                    x: rectPx.x,
-                    y: rectPx.y,
-                    w: fillWidthPx,
-                    h: rectPx.h
-                )).fill()
-                NSGraphicsContext.current?.cgContext.restoreGState()
+            guard otherProviderLow else { return }
+            func circle(radius: CGFloat) -> NSBezierPath {
+                NSBezierPath(ovalIn: CGRect(
+                    x: Robot.badgeCenter.x - radius,
+                    y: Robot.badgeCenter.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                ))
             }
-
-            // No reading at all: an empty, faded robot, so the icon still shows the app is alive.
-            let hasReading = primaryRemaining != nil || weeklyRemaining != nil
-            let alpha: CGFloat = hasReading ? 1 : 0.45
-            // With a weekly reading, a missing session is a plan without one, so the head stays
-            // full to say it is unrestricted.
-            let headRemaining = weeklyRemaining == nil ? primaryRemaining : (primaryRemaining ?? 100)
-
-            drawLane(
-                rectPx: Robot.head,
-                cornerRadiusPx: Robot.headCornerPx,
-                remaining: headRemaining,
-                alpha: alpha
-            )
-            // A session reading on its own leaves the body faded rather than as an empty meter,
-            // which would read as a weekly window run dry.
-            drawLane(
-                rectPx: Robot.body,
-                cornerRadiusPx: Robot.bodyCornerPx,
-                remaining: weeklyRemaining,
-                alpha: weeklyRemaining == nil ? 0.45 : alpha
-            )
-
-            fillColor.withAlphaComponent(alpha).setFill()
-            for part in Robot.frame {
-                NSBezierPath(rect: part.rect()).fill()
-            }
-
             let ctx = NSGraphicsContext.current?.cgContext
-            // Punch the eyes out of the head rather than painting over it, so they read on
-            // both a filled and an empty track.
             ctx?.saveGState()
-            ctx?.setShouldAntialias(false)
-            for eye in Robot.eyes(for: provider) {
-                ctx?.clear(eye.rect())
-            }
+            ctx?.setBlendMode(.clear)
+            circle(radius: Robot.badgeRadius + Robot.badgeGap).fill()
             ctx?.restoreGState()
-
-            if otherProviderLow {
-                let center = CGPoint(
-                    x: Self.grid.pt(Robot.badgeCenterPx.x),
-                    y: Self.grid.pt(Robot.badgeCenterPx.y)
-                )
-                func circle(radiusPx: CGFloat) -> NSBezierPath {
-                    let radius = radiusPx / Self.outputScale
-                    return NSBezierPath(ovalIn: CGRect(
-                        x: center.x - radius,
-                        y: center.y - radius,
-                        width: radius * 2,
-                        height: radius * 2
-                    ))
-                }
-                ctx?.saveGState()
-                ctx?.setBlendMode(.clear)
-                circle(radiusPx: Robot.badgeRadiusPx + Robot.badgeGapPx).fill()
-                ctx?.restoreGState()
-                // Full strength even when stale: it is about the other provider's reading.
-                baseFill.withAlphaComponent(1).setFill()
-                circle(radiusPx: Robot.badgeRadiusPx).fill()
-            }
+            // Full strength even when stale: it is about the other provider's reading.
+            baseFill.withAlphaComponent(1).setFill()
+            circle(radius: Robot.badgeRadius).fill()
         }
     }
 
     // MARK: - Bitmap
 
-    private static func renderImage(_ draw: () -> Void) -> NSImage {
+    private static func renderImage(template: Bool, _ draw: () -> Void) -> NSImage {
         let image = NSImage(size: Self.outputSize)
 
         if let rep = NSBitmapImageRep.rgba(
@@ -292,7 +202,7 @@ enum IconRenderer {
         }
 
         // Template mode lets the system tint the icon for light and dark menu bars.
-        image.isTemplate = true
+        image.isTemplate = template
         return image
     }
 

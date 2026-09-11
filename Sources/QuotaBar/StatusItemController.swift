@@ -167,25 +167,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 #endif
 
-    /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
-    /// information instead of collapsing to an empty track. The badge is the one thing the icon
-    /// says about the provider it is not drawing.
+    /// A failed refresh dims the robot but keeps the last good reading's red, so the icon still
+    /// carries information. Red is only ever about the provider on show; the badge is the one
+    /// thing the icon says about the provider it is not drawing.
     private static func icon(
         for provider: Provider,
         displays: [Provider: ProviderDisplay],
         now: Date
     ) -> NSImage {
         let display = displays[provider] ?? ProviderDisplay()
+        let snapshot = display.snapshot
         return IconRenderer.makeIcon(
-            provider: provider,
-            primaryRemaining: display.snapshot?.session?.remainingPercent,
-            weeklyRemaining: display.snapshot?.weekly?.remainingPercent,
+            hasReading: snapshot?.session != nil || snapshot?.weekly != nil,
             stale: display.isStale,
             otherProviderLow: MenuBarProviderPolicy.otherProviderRunningLow(
                 showing: provider,
                 snapshots: displays.compactMapValues(\.snapshot),
                 now: now
-            )
+            ),
+            runningLow: snapshot.map { MenuBarProviderPolicy.runningLow($0, now: now) } ?? false
         )
     }
 

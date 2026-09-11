@@ -29,3 +29,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Material Design Icons
+
+The menu bar robot in `Sources/QuotaBar/IconRenderer.swift` is the `robot-excited` icon from
+[Material Design Icons](https://pictogrammers.com/library/mdi/) 7.4.47 by Pictogrammers,
+transcribed from its SVG path. Material Design Icons is distributed under the Apache License,
+Version 2.0: <https://www.apache.org/licenses/LICENSE-2.0>.
