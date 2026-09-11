@@ -1,18 +1,9 @@
 import Foundation
 
-/// Which provider the single menu bar item shows, and where a right-click moves it.
+/// What the single menu bar item says about the providers' readings.
 public enum MenuBarProviderPolicy {
     /// Remaining share at or below which a provider counts as running low.
     public static let lowRemainingPercent: Double = 10
-
-    /// The provider a right-click moves to, wrapping around the list. Provider data is
-    /// intentionally not an input: a signed-out or not-yet-refreshed provider is still worth
-    /// switching to, so its menu can explain itself instead of the item silently disappearing.
-    public static func next(after provider: Provider) -> Provider {
-        let all = Provider.allCases
-        guard let index = all.firstIndex(of: provider) else { return all[0] }
-        return all[(index + 1) % all.count]
-    }
 
     /// The remaining percentage of whichever window runs out first, which is the one that stops
     /// the next prompt. Only the provider on show is refreshed, so the other one's reading can be

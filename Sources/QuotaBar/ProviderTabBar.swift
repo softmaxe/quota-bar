@@ -26,11 +26,14 @@ struct ProviderTabBar: View {
     private static let segmentHeight: CGFloat = 22
     private static let inset: CGFloat = 2
     private static let cornerRadius: CGFloat = 7
-    private static let percentFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
-    /// How far above the shared baseline the dot's center sits: halfway up the percentage's
-    /// figures, which SF draws at cap height. That also lands between the name's cap and x-height
-    /// middles, so the dot reads as centered on a mixed-case name too.
-    private static let dotLift = Self.percentFont.capHeight / 2
+    private static let nameSize: CGFloat = 12
+    /// Proportional figures: the number only changes on a refresh, so there is no count to keep
+    /// steady, and a tabular "1" leaves a hole between the name and a reading like "17%".
+    private static let percentFont = NSFont.systemFont(ofSize: 10.5)
+    /// How far above the shared baseline the dot's center sits: halfway up the name's capitals,
+    /// the line SF Symbols center on. The name's capitals are what the segment centers, so the
+    /// dot lands on the pill's middle too, rather than riding the smaller figures half a point low.
+    private static let dotLift = NSFont.systemFont(ofSize: Self.nameSize).capHeight / 2
 
     /// A raised white chip on a light menu, a lighter wash on a dark one.
     private static let pillColor = Color(nsColor: NSColor(name: nil) { appearance in
@@ -99,12 +102,13 @@ struct ProviderTabBar: View {
                 .fill(Theme.accent(for: provider))
                 .frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Self.dotLift }
-            ZStack {
-                // Both weights are laid out, so the segment keeps one width while they trade
-                // places on selection.
-                self.name(provider, weight: .semibold).opacity(isSelected ? 1 : 0)
-                self.name(provider, weight: .regular).opacity(isSelected ? 0 : 1)
-            }
+            // One weight at a time, so both gaps are exactly the stack's spacing. Reserving the
+            // semibold width under the regular name left the unselected segment's gaps a point
+            // and a half wider; the row re-centering by under a point is lost in the weight swap.
+            Text(provider.displayName)
+                .font(.system(size: Self.nameSize, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .fixedSize()
             if let remaining = self.remaining[provider] {
                 Text(Formatters.percent(remaining))
                     .font(Font(Self.percentFont))
@@ -127,13 +131,6 @@ struct ProviderTabBar: View {
         .accessibilityLabel(self.accessibilityLabel(provider))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
         .accessibilityAction { self.select(provider) }
-    }
-
-    private func name(_ provider: Provider, weight: Font.Weight) -> some View {
-        Text(provider.displayName)
-            .font(.system(size: 12, weight: weight))
-            .lineLimit(1)
-            .fixedSize()
     }
 
     private func pill(width: CGFloat) -> some View {
