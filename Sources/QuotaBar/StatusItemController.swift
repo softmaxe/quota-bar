@@ -4,9 +4,8 @@ import Combine
 import QuartzCore
 import SwiftUI
 
-/// A single `NSStatusItem` showing one provider at a time. A left-click opens that provider's
-/// card, a right-click switches to the next provider, and so does the switch at the top of the
-/// card.
+/// A single `NSStatusItem` showing one provider at a time. Any click opens that provider's card,
+/// and the switch at the top of the card is where the provider changes.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let store: UsageStore
@@ -17,8 +16,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let refreshRowClockInterval: TimeInterval
     private var statusItem: NSStatusItem?
     private var hostingView: NSHostingView<MenuCardView>?
-    /// Attached to the item only while a left-click is being handled, so a right-click can mean
-    /// something other than "open the menu".
+    /// Attached to the item only while a click is being handled, so it can be built on the first
+    /// open rather than at startup.
     private var menu: NSMenu?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -124,8 +123,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let button = item.button {
             button.target = self
             button.action = #selector(self.statusItemClicked)
-            // Without this the button only ever reports a left-click, and the right-click that
-            // switches providers would never reach the handler.
+            // Without this the button only ever reports a left-click, and a right-click would do
+            // nothing at all instead of opening the menu like every other menu bar item.
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         self.statusItem = item
@@ -213,7 +212,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             guard let remaining = others[other] else { continue }
             parts.append("\(other.displayName) \(Formatters.percent(remaining)) left")
         }
-        parts.append("right-click to switch provider")
         return parts.joined(separator: " · ")
     }
 
@@ -230,15 +228,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Clicks
 
     @objc private func statusItemClicked() {
-        let event = NSApp.currentEvent
-        let isSecondary = event?.type == .rightMouseUp
-            // Control-click is the trackpad-only way to say the same thing.
-            || event?.modifierFlags.contains(.control) == true
-        if isSecondary {
-            self.settings.advanceMenuBarProvider()
-        } else {
-            self.presentMenu()
-        }
+        self.presentMenu()
     }
 
     /// The menu lives off the item so the button keeps receiving clicks; attaching it for the
@@ -359,8 +349,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             },
             providerRemaining: Self.tightestRemaining(self.store.displays, now: now),
             onProviderSelected: { [weak self] provider in
-                // The same switch a right-click makes: the icon, the card and the refresh all
-                // follow the setting.
+                // The icon, the card and the refresh all follow the setting.
                 self?.settings.menuBarProvider = provider
             }
         )

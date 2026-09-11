@@ -1799,23 +1799,17 @@ enum SettingsTests {
         Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
         Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
 
-        // A right-click publishes exactly one provider, and cycling wraps back around.
+        // A pick on the card's switch publishes exactly the provider picked.
         var switches: [Provider] = []
         let observer = store.$menuBarProvider
             .dropFirst()
             .sink { switches.append($0) }
 
         store.refreshFrequency = .fifteenMinutes
-        store.advanceMenuBarProvider()
-        store.advanceMenuBarProvider()
-        Harness.expectEqual(
-            switches,
-            [MenuBarProviderPolicy.next(after: Provider.allCases[0]), Provider.allCases[0]],
-            "each right-click publishes the next provider"
-        )
+        store.menuBarProvider = .claude
+        Harness.expectEqual(switches, [.claude], "a switch publishes the picked provider once")
         _ = observer
 
-        store.menuBarProvider = .claude
         store.costChartLabelMode = .cost
         store.quotaResetDisplayMode = .clock
 

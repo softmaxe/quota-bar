@@ -62,7 +62,7 @@ enum MenuLifecycleVerifier {
         require(controller.debugStatusLine() == "Not signed in", "reopening showed stale state")
         require(controller.debugCardUpdateCount > updates, "reopening did not update the card")
 
-        settings.advanceMenuBarProvider()
+        settings.menuBarProvider = Provider.allCases.first { $0 != settings.menuBarProvider }!
         require(controller.debugStatusLine() == "No data yet", "provider switch kept the old card")
         controller.menuDidClose(menu)
         print("Menu creation is deferred; closed cards stay idle and reopen with current state")

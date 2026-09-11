@@ -80,7 +80,8 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// The one provider the menu bar item shows. A right-click on the item cycles it.
+    /// The one provider the menu bar item shows, picked from the switch at the top of its card or
+    /// in Settings.
     @Published public var menuBarProvider: Provider {
         didSet {
             guard oldValue != self.menuBarProvider else { return }
@@ -115,11 +116,6 @@ public final class SettingsStore: ObservableObject {
             .flatMap(CostChartLabelMode.init(rawValue:)) ?? .tokens
         self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
-    }
-
-    /// Moves the menu bar item to the next provider, which is what a right-click does.
-    public func advanceMenuBarProvider() {
-        self.menuBarProvider = MenuBarProviderPolicy.next(after: self.menuBarProvider)
     }
 
     /// Older builds showed one item per provider behind a pair of switches. When exactly one of
