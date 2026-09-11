@@ -21,7 +21,7 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 
 - 显示会话与每周剩余额度、重置时间、使用节奏和可用 credits。
 - 按日期和模型展示本地 Codex、Claude 的 token 用量与预估成本。
-- Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
+- 为 GPT-6 Astra 的 Standard、Fast 和长上下文用量计价，Standard 费率可以手动修改。
 - 将同一账号的 OpenCode 和 Pi Agent OpenAI OAuth 用量计入 Codex。
 - 菜单栏里用一个机器人一次显示一家供应商。菜单顶部的切换按钮用来换供应商，两家各自刷新。
 - 使用内置费率、公开的 [models.dev](https://models.dev) 目录和手动费率。
@@ -127,13 +127,11 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` assistant 用量会被计入。Pi Agent 用量不会改变额度条，成本使用 QuotaBar 的模型价格估算，不代表 OpenAI 账单。
 
-### Current storage and pricing behavior
+历史记录很多时，第一次扫描会花一些时间。QuotaBar 用一个精简的 SQLite 库保存用量历史，记录日期、模型、来源工具、token 数量和预估成本，以及去重用的标识和扫描位置。Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent 按稳定 ID 去重。删除源会话不会删除已记录的用量，重启 QuotaBar 后也一样。Codex 标准 rollout UUID 能避免归档移动或复制后被重复计算。图表只显示最近 30 天，更早的记录仍然保存在库里。价格目录缓存 24 小时。手动修改费率只影响之后的用量，过去的总计保留扫描时的价格。
 
-The first scan of a large history may take time. QuotaBar keeps a compact SQLite usage history with the day, model, harness, token counts, and estimated cost, plus identifiers and scan positions for deduplication. Codex and Claude resume from the last byte read, while OpenCode and Pi Agent deduplicate records by stable IDs. Deleting source sessions does not delete recorded usage, even after restarting QuotaBar. Standard Codex rollout UUIDs prevent archive moves and copies from counting twice. The chart still shows the last 30 days; older records remain stored. The pricing catalog is cached for 24 hours. Manual rate changes apply to new usage only, so past totals keep the prices used when they were scanned.
+第一次使用时，QuotaBar 会把 `~/Library/Caches/QuotaBar/cost-usage/` 下已有的成本数据库复制到下方列出的持久位置，已提交的 SQLite WAL 数据也会一起复制，旧缓存保持不动。只有已经扫描过的用量能在源会话删除后保留。QuotaBar 扫描之前就被删除的会话无法恢复。扫描器升级时保留已记录的历史，不会从源日志重建。
 
-On first use, QuotaBar copies any existing cost database from `~/Library/Caches/QuotaBar/cost-usage/` to the persistent location below, including committed SQLite WAL data. The old cache remains intact. Only usage already scanned can survive source deletion; sessions deleted before QuotaBar scanned them cannot be recovered. Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
-
-Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay its earlier records. Astra uses its complete built-in rates when a catalog entry omits cache or long-context prices. Its built-in rates follow the [official Astra model pricing](https://developers.openai.com/api/docs/models/gpt-6-astra).
+对于 Codex，QuotaBar 还会缓存当前模型、服务层级和最后一次 token 总计，所以长会话追加内容时不会重新处理前面的记录。目录条目缺少缓存价格或长上下文价格时，Astra 使用完整的内置费率。内置费率来自 [Astra 官方模型价格](https://developers.openai.com/api/docs/models/gpt-6-astra)。
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
