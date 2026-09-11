@@ -1,5 +1,4 @@
 #if DEBUG
-import QuotaBarCore
 import AppKit
 
 /// `QuotaBar --dump-icons <dir>` renders the menu bar icons to PNGs and exits.
@@ -8,39 +7,34 @@ enum IconDump {
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
-        let cases: [(name: String, primary: Double?, weekly: Double?, stale: Bool, badge: Bool)] = [
-            ("full", 100, 100, false, false),
-            ("codexbar-sample", 100, 86, false, false),
-            ("half", 50, 70, false, false),
-            ("low", 8, 20, false, false),
-            ("session-only", 64, nil, false, false),
-            ("weekly-only", nil, 72, false, false),
-            ("other-low", 88, 86, false, true),
-            ("stale-reading", 29, 45, true, false),
-            ("stale", nil, nil, true, false),
+        let cases: [(name: String, hasReading: Bool, stale: Bool, badge: Bool, low: Bool)] = [
+            ("full", true, false, false, false),
+            ("low", true, false, false, true),
+            ("other-low", true, false, true, false),
+            ("both-low", true, false, true, true),
+            ("stale-reading", true, true, false, false),
+            ("stale", false, true, false, false),
         ]
 
-        for provider in Provider.allCases {
-            for entry in cases {
-                let image = IconRenderer.makeIcon(
-                    provider: provider,
-                    primaryRemaining: entry.primary,
-                    weeklyRemaining: entry.weekly,
-                    stale: entry.stale,
-                    otherProviderLow: entry.badge
-                )
-                let url = root.appendingPathComponent("\(provider.rawValue)-\(entry.name).png")
-                guard Self.writePNG(image, to: url) else {
-                    print("failed to write \(url.path)")
-                    continue
-                }
-                print("wrote \(url.path)")
+        for entry in cases {
+            let image = IconRenderer.makeIcon(
+                hasReading: entry.hasReading,
+                stale: entry.stale,
+                otherProviderLow: entry.badge,
+                runningLow: entry.low
+            )
+            let url = root.appendingPathComponent("\(entry.name).png")
+            guard Self.writePNG(image, to: url) else {
+                print("failed to write \(url.path)")
+                continue
             }
+            print("wrote \(url.path)")
         }
     }
 
     /// Template images carry alpha only, so tint them white on a transparent layer first and
     /// then composite that onto a dark ground — the way the menu bar renders them in dark mode.
+    /// The red running-low icon is not a template and keeps its own color.
     private static func writePNG(_ image: NSImage, to url: URL) -> Bool {
         let scale: CGFloat = 8
         let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -50,8 +44,10 @@ enum IconDump {
         tinted.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
         image.draw(in: bounds)
-        NSColor.white.set()
-        bounds.fill(using: .sourceAtop)
+        if image.isTemplate {
+            NSColor.white.set()
+            bounds.fill(using: .sourceAtop)
+        }
         tinted.unlockFocus()
 
         guard let rep = NSBitmapImageRep.rgba(
