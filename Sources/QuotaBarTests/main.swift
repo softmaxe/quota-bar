@@ -232,6 +232,7 @@ await ClaudeRefreshTests.run()
 await CodexRefreshTests.run()
 ProviderRefreshCooldownTests.run()
 RefreshRowPolicyTests.run()
+MenuBarProviderPolicyTests.run()
 await MainActor.run { SettingsTests.run() }
 PaceTests.run()
 HistoricalPaceTests.run()

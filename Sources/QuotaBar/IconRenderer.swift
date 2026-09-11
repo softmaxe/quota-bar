@@ -1,6 +1,6 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/IconRenderer.swift
-// Kept: the 18pt @2x pixel grid, the capsule track/fill/stroke bar, the dual- and single-lane
-// layouts, and the Codex "face" and Claude "crab" decorations.
+// Kept: the 18pt @2x pixel grid and the capsule track/fill/stroke bar.
+// Replaced: the Codex "face" and Claude "crab" with one robot shared by both providers.
 // Dropped: the Gemini/Antigravity/Factory/Warp decorations, blink/wiggle/tilt animation,
 // status overlays, and the morph cache.
 
@@ -10,7 +10,6 @@ import AppKit
 enum IconRenderer {
     private static let outputSize = NSSize(width: 18, height: 18)
     private static let outputScale: CGFloat = 2
-    private static let canvasPx = Int(outputSize.width * outputScale)
 
     /// Everything is laid out in device pixels on a 2× grid, then converted to points, so
     /// edges land on pixel boundaries and the icon stays crisp at menu bar size.
@@ -32,8 +31,6 @@ enum IconRenderer {
         let w: Int
         let h: Int
 
-        var midXPx: Int { self.x + self.w / 2 }
-
         func rect() -> CGRect { IconRenderer.grid.rect(x: self.x, y: self.y, w: self.w, h: self.h) }
     }
 
@@ -49,6 +46,7 @@ enum IconRenderer {
         let primary: Int
         let weekly: Int
         let stale: Bool
+        let badge: Bool
     }
 
     private final class Cache: @unchecked Sendable {
@@ -88,18 +86,21 @@ enum IconRenderer {
     ///   - primaryRemaining: percentage left in the session window, 0...100.
     ///   - weeklyRemaining: percentage left in the weekly window, 0...100.
     ///   - stale: dims the icon when the last refresh failed.
+    ///   - otherProviderLow: raises the corner badge for the provider the icon is not drawing.
     static func makeIcon(
         provider: Provider,
         primaryRemaining: Double?,
         weeklyRemaining: Double?,
-        stale: Bool
+        stale: Bool,
+        otherProviderLow: Bool = false
     ) -> NSImage {
         // Quantize to whole percent so small fluctuations reuse a cached image.
         let key = CacheKey(
             provider: provider,
             primary: primaryRemaining.map { Int($0.rounded()) } ?? -1,
             weekly: weeklyRemaining.map { Int($0.rounded()) } ?? -1,
-            stale: stale
+            stale: stale,
+            badge: otherProviderLow
         )
         if let cached = self.cache.image(for: key) { return cached }
 
@@ -107,17 +108,54 @@ enum IconRenderer {
             provider: provider,
             primaryRemaining: primaryRemaining,
             weeklyRemaining: weeklyRemaining,
-            stale: stale
+            stale: stale,
+            otherProviderLow: otherProviderLow
         )
         self.cache.store(image, for: key, limit: Self.cacheLimit)
         return image
+    }
+
+    // MARK: - Robot
+
+    /// The robot's parts in device pixels, y up. The head is the session meter and the body the
+    /// weekly one; the antenna, ears and neck carry no data and exist so the outline reads as a
+    /// robot at 18pt. Every part is mirrored about the canvas centre except the badge.
+    private enum Robot {
+        static let head = RectPx(x: 5, y: 18, w: 26, h: 13)
+        static let headCornerPx = 3
+        static let body = RectPx(x: 1, y: 5, w: 34, h: 10)
+        static let bodyCornerPx = 2
+
+        static let frame: [RectPx] = [
+            RectPx(x: 16, y: 33, w: 4, h: 2), // antenna tip
+            RectPx(x: 17, y: 31, w: 2, h: 2), // antenna stem
+            RectPx(x: 2, y: 22, w: 3, h: 5), // left ear
+            RectPx(x: 31, y: 22, w: 3, h: 5), // right ear
+            RectPx(x: 16, y: 15, w: 4, h: 3), // neck
+        ]
+
+        /// The one thing that still tells the providers apart: Claude keeps the crab's tall eye
+        /// slits, Codex the face's square eyes.
+        static func eyes(for provider: Provider) -> [RectPx] {
+            switch provider {
+            case .claude: [RectPx(x: 11, y: 22, w: 2, h: 5), RectPx(x: 23, y: 22, w: 2, h: 5)]
+            case .codex: [RectPx(x: 10, y: 23, w: 4, h: 4), RectPx(x: 22, y: 23, w: 4, h: 4)]
+            }
+        }
+
+        /// Top-right, clear of the ear, with a ring cut around it so it stays a separate dot where
+        /// it overlaps the head's corner.
+        static let badgeCenterPx = (x: 32, y: 32)
+        static let badgeRadiusPx: CGFloat = 3
+        static let badgeGapPx: CGFloat = 1.5
     }
 
     private static func render(
         provider: Provider,
         primaryRemaining: Double?,
         weeklyRemaining: Double?,
-        stale: Bool
+        stale: Bool,
+        otherProviderLow: Bool
     ) -> NSImage {
         self.renderImage {
             let baseFill = NSColor.labelColor
@@ -125,18 +163,8 @@ enum IconRenderer {
             let trackStrokeAlpha: CGFloat = stale ? 0.28 : 0.44
             let fillColor = baseFill.withAlphaComponent(stale ? 0.55 : 1.0)
 
-            // Every lane of every provider spans the same 18pt, so switching providers does not
-            // resize the icon. The crab reaches that span with its arms, so its bar is narrower by
-            // exactly what the arms add; the Codex capsule is simply that wide.
-            let decoration: Decoration = provider == .codex ? .face : .crab
-            let spanPx = Self.canvasPx
-            let barWidthPx = spanPx - (decoration == .crab ? Self.crabArmWidthPx * 2 : 0)
-            let barXPx = (spanPx - barWidthPx) / 2
-
-            func drawBar(rectPx: RectPx, remaining: Double?, alpha: CGFloat = 1.0, decoration: Decoration = .none) {
+            func drawLane(rectPx: RectPx, cornerRadiusPx: Int, remaining: Double?, alpha: CGFloat) {
                 let rect = rectPx.rect()
-                // Claude reads better as a blocky critter; Codex stays a capsule.
-                let cornerRadiusPx = decoration == .crab ? 0 : rectPx.h / 2
                 let radius = Self.grid.pt(cornerRadiusPx)
 
                 let trackPath = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
@@ -161,142 +189,82 @@ enum IconRenderer {
                 baseFill.withAlphaComponent(trackStrokeAlpha * alpha).setStroke()
                 strokePath.stroke()
 
-                // Clip to the capsule and paint a plain rect so the progress edge stays straight.
-                if let remaining {
-                    let fillWidthPx = Self.fillWidthPixels(remaining: remaining, rectWidth: rectPx.w)
-                    if fillWidthPx > 0 {
-                        NSGraphicsContext.current?.cgContext.saveGState()
-                        trackPath.addClip()
-                        fillColor.withAlphaComponent(alpha).setFill()
-                        NSBezierPath(rect: Self.grid.rect(
-                            x: rectPx.x,
-                            y: rectPx.y,
-                            w: fillWidthPx,
-                            h: rectPx.h
-                        )).fill()
-                        NSGraphicsContext.current?.cgContext.restoreGState()
-                    }
-                }
-
-                switch decoration {
-                case .none:
-                    break
-                case .face:
-                    self.drawFace(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
-                case .crab:
-                    self.drawCrab(rectPx: rectPx, fillColor: fillColor, alpha: alpha)
-                }
+                // Clip to the lane and paint a plain rect so the progress edge stays straight.
+                guard let remaining else { return }
+                let fillWidthPx = Self.fillWidthPixels(remaining: remaining, rectWidth: rectPx.w)
+                guard fillWidthPx > 0 else { return }
+                NSGraphicsContext.current?.cgContext.saveGState()
+                trackPath.addClip()
+                fillColor.withAlphaComponent(alpha).setFill()
+                NSBezierPath(rect: Self.grid.rect(
+                    x: rectPx.x,
+                    y: rectPx.y,
+                    w: fillWidthPx,
+                    h: rectPx.h
+                )).fill()
+                NSGraphicsContext.current?.cgContext.restoreGState()
             }
 
-            // The weekly lane carries no decoration, so it takes the full span. When a plan has
-            // no session limit, the upper lane stays full to communicate that it is unrestricted.
-            let topRectPx = RectPx(x: barXPx, y: 19, w: barWidthPx, h: 12)
-            let bottomRectPx = RectPx(x: 0, y: 5, w: spanPx, h: 8)
-            // One meaningful quota should read as one meter: reserving an unusable second lane
-            // would make 46% remaining look like roughly 23% of the icon.
-            let singleRectPx = RectPx(x: barXPx, y: 14, w: barWidthPx, h: 16)
+            // No reading at all: an empty, faded robot, so the icon still shows the app is alive.
+            let hasReading = primaryRemaining != nil || weeklyRemaining != nil
+            let alpha: CGFloat = hasReading ? 1 : 0.45
+            // With a weekly reading, a missing session is a plan without one, so the head stays
+            // full to say it is unrestricted.
+            let headRemaining = weeklyRemaining == nil ? primaryRemaining : (primaryRemaining ?? 100)
 
-            if let weeklyRemaining {
-                drawBar(rectPx: topRectPx, remaining: primaryRemaining ?? 100, decoration: decoration)
-                drawBar(rectPx: bottomRectPx, remaining: weeklyRemaining)
-            } else if let primaryRemaining {
-                drawBar(rectPx: singleRectPx, remaining: primaryRemaining, decoration: decoration)
-            } else {
-                // No data at all: an empty track, so the icon still shows the app is alive.
-                drawBar(rectPx: singleRectPx, remaining: nil, alpha: 0.45, decoration: decoration)
+            drawLane(
+                rectPx: Robot.head,
+                cornerRadiusPx: Robot.headCornerPx,
+                remaining: headRemaining,
+                alpha: alpha
+            )
+            // A session reading on its own leaves the body faded rather than as an empty meter,
+            // which would read as a weekly window run dry.
+            drawLane(
+                rectPx: Robot.body,
+                cornerRadiusPx: Robot.bodyCornerPx,
+                remaining: weeklyRemaining,
+                alpha: weeklyRemaining == nil ? 0.45 : alpha
+            )
+
+            fillColor.withAlphaComponent(alpha).setFill()
+            for part in Robot.frame {
+                NSBezierPath(rect: part.rect()).fill()
+            }
+
+            let ctx = NSGraphicsContext.current?.cgContext
+            // Punch the eyes out of the head rather than painting over it, so they read on
+            // both a filled and an empty track.
+            ctx?.saveGState()
+            ctx?.setShouldAntialias(false)
+            for eye in Robot.eyes(for: provider) {
+                ctx?.clear(eye.rect())
+            }
+            ctx?.restoreGState()
+
+            if otherProviderLow {
+                let center = CGPoint(
+                    x: Self.grid.pt(Robot.badgeCenterPx.x),
+                    y: Self.grid.pt(Robot.badgeCenterPx.y)
+                )
+                func circle(radiusPx: CGFloat) -> NSBezierPath {
+                    let radius = radiusPx / Self.outputScale
+                    return NSBezierPath(ovalIn: CGRect(
+                        x: center.x - radius,
+                        y: center.y - radius,
+                        width: radius * 2,
+                        height: radius * 2
+                    ))
+                }
+                ctx?.saveGState()
+                ctx?.setBlendMode(.clear)
+                circle(radiusPx: Robot.badgeRadiusPx + Robot.badgeGapPx).fill()
+                ctx?.restoreGState()
+                // Full strength even when stale: it is about the other provider's reading.
+                baseFill.withAlphaComponent(1).setFill()
+                circle(radiusPx: Robot.badgeRadiusPx).fill()
             }
         }
-    }
-
-    /// How far the crab's arms extend past its bar on each side, in device pixels.
-    private static let crabArmWidthPx = 3
-
-    private enum Decoration: Equatable {
-        case none
-        /// Codex: square eye cutouts plus a small cap.
-        case face
-        /// Claude: side arms, four legs, tall vertical eye cutouts.
-        case crab
-    }
-
-    // MARK: - Decorations
-
-    private static func drawFace(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
-        let ctx = NSGraphicsContext.current?.cgContext
-        let eyeSizePx = 4
-        let eyeOffsetPx = 7
-        let eyeCenterYPx = rectPx.y + rectPx.h / 2
-        let centerXPx = rectPx.midXPx
-
-        // Punch the eyes out of the bar rather than painting over it, so they read on
-        // both a filled and an empty track.
-        ctx?.saveGState()
-        ctx?.setShouldAntialias(false)
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx - eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.clear(Self.grid.rect(
-            x: centerXPx + eyeOffsetPx - eyeSizePx / 2,
-            y: eyeCenterYPx - eyeSizePx / 2,
-            w: eyeSizePx,
-            h: eyeSizePx
-        ))
-        ctx?.restoreGState()
-
-        let hatWidthPx = 18
-        let hatHeightPx = 4
-        fillColor.withAlphaComponent(alpha).setFill()
-        NSBezierPath(rect: Self.grid.rect(
-            x: centerXPx - hatWidthPx / 2,
-            y: rectPx.y + rectPx.h - hatHeightPx,
-            w: hatWidthPx,
-            h: hatHeightPx
-        )).fill()
-    }
-
-    private static func drawCrab(rectPx: RectPx, fillColor: NSColor, alpha: CGFloat) {
-        let ctx = NSGraphicsContext.current?.cgContext
-        fillColor.withAlphaComponent(alpha).setFill()
-
-        // Arms: barX is 3px, so 3px arms reach the canvas edge without clipping.
-        let armWidthPx = Self.crabArmWidthPx
-        let armHeightPx = max(0, rectPx.h - 6)
-        let armYPx = rectPx.y + 3
-        NSBezierPath(rect: Self.grid.rect(
-            x: rectPx.x - armWidthPx, y: armYPx, w: armWidthPx, h: armHeightPx
-        )).fill()
-        NSBezierPath(rect: Self.grid.rect(
-            x: rectPx.x + rectPx.w, y: armYPx, w: armWidthPx, h: armHeightPx
-        )).fill()
-
-        let legCount = 4
-        let legWidthPx = 2
-        let legHeightPx = 3
-        let legYPx = rectPx.y - legHeightPx
-        let stepPx = max(1, rectPx.w / (legCount + 1))
-        for index in 0..<legCount {
-            let centerXPx = rectPx.x + stepPx * (index + 1)
-            NSBezierPath(rect: Self.grid.rect(
-                x: centerXPx - legWidthPx / 2, y: legYPx, w: legWidthPx, h: legHeightPx
-            )).fill()
-        }
-
-        let eyeWidthPx = 2
-        let eyeHeightPx = 5
-        let eyeOffsetPx = 6
-        let eyeYPx = rectPx.y + rectPx.h - eyeHeightPx - 2
-        ctx?.saveGState()
-        ctx?.setShouldAntialias(false)
-        ctx?.clear(Self.grid.rect(
-            x: rectPx.midXPx - eyeOffsetPx - eyeWidthPx / 2, y: eyeYPx, w: eyeWidthPx, h: eyeHeightPx
-        ))
-        ctx?.clear(Self.grid.rect(
-            x: rectPx.midXPx + eyeOffsetPx - eyeWidthPx / 2, y: eyeYPx, w: eyeWidthPx, h: eyeHeightPx
-        ))
-        ctx?.restoreGState()
     }
 
     // MARK: - Bitmap

@@ -8,24 +8,28 @@ enum IconDump {
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
-        let cases: [(String, Double?, Double?, Bool)] = [
-            ("full", 100, 100, false),
-            ("codexbar-sample", 100, 86, false),
-            ("half", 50, 70, false),
-            ("low", 8, 20, false),
-            ("session-only", 64, nil, false),
-            ("stale", nil, nil, true),
+        let cases: [(name: String, primary: Double?, weekly: Double?, stale: Bool, badge: Bool)] = [
+            ("full", 100, 100, false, false),
+            ("codexbar-sample", 100, 86, false, false),
+            ("half", 50, 70, false, false),
+            ("low", 8, 20, false, false),
+            ("session-only", 64, nil, false, false),
+            ("weekly-only", nil, 72, false, false),
+            ("other-low", 88, 86, false, true),
+            ("stale-reading", 29, 45, true, false),
+            ("stale", nil, nil, true, false),
         ]
 
         for provider in Provider.allCases {
-            for (name, primary, weekly, stale) in cases {
+            for entry in cases {
                 let image = IconRenderer.makeIcon(
                     provider: provider,
-                    primaryRemaining: primary,
-                    weeklyRemaining: weekly,
-                    stale: stale
+                    primaryRemaining: entry.primary,
+                    weeklyRemaining: entry.weekly,
+                    stale: entry.stale,
+                    otherProviderLow: entry.badge
                 )
-                let url = root.appendingPathComponent("\(provider.rawValue)-\(name).png")
+                let url = root.appendingPathComponent("\(provider.rawValue)-\(entry.name).png")
                 guard Self.writePNG(image, to: url) else {
                     print("failed to write \(url.path)")
                     continue

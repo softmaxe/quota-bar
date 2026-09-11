@@ -260,6 +260,15 @@ enum CardDump {
         print("wrote \(index) reset toggle frames to \(root.path)")
     }
 
+    /// What the switch at the top of every dumped card reads for each provider: the tightest
+    /// window of the same loaded accounts the cards are drawn from.
+    static var sampleProviderRemaining: [Provider: Double] {
+        Dictionary(uniqueKeysWithValues: Provider.allCases.compactMap { provider in
+            MenuBarProviderPolicy.tightestRemaining(Self.loadedSnapshot(provider), now: Date())
+                .map { (provider, $0) }
+        })
+    }
+
     /// The loaded card each provider is drawn from, shared with the reset toggle dump so both
     /// carry the same account.
     static func loadedSnapshot(_ provider: Provider) -> UsageSnapshot {
@@ -402,7 +411,8 @@ enum CardDump {
                         ),
                         isRefreshing: false,
                         animatesFill: false,
-                        quotaResetDisplayMode: resetMode
+                        quotaResetDisplayMode: resetMode,
+                        providerRemaining: Self.sampleProviderRemaining
                     ),
                     named: name,
                     into: root
