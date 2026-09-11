@@ -23,14 +23,16 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Charts local Codex and Claude token use and estimated cost by day and model.
 - Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
 - Includes matching OpenCode and Pi Agent OpenAI OAuth usage under Codex.
-- Switches providers from one menu bar icon and refreshes each provider independently.
+- Shows one provider at a time as a robot in the menu bar. A switch at the top of the menu changes provider, and each provider refreshes on its own.
 - Uses built-in pricing, the public [models.dev](https://models.dev) catalog, and optional manual rate overrides.
 - Keeps the last good quota reading when a refresh fails.
 - Disables motion when macOS Reduce Motion is enabled.
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar icon states from full quota to stale data">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: full, half, low, the other provider running low, and no data">
 </p>
+
+The robot's head is the session window and its body is the weekly window. Both fill from the left with the share you have left. Claude's robot has tall eye slits and Codex's has square eyes. A plan without a session cap keeps the head full. A dot in the top-right corner means the provider you are not viewing has 10% or less left in one of its windows. The robot fades when a refresh fails, and shows empty when there is no data yet.
 
 ## Install
 
@@ -85,7 +87,7 @@ claude
 Then open QuotaBar:
 
 - Left-click the menu bar icon to view quota and local cost.
-- Right-click it to switch between Codex and Claude.
+- Switch between Codex and Claude from the top of the menu, or right-click the icon. Each side of the switch shows that provider's lowest remaining percentage. The number for the provider you are not viewing comes from its last refresh.
 - Open **Settings** to choose a refresh interval or edit model rates.
 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual `Refresh` receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.

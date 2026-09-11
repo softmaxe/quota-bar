@@ -53,7 +53,7 @@ echo "==> reset toggle gif"
 # app too. The crop keeps the two quota rows and drops the header and the chart under them, so
 # the only thing that changes in frame is the label being clicked.
 ffmpeg -v error -y -framerate 10 -i "$WORK/reset-toggle/frame-%04d.png" \
-  -filter_complex "fps=10,crop=560:268:0:112,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -filter_complex "fps=10,crop=560:268:0:138,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
   "$OUT/reset-toggle.gif"
 
 echo "==> motion strips"
@@ -70,11 +70,13 @@ strip chart-motion 500 chart-motion.gif
 strip label-toggle 500 label-toggle.gif
 
 echo "==> menu bar icons"
+# One robot per provider and row: full, half, low, the other provider running low (the corner
+# badge), and no data.
 ffmpeg -v error -y \
   -i "$WORK/icons/claude-full.png" -i "$WORK/icons/claude-half.png" -i "$WORK/icons/claude-low.png" \
-  -i "$WORK/icons/claude-session-only.png" -i "$WORK/icons/claude-stale.png" \
+  -i "$WORK/icons/claude-other-low.png" -i "$WORK/icons/claude-stale.png" \
   -i "$WORK/icons/codex-full.png" -i "$WORK/icons/codex-half.png" -i "$WORK/icons/codex-low.png" \
-  -i "$WORK/icons/codex-session-only.png" -i "$WORK/icons/codex-stale.png" \
+  -i "$WORK/icons/codex-other-low.png" -i "$WORK/icons/codex-stale.png" \
   -filter_complex "color=c=0x1a1a1a:s=680x232[bg];\
 [0:v]scale=72:72[a0];[1:v]scale=72:72[a1];[2:v]scale=72:72[a2];[3:v]scale=72:72[a3];[4:v]scale=72:72[a4];\
 [5:v]scale=72:72[b0];[6:v]scale=72:72[b1];[7:v]scale=72:72[b2];[8:v]scale=72:72[b3];[9:v]scale=72:72[b4];\

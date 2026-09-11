@@ -23,14 +23,16 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 - 按日期和模型展示本地 Codex、Claude 的 token 用量与预估成本。
 - Prices GPT-6 Astra Standard, Fast, and long-context usage, with editable Standard rates.
 - 将同一账号的 OpenCode 和 Pi Agent OpenAI OAuth 用量计入 Codex。
-- 在一个菜单栏图标中切换供应商，两家独立刷新。
+- 菜单栏里用一个机器人一次显示一家供应商。菜单顶部的切换按钮用来换供应商，两家各自刷新。
 - 使用内置费率、公开的 [models.dev](https://models.dev) 目录和手动费率。
 - 刷新失败时保留最后一次有效的额度数据。
 - 跟随 macOS 的 **减弱动态效果** 设置。
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="从额度充足到数据过期的菜单栏图标状态">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：满额、一半、快用完、另一家告急、无数据">
 </p>
+
+机器人的头部是 5 小时会话额度，身体是每周额度，都按剩余比例从左往右填充。Claude 的机器人是竖条眼，Codex 的是方眼。没有会话上限的套餐，头部保持满格。右上角出现圆点，说明当前没显示的那家有一个窗口剩余 10% 或更少。刷新失败时机器人变淡，还没有数据时显示为空。
 
 ## 安装
 
@@ -85,7 +87,7 @@ claude
 然后打开 QuotaBar：
 
 - 左键点击菜单栏图标，查看额度与本地成本。
-- 右键点击图标，在 Codex 和 Claude 之间切换。
+- 在菜单顶部切换 Codex 和 Claude，或者右键点击图标。切换按钮上显示每家剩余最少的那个窗口的百分比。当前没显示的那家，数字来自它上一次刷新。
 - 打开 **Settings**，修改刷新间隔或模型费率。
 
 读取 Claude 凭据时，macOS 可能弹出 Keychain 授权提示。如果手动 `Refresh` 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
