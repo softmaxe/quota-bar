@@ -34,6 +34,9 @@ struct MenuCardView: View {
     /// it: off screen there is no pointer, and the lift on hover is the whole of what tells a
     /// reader the label is a switch.
     var hoveredResetLabelWindow: QuotaWindowKind?
+    /// What each provider's tightest window has left, for the switch at the top of the card.
+    var providerRemaining: [Provider: Double] = [:]
+    var onProviderSelected: (Provider) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -61,9 +64,13 @@ struct MenuCardView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(self.provider.displayName)
-                .font(.system(size: 15, weight: .semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            // The switch names the provider, so the card needs no title of its own.
+            ProviderTabBar(
+                selection: self.provider,
+                remaining: self.providerRemaining,
+                onSelect: self.onProviderSelected
+            )
             HStack(spacing: 0) {
                 Text(self.statusLine)
                     .font(.system(size: 11))

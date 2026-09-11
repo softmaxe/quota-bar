@@ -5,7 +5,8 @@ import QuartzCore
 import SwiftUI
 
 /// A single `NSStatusItem` showing one provider at a time. A left-click opens that provider's
-/// card, a right-click switches to the next provider.
+/// card, a right-click switches to the next provider, and so does the switch at the top of the
+/// card.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let store: UsageStore
@@ -108,9 +109,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func apply(provider: Provider? = nil, displays: [Provider: ProviderDisplay]) {
         let active = provider ?? self.settings.menuBarProvider
         let display = displays[active] ?? ProviderDisplay()
+        let now = self.now()
         let item = self.materializedStatusItem()
-        item.button?.image = Self.icon(for: active, display: display)
-        item.button?.toolTip = Self.toolTip(for: active, display: display)
+        item.button?.image = Self.icon(for: active, displays: displays, now: now)
+        item.button?.toolTip = Self.toolTip(for: active, displays: displays, now: now)
         self.updateCard(provider: active, display: display)
     }
 
@@ -166,17 +168,33 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 #endif
 
     /// A failed refresh keeps the last good percentages but dims them, so the icon still carries
-    /// information instead of collapsing to an empty track.
-    private static func icon(for provider: Provider, display: ProviderDisplay) -> NSImage {
-        IconRenderer.makeIcon(
+    /// information instead of collapsing to an empty track. The badge is the one thing the icon
+    /// says about the provider it is not drawing.
+    private static func icon(
+        for provider: Provider,
+        displays: [Provider: ProviderDisplay],
+        now: Date
+    ) -> NSImage {
+        let display = displays[provider] ?? ProviderDisplay()
+        return IconRenderer.makeIcon(
             provider: provider,
             primaryRemaining: display.snapshot?.session?.remainingPercent,
             weeklyRemaining: display.snapshot?.weekly?.remainingPercent,
-            stale: display.isStale
+            stale: display.isStale,
+            otherProviderLow: MenuBarProviderPolicy.otherProviderRunningLow(
+                showing: provider,
+                snapshots: displays.compactMapValues(\.snapshot),
+                now: now
+            )
         )
     }
 
-    private static func toolTip(for provider: Provider, display: ProviderDisplay) -> String {
+    private static func toolTip(
+        for provider: Provider,
+        displays: [Provider: ProviderDisplay],
+        now: Date
+    ) -> String {
+        let display = displays[provider] ?? ProviderDisplay()
         var parts = [provider.displayName]
         if let snapshot = display.snapshot {
             if let session = snapshot.session {
@@ -189,8 +207,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
         if let error = display.error { parts.append(error) }
+        // Both providers wear the same robot, so the tooltip is where the other one is named.
+        let others = Self.tightestRemaining(displays, now: now).filter { $0.key != provider }
+        for other in Provider.allCases {
+            guard let remaining = others[other] else { continue }
+            parts.append("\(other.displayName) \(Formatters.percent(remaining)) left")
+        }
         parts.append("right-click to switch provider")
         return parts.joined(separator: " · ")
+    }
+
+    /// Each read provider's tightest window, for the card's switch and the tooltip.
+    private static func tightestRemaining(
+        _ displays: [Provider: ProviderDisplay],
+        now: Date
+    ) -> [Provider: Double] {
+        displays.compactMapValues { display in
+            display.snapshot.flatMap { MenuBarProviderPolicy.tightestRemaining($0, now: now) }
+        }
     }
 
     // MARK: - Clicks
@@ -248,19 +282,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        // Switch provider and Refresh act on the card the user is already looking at, so they are
-        // custom rows: AppKit dismisses a menu the moment a standard item is picked, and putting
-        // it back afterwards blinks. A custom row cannot carry a key equivalent — while a menu
-        // tracks, AppKit matches ⌘-something against the items itself and skips any item with a
-        // view — so these rows draw their own trailing shortcut content.
-        menu.addItem(self.actionRow(
-            title: "Switch provider",
-            icon: MenuIcons.rightButtonMouse(),
-            handler: { [weak self] in self?.settings.advanceMenuBarProvider() }
-        ))
-
-        // Subject to the cooldown, and says so: while it is running the row counts the wait down
-        // and refuses clicks, rather than dropping them without a word.
+        // Refresh acts on the card the user is already looking at, so it is a custom row: AppKit
+        // dismisses a menu the moment a standard item is picked, and putting it back afterwards
+        // blinks. A custom row cannot carry a key equivalent — while a menu tracks, AppKit
+        // matches ⌘-something against the items itself and skips any item with a view — so the
+        // row draws its own trailing content. It is subject to the cooldown, and says so: while
+        // that runs the row counts the wait down and refuses clicks, rather than dropping them
+        // without a word.
         let refreshItem = NSMenuItem()
         let refreshRow = MenuActionRowView(
             width: Self.cardWidth,
@@ -297,25 +325,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return menu
     }
 
-    private func actionRow(
-        title: String,
-        icon: NSImage?,
-        trailingIcon: NSImage? = nil,
-        trailingText: String? = nil,
-        handler: @escaping () -> Void
-    ) -> NSMenuItem {
-        let item = NSMenuItem()
-        item.view = MenuActionRowView(
-            width: Self.cardWidth,
-            title: title,
-            icon: icon,
-            trailingIcon: trailingIcon,
-            trailingText: trailingText,
-            handler: handler
-        )
-        return item
-    }
-
     /// The card both call sites build. `makeMenu` seeds it with an empty display that the first
     /// `updateCard` overwrites, so the two only ever differ in the data handed in.
     private func makeCard(
@@ -323,13 +332,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         display: ProviderDisplay,
         isRefreshing: Bool? = nil
     ) -> MenuCardView {
-        MenuCardView(
+        let now = self.now()
+        return MenuCardView(
             provider: provider,
             display: display,
             isRefreshing: isRefreshing ?? self.store.isRefreshing(provider),
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:],
-            now: self.now(),
+            now: now,
             costChartLabelMode: self.settings.costChartLabelMode,
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
@@ -346,6 +356,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 // card rather than only the row it landed on.
                 self?.settings.quotaResetDisplayMode = mode
                 self?.refreshOpenCard()
+            },
+            providerRemaining: Self.tightestRemaining(self.store.displays, now: now),
+            onProviderSelected: { [weak self] provider in
+                // The same switch a right-click makes: the icon, the card and the refresh all
+                // follow the setting.
+                self?.settings.menuBarProvider = provider
             }
         )
     }

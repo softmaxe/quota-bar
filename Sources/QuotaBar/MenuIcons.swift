@@ -74,33 +74,6 @@ enum MenuIcons {
         )
     }
 
-    /// `computermouse` with its right button filled in, because right-clicking the status item is
-    /// the gesture the row names. SF Symbols has no such variant, so the shape is drawn here: an
-    /// outlined body with the top-right quadrant painted inside it.
-    static func rightButtonMouse() -> NSImage {
-        let drawn = NSImage(size: Self.size, flipped: false) { _ in
-            let body = NSBezierPath(
-                roundedRect: NSRect(x: 4, y: 1.4, width: 8, height: 13.2),
-                xRadius: 4,
-                yRadius: 4
-            )
-            body.lineWidth = 1.3
-            NSColor.black.setStroke()
-            body.stroke()
-
-            // Clipping to the body keeps the filled button inside the rounded outline, which is
-            // also what draws the divider down the middle of the upper half.
-            NSGraphicsContext.saveGraphicsState()
-            body.addClip()
-            NSColor.black.setFill()
-            NSRect(x: 8.35, y: 8.1, width: 4, height: 7).fill()
-            NSGraphicsContext.restoreGraphicsState()
-            return true
-        }
-        drawn.isTemplate = true
-        return Self.centered(drawn)
-    }
-
     /// Repaints a template image in one colour, since a hand-drawn menu row tints its own icon
     /// instead of letting AppKit do it.
     static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {

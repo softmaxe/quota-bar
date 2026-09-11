@@ -71,8 +71,8 @@ struct SettingsView: View {
                         Text(provider.displayName).tag(provider)
                     }
                 }
-                Text("One item at a time. Pick it here, right-click the item, or use "
-                    + "\u{201C}Switch provider\u{201D} in its menu. Sign-in status does not change this.")
+                Text("One item at a time. Pick it here, right-click the item, or use the "
+                    + "switch at the top of its menu. Sign-in status does not change this.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
