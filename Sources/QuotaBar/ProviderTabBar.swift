@@ -26,6 +26,11 @@ struct ProviderTabBar: View {
     private static let segmentHeight: CGFloat = 22
     private static let inset: CGFloat = 2
     private static let cornerRadius: CGFloat = 7
+    private static let percentFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+    /// How far above the shared baseline the dot's center sits: halfway up the percentage's
+    /// figures, which SF draws at cap height. That also lands between the name's cap and x-height
+    /// middles, so the dot reads as centered on a mixed-case name too.
+    private static let dotLift = Self.percentFont.capHeight / 2
 
     /// A raised white chip on a light menu, a lighter wash on a dark one.
     private static let pillColor = Color(nsColor: NSColor(name: nil) { appearance in
@@ -87,10 +92,13 @@ struct ProviderTabBar: View {
 
     private func segment(_ provider: Provider) -> some View {
         let isSelected = provider == self.selection
-        return HStack(spacing: 5) {
+        // Baseline alignment, because the name and the percentage are different sizes: centering
+        // their line boxes left the smaller percentage a point above the name's baseline.
+        return HStack(alignment: .firstTextBaseline, spacing: 5) {
             Circle()
                 .fill(Theme.accent(for: provider))
                 .frame(width: 6, height: 6)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Self.dotLift }
             ZStack {
                 // Both weights are laid out, so the segment keeps one width while they trade
                 // places on selection.
@@ -99,7 +107,7 @@ struct ProviderTabBar: View {
             }
             if let remaining = self.remaining[provider] {
                 Text(Formatters.percent(remaining))
-                    .font(.system(size: 10.5).monospacedDigit())
+                    .font(Font(Self.percentFont))
                     .foregroundStyle(.secondary)
                     .fixedSize()
             }
