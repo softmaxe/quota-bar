@@ -95,20 +95,35 @@ struct ProviderTabBar: View {
 
     private func segment(_ provider: Provider) -> some View {
         let isSelected = provider == self.selection
+        let isEmphasized = isSelected || self.hovered == provider
+        let emphasisAnimation: Animation? = CostChartHoverMotion.systemReduceMotion
+            ? nil : .easeInOut(duration: 0.18)
         // Baseline alignment, because the name and the percentage are different sizes: centering
         // their line boxes left the smaller percentage a point above the name's baseline.
         return HStack(alignment: .firstTextBaseline, spacing: 5) {
             Circle()
                 .fill(Theme.accent(for: provider))
+                .opacity(isEmphasized ? 1 : CostChartHighlightPolicy.restingOpacity)
                 .frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Self.dotLift }
-            // One weight at a time, so both gaps are exactly the stack's spacing. Reserving the
-            // semibold width under the regular name left the unselected segment's gaps a point
-            // and a half wider; the row re-centering by under a point is lost in the weight swap.
+            // Reserve the semibold width so emphasis never shifts the dot or percentage.
+            // Crossfade fixed glyphs instead of swapping font metrics in a single frame.
             Text(provider.displayName)
-                .font(.system(size: Self.nameSize, weight: isSelected ? .semibold : .regular))
+                .font(.system(size: Self.nameSize, weight: .semibold))
                 .lineLimit(1)
                 .fixedSize()
+                .hidden()
+                .overlay {
+                    ZStack {
+                        Text(provider.displayName)
+                            .font(.system(size: Self.nameSize, weight: .regular))
+                            .opacity(isEmphasized ? 0 : 1)
+                        Text(provider.displayName)
+                            .font(.system(size: Self.nameSize, weight: .semibold))
+                            .opacity(isEmphasized ? 1 : 0)
+                    }
+                    .fixedSize()
+                }
             if let remaining = self.remaining[provider] {
                 Text(Formatters.percent(remaining))
                     .font(Font(Self.percentFont))
@@ -116,7 +131,8 @@ struct ProviderTabBar: View {
                     .fixedSize()
             }
         }
-        .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.75))
+        .foregroundStyle(isEmphasized ? Color.primary : Color.primary.opacity(0.75))
+        .animation(emphasisAnimation, value: isEmphasized)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             // The wash an unselected segment carries under the pointer: it says "clickable"
@@ -124,7 +140,7 @@ struct ProviderTabBar: View {
             RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
                 .opacity(self.hovered == provider && !isSelected ? 1 : 0)
-                .animation(.easeOut(duration: 0.14), value: self.hovered)
+                .animation(emphasisAnimation, value: self.hovered)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)

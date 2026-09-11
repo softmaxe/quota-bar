@@ -70,14 +70,13 @@ strip chart-motion 500 chart-motion.gif
 strip label-toggle 500 label-toggle.gif
 
 echo "==> menu bar icons"
-# One row: normal, the provider on show running low (red), the other provider running low (the
-# corner badge), a failed refresh, and no data.
+# One row: normal, the provider on show running low (red), a failed refresh, and no data.
 ffmpeg -v error -y \
-  -i "$WORK/icons/full.png" -i "$WORK/icons/low.png" -i "$WORK/icons/other-low.png" \
+  -i "$WORK/icons/full.png" -i "$WORK/icons/low.png" \
   -i "$WORK/icons/stale-reading.png" -i "$WORK/icons/stale.png" \
-  -filter_complex "color=c=0x1a1a1a:s=680x144[bg];\
-[0:v]scale=72:72[a0];[1:v]scale=72:72[a1];[2:v]scale=72:72[a2];[3:v]scale=72:72[a3];[4:v]scale=72:72[a4];\
-[bg][a0]overlay=40:36[x0];[x0][a1]overlay=160:36[x1];[x1][a2]overlay=280:36[x2];[x2][a3]overlay=400:36[x3];[x3][a4]overlay=520:36" \
+  -filter_complex "color=c=0x1a1a1a:s=560x144[bg];\
+[0:v]scale=72:72[a0];[1:v]scale=72:72[a1];[2:v]scale=72:72[a2];[3:v]scale=72:72[a3];\
+[bg][a0]overlay=40:36[x0];[x0][a1]overlay=160:36[x1];[x1][a2]overlay=280:36[x2];[x2][a3]overlay=400:36" \
   -frames:v 1 "$OUT/menu-bar-icons.png"
 
 echo "==> settings"

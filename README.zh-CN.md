@@ -29,10 +29,10 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 - 跟随 macOS 的 **减弱动态效果** 设置。
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、另一家告急、刷新失败、无数据">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、刷新失败、无数据">
 </p>
 
-机器人图标用的是 Material Design Icons 的 `robot-excited`，也就是 Omarchy agents 组件放在顶栏里的那个字形。当前查看的那家，5 小时或每周额度任一剩余 10% 或更少时，机器人变红。右上角出现圆点，说明当前没显示的那家有一个窗口剩余 10% 或更少。刷新失败时机器人变淡，还没有数据时更淡。
+机器人图标用的是 Material Design Icons 的 `robot-excited`，也就是 Omarchy agents 组件放在顶栏里的那个字形。当前查看的那家，5 小时或每周额度任一剩余 10% 或更少时，机器人变红。刷新失败时机器人变淡，还没有数据时更淡。
 
 ## 安装
 
@@ -89,6 +89,8 @@ claude
 - 点击菜单栏图标，查看额度与本地成本。
 - 在菜单顶部切换 Codex 和 Claude。切换按钮上显示每家剩余最少的那个窗口的百分比。当前没显示的那家，数字来自它上一次刷新。
 - 打开 **Settings**，修改刷新间隔或模型费率。
+
+选中或悬停时，供应商名称会平滑加粗，文字布局保持固定。旁边的色点与下方图表使用相同的高亮色；未选中且未悬停时，使用图表的淡色。
 
 读取 Claude 凭据时，macOS 可能弹出 Keychain 授权提示。如果手动 `Refresh` 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 

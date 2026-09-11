@@ -1,7 +1,7 @@
 import QuotaBarCore
 import Foundation
 
-/// What the provider switch, the corner badge, and the red icon read off each provider's last snapshot.
+/// What the provider switch and red icon read off each provider's last snapshot.
 enum MenuBarProviderPolicyTests {
     static func run() {
         let now = Date(timeIntervalSince1970: 10_000)
@@ -86,43 +86,6 @@ enum MenuBarProviderPolicyTests {
         Harness.expect(
             !MenuBarProviderPolicy.runningLow(snapshot(.codex, session: nil, weekly: nil), now: now),
             "a snapshot with no windows is not running low"
-        )
-
-        Harness.expect(
-            MenuBarProviderPolicy.otherProviderRunningLow(
-                showing: .codex,
-                snapshots: [.claude: low, .codex: unlimited],
-                now: now
-            ),
-            "ten percent left on the hidden provider raises the badge"
-        )
-        Harness.expect(
-            !MenuBarProviderPolicy.otherProviderRunningLow(
-                showing: .claude,
-                snapshots: [.claude: low, .codex: unlimited],
-                now: now
-            ),
-            "the provider on show never badges itself"
-        )
-        Harness.expect(
-            !MenuBarProviderPolicy.otherProviderRunningLow(
-                showing: .codex,
-                snapshots: [.claude: claude],
-                now: now
-            ),
-            "a hidden provider with room left raises nothing"
-        )
-        Harness.expect(
-            !MenuBarProviderPolicy.otherProviderRunningLow(
-                showing: .codex,
-                snapshots: [.claude: drainedThenReset],
-                now: now
-            ),
-            "a hidden provider whose low window has reset raises nothing"
-        )
-        Harness.expect(
-            !MenuBarProviderPolicy.otherProviderRunningLow(showing: .codex, snapshots: [:], now: now),
-            "a provider never read raises nothing"
         )
     }
 }

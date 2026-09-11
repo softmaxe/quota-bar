@@ -16,7 +16,6 @@ enum IconRenderer {
     private struct CacheKey: Hashable {
         let hasReading: Bool
         let stale: Bool
-        let badge: Bool
         let runningLow: Bool
     }
 
@@ -45,21 +44,18 @@ enum IconRenderer {
     /// - Parameters:
     ///   - hasReading: false before the first snapshot arrives, which fades the robot.
     ///   - stale: dims the icon when the last refresh failed.
-    ///   - otherProviderLow: raises the corner badge for the provider the icon is not drawing.
     ///   - runningLow: paints the icon red for the provider on show.
     static func makeIcon(
         hasReading: Bool,
         stale: Bool,
-        otherProviderLow: Bool = false,
         runningLow: Bool = false
     ) -> NSImage {
-        let key = CacheKey(hasReading: hasReading, stale: stale, badge: otherProviderLow, runningLow: runningLow)
+        let key = CacheKey(hasReading: hasReading, stale: stale, runningLow: runningLow)
         if let cached = self.cache.image(for: key) { return cached }
 
         let image = self.render(
             hasReading: hasReading,
             stale: stale,
-            otherProviderLow: otherProviderLow,
             runningLow: runningLow
         )
         self.cache.store(image, for: key)
@@ -133,47 +129,21 @@ enum IconRenderer {
             }
             return path
         }()
-
-        /// Top-right, clear of the antenna and the head's curve, with a ring cut around it so it
-        /// stays a separate dot at any size.
-        static let badgeCenter = CGPoint(x: 16, y: 16)
-        static let badgeRadius: CGFloat = 1.5
-        static let badgeGap: CGFloat = 0.75
     }
 
     private static func render(
         hasReading: Bool,
         stale: Bool,
-        otherProviderLow: Bool,
         runningLow: Bool
     ) -> NSImage {
         // The menu bar ignores a status button's contentTintColor on template images, so red has
-        // to be baked into a non-template image. The badge turns red with it: both providers are
-        // then low.
+        // to be baked into a non-template image.
         self.renderImage(template: !runningLow) {
             let baseFill = runningLow ? NSColor.systemRed : NSColor.labelColor
             // No reading at all: a faded robot, so the icon still shows the app is alive.
             let alpha: CGFloat = !hasReading ? 0.45 : (stale ? 0.55 : 1)
             baseFill.withAlphaComponent(alpha).setFill()
             Robot.path.fill()
-
-            guard otherProviderLow else { return }
-            func circle(radius: CGFloat) -> NSBezierPath {
-                NSBezierPath(ovalIn: CGRect(
-                    x: Robot.badgeCenter.x - radius,
-                    y: Robot.badgeCenter.y - radius,
-                    width: radius * 2,
-                    height: radius * 2
-                ))
-            }
-            let ctx = NSGraphicsContext.current?.cgContext
-            ctx?.saveGState()
-            ctx?.setBlendMode(.clear)
-            circle(radius: Robot.badgeRadius + Robot.badgeGap).fill()
-            ctx?.restoreGState()
-            // Full strength even when stale: it is about the other provider's reading.
-            baseFill.withAlphaComponent(1).setFill()
-            circle(radius: Robot.badgeRadius).fill()
         }
     }
 
