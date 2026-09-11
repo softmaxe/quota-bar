@@ -11,8 +11,9 @@ enum IconRenderingVerifier {
 
         Self.expectRobot(failures: &failures)
         Self.expectFading(failures: &failures)
-        Self.expectBadge(failures: &failures)
+        Self.expectNoCornerDot(failures: &failures)
         Self.expectRed(failures: &failures)
+        Self.expectMatchingGeometry(failures: &failures)
 
         VerifierReport.finish(
             failures,
@@ -40,14 +41,14 @@ enum IconRenderingVerifier {
                     "no reading did not fade the robot", &failures)
     }
 
-    /// The corner dot appears only when asked for, at full strength even on a stale robot.
-    private static func expectBadge(failures: inout [String]) {
+    /// The old hidden-provider alert sat here; neither healthy nor running-low icons draw it.
+    private static func expectNoCornerDot(failures: inout [String]) {
         let plain = IconRenderer.makeIcon(hasReading: true, stale: false)
-        let badged = IconRenderer.makeIcon(hasReading: true, stale: true, otherProviderLow: true)
+        let low = IconRenderer.makeIcon(hasReading: true, stale: false, runningLow: true)
         Self.expect(plain, x: 32, y: 4, { $0 <= 0.01 },
-                    "the badge showed without being raised", &failures)
-        Self.expect(badged, x: 32, y: 4, { $0 >= 0.99 },
-                    "a raised badge was not drawn at full strength", &failures)
+                    "the healthy robot still had a corner dot", &failures)
+        Self.expect(low, x: 32, y: 4, { $0 <= 0.01 },
+                    "the running-low robot had a corner dot", &failures)
     }
 
     /// Red is baked into a non-template image; everything else stays a template for the menu bar.
@@ -66,6 +67,43 @@ enum IconRenderingVerifier {
         }
     }
 
+    /// Template tinting and baked-in red must not change the robot's visible dimensions.
+    private static func expectMatchingGeometry(failures: inout [String]) {
+        let plain = IconRenderer.makeIcon(hasReading: true, stale: false)
+        let low = IconRenderer.makeIcon(hasReading: true, stale: false, runningLow: true)
+        guard plain.size == low.size else {
+            failures.append("healthy and running-low robots had different point sizes")
+            return
+        }
+        guard let plainBitmap = Self.bitmap(plain), let lowBitmap = Self.bitmap(low) else {
+            failures.append("healthy or running-low robot had no bitmap for geometry comparison")
+            return
+        }
+        guard plainBitmap.pixelsWide == lowBitmap.pixelsWide,
+              plainBitmap.pixelsHigh == lowBitmap.pixelsHigh else {
+            failures.append("healthy and running-low robots had different bitmap dimensions")
+            return
+        }
+
+        for y in 0..<plainBitmap.pixelsHigh {
+            for x in 0..<plainBitmap.pixelsWide {
+                let plainAlpha = plainBitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+                let lowAlpha = lowBitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+                if abs(plainAlpha - lowAlpha) > 0.002 {
+                    failures.append(
+                        "healthy and running-low robots had different geometry " +
+                        "(alpha \(plainAlpha) versus \(lowAlpha) at \(x),\(y))"
+                    )
+                    return
+                }
+            }
+        }
+    }
+
+    private static func bitmap(_ image: NSImage) -> NSBitmapImageRep? {
+        image.representations.compactMap { $0 as? NSBitmapImageRep }.first
+    }
+
     /// A missing bitmap reads as transparent, which fails every check that expects ink.
     private static func expect(
         _ image: NSImage,
@@ -75,7 +113,7 @@ enum IconRenderingVerifier {
         _ message: String,
         _ failures: inout [String]
     ) {
-        let bitmap = image.representations.compactMap { $0 as? NSBitmapImageRep }.first
+        let bitmap = Self.bitmap(image)
         let alpha = bitmap?.colorAt(x: x, y: y)?.alphaComponent ?? 0
         if !holds(alpha) {
             failures.append("\(message) (alpha \(alpha) at \(x),\(y))")

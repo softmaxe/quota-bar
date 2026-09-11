@@ -29,10 +29,10 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Disables motion when macOS Reduce Motion is enabled.
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, the other provider running low, refresh failed, and no data">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
 </p>
 
-The robot is the `robot-excited` mark from Material Design Icons, the same glyph Omarchy's agents widget puts in its bar. It turns red when the provider you are viewing has 10% or less left in its session or weekly window. A dot in the top-right corner means the provider you are not viewing has 10% or less left in one of its windows. The robot dims when a refresh fails and fades further when there is no data yet.
+The robot is the `robot-excited` mark from Material Design Icons, the same glyph Omarchy's agents widget puts in its bar. It turns red when the provider you are viewing has 10% or less left in its session or weekly window. The robot dims when a refresh fails and fades further when there is no data yet.
 
 ## Install
 
@@ -89,6 +89,8 @@ Then open QuotaBar:
 - Click the menu bar icon to view quota and local cost.
 - Switch between Codex and Claude from the top of the menu. Each side of the switch shows that provider's lowest remaining percentage. The number for the provider you are not viewing comes from its last refresh.
 - Open **Settings** to choose a refresh interval or edit model rates.
+
+Selected and hovered provider names fade into a heavier weight without shifting the label layout. Their colored dots use the same full-strength accent as a highlighted chart bar; idle dots use the chart's muted tone.
 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual `Refresh` receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 

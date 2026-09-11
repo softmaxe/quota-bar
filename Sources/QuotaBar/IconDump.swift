@@ -7,20 +7,17 @@ enum IconDump {
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
-        let cases: [(name: String, hasReading: Bool, stale: Bool, badge: Bool, low: Bool)] = [
-            ("full", true, false, false, false),
-            ("low", true, false, false, true),
-            ("other-low", true, false, true, false),
-            ("both-low", true, false, true, true),
-            ("stale-reading", true, true, false, false),
-            ("stale", false, true, false, false),
+        let cases: [(name: String, hasReading: Bool, stale: Bool, low: Bool)] = [
+            ("full", true, false, false),
+            ("low", true, false, true),
+            ("stale-reading", true, true, false),
+            ("stale", false, true, false),
         ]
 
         for entry in cases {
             let image = IconRenderer.makeIcon(
                 hasReading: entry.hasReading,
                 stale: entry.stale,
-                otherProviderLow: entry.badge,
                 runningLow: entry.low
             )
             let url = root.appendingPathComponent("\(entry.name).png")
