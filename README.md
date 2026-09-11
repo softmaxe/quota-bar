@@ -86,8 +86,8 @@ claude
 
 Then open QuotaBar:
 
-- Left-click the menu bar icon to view quota and local cost.
-- Switch between Codex and Claude from the top of the menu, or right-click the icon. Each side of the switch shows that provider's lowest remaining percentage. The number for the provider you are not viewing comes from its last refresh.
+- Click the menu bar icon to view quota and local cost.
+- Switch between Codex and Claude from the top of the menu. Each side of the switch shows that provider's lowest remaining percentage. The number for the provider you are not viewing comes from its last refresh.
 - Open **Settings** to choose a refresh interval or edit model rates.
 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual `Refresh` receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
