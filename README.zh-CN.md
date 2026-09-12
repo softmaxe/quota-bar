@@ -12,8 +12,10 @@
 一个 macOS 菜单栏应用，用来查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估成本。
 
 <p align="center">
-  <img src="docs/images/hero.png" width="620" alt="Claude 和 Codex 额度卡片">
+  <img src="docs/images/hero.png" width="620" alt="使用示例数据渲染的 Claude 和 Codex 额度卡片">
 </p>
+
+截图和动画由应用视图使用示例数据渲染，其中的模型名称、额度和成本均为示例。
 
 QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [CodexBar](https://github.com/steipete/CodexBar) 重写。
 
@@ -32,7 +34,7 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
   <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、刷新失败、无数据">
 </p>
 
-机器人图标用的是 Material Design Icons 的 `robot-excited`，也就是 Omarchy agents 组件放在顶栏里的那个字形。当前查看的那家，5 小时或每周额度任一剩余 10% 或更少时，机器人变红。刷新失败时机器人变淡，还没有数据时更淡。
+机器人图标用的是 Material Design Icons 的 `robot-excited`，也就是 Omarchy agents 组件放在顶栏里的那个字形。当前查看的那家，会话或每周额度任一剩余 10% 或更少时，机器人变红。刷新失败时机器人变淡，还没有数据时更淡。
 
 ## 安装
 
@@ -100,7 +102,7 @@ claude
 
 QuotaBar 会比较用量与已过时间。记录满三个可比较的每周窗口后，每周节奏会改用你的历史数据。额度采样保留 56 天。
 
-后台刷新可设为手动，或每 1、2、5、15、30 分钟一次，默认 5 分钟。两家供应商各有一分钟刷新冷却，避免重复请求和 HTTP 429。
+后台刷新可设为手动，或每 1、2、5、15、30 分钟一次，默认 5 分钟。定时刷新、打开菜单和点击 `Refresh` 都只更新当前选中的供应商。切换标签页时，会请求更新新选中的一家。两家各有独立的一分钟刷新冷却。
 
 会话或每周窗口重置后，下次打开卡片时会播放一段短动画。最后读数和尚未播放的动画会在重启后保留。
 
@@ -133,7 +135,9 @@ Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` ass
 
 第一次使用时，QuotaBar 会把 `~/Library/Caches/QuotaBar/cost-usage/` 下已有的成本数据库复制到下方列出的持久位置，已提交的 SQLite WAL 数据也会一起复制，旧缓存保持不动。只有已经扫描过的用量能在源会话删除后保留。QuotaBar 扫描之前就被删除的会话无法恢复。扫描器升级时保留已记录的历史，不会从源日志重建。
 
-对于 Codex，QuotaBar 还会缓存当前模型、服务层级和最后一次 token 总计，所以长会话追加内容时不会重新处理前面的记录。目录条目缺少缓存价格或长上下文价格时，Astra 使用完整的内置费率。内置费率来自 [Astra 官方模型价格](https://developers.openai.com/api/docs/models/gpt-6-astra)。
+对于 Codex，QuotaBar 还会缓存当前模型、服务层级和最后一次 token 总计，所以长会话追加内容时不会重新处理前面的记录。
+
+Standard 费率依次使用手动覆盖、价格目录和[内置价格表](Sources/QuotaBarCore/Cost/CostPricing.swift)。目录条目缺少缓存费率或长上下文费率时，Astra 回退到完整的内置价格。Codex Fast 用量使用单独的内置表，不受手动覆盖和目录费率影响；表中没有的 Fast 模型不计价。这些规则描述 QuotaBar 如何估算成本，不保证与供应商当前定价一致。
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="可编辑模型费率的价格设置">
@@ -143,7 +147,7 @@ Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` ass
 
 ## 隐私与网络
 
-QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会写入 CLI 的凭据存储。统计会使用时间、模型、token 数量、稳定记录 ID，以及匹配 OAuth 会话所需的账号 ID。prompt、回复和 reasoning 字段会被丢弃，不会写入 QuotaBar 缓存或上传。
+QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会直接写入 CLI 的凭据存储。手动恢复 Claude 凭据时，QuotaBar 可以启动 Claude Code，由后者更新自己的凭据。统计会使用时间、模型、token 数量、稳定记录 ID，以及匹配 OAuth 会话所需的账号 ID。prompt、回复和 reasoning 文本不会写入 QuotaBar 用量历史或上传。
 
 应用自己的数据保存在：
 

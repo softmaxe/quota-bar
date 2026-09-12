@@ -12,8 +12,10 @@
 A macOS menu bar app for checking Codex and Claude quota, reset times, local token usage, and estimated cost.
 
 <p align="center">
-  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards">
+  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards rendered with sample data">
 </p>
+
+The screenshots and animations use sample data rendered by the app's views. Their model names, quota, and costs are examples.
 
 QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [CodexBar](https://github.com/steipete/CodexBar).
 
@@ -100,7 +102,7 @@ Each available quota window shows the percentage left and its reset time. Click 
 
 QuotaBar compares consumption with time elapsed. After three comparable weekly windows, it uses your recorded history for the weekly pace instead. Samples are kept for 56 days.
 
-Background refresh can be manual or every 1, 2, 5, 15, or 30 minutes. The default is 5 minutes. Each provider has a one-minute refresh cooldown to avoid repeated requests and HTTP 429 responses.
+Background refresh can be manual or every 1, 2, 5, 15, or 30 minutes. The default is 5 minutes. Polling, opening the menu, and clicking `Refresh` update only the selected provider. Switching tabs requests an update for the newly selected provider. Each provider has its own one-minute refresh cooldown.
 
 When a session or weekly window resets, the next open plays a short reset animation. The last reading and pending animation survive an app restart.
 
@@ -133,7 +135,9 @@ The first scan of a large history may take time. QuotaBar keeps a compact SQLite
 
 On first use, QuotaBar copies any existing cost database from `~/Library/Caches/QuotaBar/cost-usage/` to the persistent location below, including committed SQLite WAL data. The old cache remains intact. Only usage already scanned can survive source deletion; sessions deleted before QuotaBar scanned them cannot be recovered. Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
 
-Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay its earlier records. Astra uses its complete built-in rates when a catalog entry omits cache or long-context prices. Its built-in rates follow the [official Astra model pricing](https://developers.openai.com/api/docs/models/gpt-6-astra).
+Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay its earlier records.
+
+Standard rates use manual overrides first, then the catalog, then the [built-in pricing table](Sources/QuotaBarCore/Cost/CostPricing.swift). Astra falls back to its complete built-in row when a catalog entry omits cache or long-context rates. Codex Fast usage uses a separate built-in table and ignores manual overrides and catalog rates. A Fast model without an entry stays unpriced. These rules describe QuotaBar's estimates, not a guarantee of current provider pricing.
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable model rates">
@@ -143,7 +147,7 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 
 ## Privacy and network access
 
-QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores. It uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning fields are discarded rather than stored in QuotaBar's usage history or uploaded.
+QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores itself. A manual Claude credential recovery can launch Claude Code, which may update its own credentials. QuotaBar uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning text are not stored in QuotaBar's usage history or uploaded.
 
 The app stores its own data here:
 
