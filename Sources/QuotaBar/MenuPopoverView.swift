@@ -50,6 +50,7 @@ struct MenuPopoverView: View {
             ScrollView(.vertical) {
                 self.model.card
                     .id(self.model.presentationID)
+                    .frame(width: 280, alignment: .topLeading)
                     .fixedSize(horizontal: false, vertical: true)
                     .background {
                         GeometryReader { geometry in
@@ -58,12 +59,14 @@ struct MenuPopoverView: View {
                     }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(width: 280, height: self.model.viewportHeight)
+            .frame(width: 280, height: self.model.viewportHeight, alignment: .topLeading)
             .onPreferenceChange(MenuContentHeightKey.self) { height in
                 let rounded = height.rounded(.up)
                 guard rounded > 0, abs(self.model.contentHeight - rounded) > 0.5 else { return }
-                self.model.contentHeight = rounded
-                self.model.onSizeChanged()
+                withTransaction(Transaction(animation: nil)) {
+                    self.model.contentHeight = rounded
+                    self.model.onSizeChanged()
+                }
             }
             Divider()
             VStack(spacing: 0) {
@@ -84,6 +87,7 @@ struct MenuPopoverView: View {
             .padding(.vertical, 6)
         }
         .frame(width: 280)
+        .frame(maxHeight: .infinity, alignment: .top)
         .environment(\.menuRefreshState, self.model.refreshState)
         .onExitCommand(perform: self.model.onClose)
     }

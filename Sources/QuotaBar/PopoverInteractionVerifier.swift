@@ -7,6 +7,15 @@ import SwiftUI
 @MainActor
 enum PopoverInteractionVerifier {
     private static let suite = "QuotaBarPopoverInteractionVerifier"
+    private static let positionTolerance: CGFloat = 0.75
+
+    private struct LayoutSample {
+        let headline: CGPoint
+        let reset: CGPoint
+        let popoverWidth: CGFloat
+        let popoverHeight: CGFloat
+        let contentHeight: CGFloat
+    }
 
     @MainActor
     private final class Requests {
@@ -108,6 +117,87 @@ enum PopoverInteractionVerifier {
             return Self.finish("the native popover did not open", scratch: scratch)
         }
         let model = hosting.rootView.model
+
+        // Press the controls exposed by the live hosting view, then measure its AppKit layout.
+        model.maximumHeight = 700
+        model.onSizeChanged()
+        RunLoopDrain.run(for: 0.05)
+        require(await Self.wait(until: { model.contentHeight > 0 }),
+                "the open popover did not measure its card")
+        guard let baseline = Self.sample(popover: popover, hosting: hosting, model: model) else {
+            return Self.finish("the open popover exposed no headline/reset layout probes", scratch: scratch)
+        }
+        func requireStable(_ label: String, against reference: LayoutSample = baseline) {
+            guard let current = Self.sample(popover: popover, hosting: hosting, model: model) else {
+                Self.finish("\(label): the live layout probes disappeared", scratch: scratch)
+            }
+            require(Self.near(current.headline, reference.headline),
+                    "\(label): the headline moved relative to the hosting view's top-left")
+            require(Self.near(current.reset, reference.reset),
+                    "\(label): the reset label moved relative to the hosting view's top-left")
+            require(abs(current.popoverWidth - 280) <= 0.5,
+                    "\(label): the native popover changed width")
+        }
+        require(abs(baseline.popoverWidth - 280) <= 0.5, "the native popover started at the wrong width")
+
+        for cycle in 1...3 {
+            require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                    "pace cycle \(cycle): the live disclosure did not receive a mouse click")
+            require(await Self.wait(until: { model.contentHeight > baseline.contentHeight + 30 }),
+                    "pace cycle \(cycle): expanding did not add real content")
+            for delay in [0.01, 0.04, 0.10, 0.18, 0.32] {
+                RunLoopDrain.run(for: delay)
+                requireStable("pace cycle \(cycle) expanded at \(delay)s")
+            }
+            require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                    "pace cycle \(cycle): the live disclosure could not collapse")
+            require(await Self.wait(until: { abs(model.contentHeight - baseline.contentHeight) <= 1 }),
+                    "pace cycle \(cycle): collapsing did not remove the detail content")
+            for delay in [0.01, 0.04, 0.10, 0.18, 0.32] {
+                RunLoopDrain.run(for: delay)
+                requireStable("pace cycle \(cycle) collapsed at \(delay)s")
+            }
+        }
+
+        for click in 1...8 {
+            require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                    "rapid pace click \(click): the live disclosure did not receive a mouse click")
+            RunLoopDrain.run(for: 0.04)
+            requireStable("rapid pace click \(click)")
+            require(click.isMultiple(of: 2)
+                    ? abs(model.contentHeight - baseline.contentHeight) <= 1
+                    : model.contentHeight > baseline.contentHeight + 30,
+                    "rapid pace click \(click): the card height did not follow the click")
+        }
+        require(await Self.wait(until: { abs(model.contentHeight - baseline.contentHeight) <= 1 }),
+                "rapid pace clicks did not restore the collapsed card height")
+        requireStable("rapid pace clicks settled")
+
+        guard let modeBaseline = Self.sample(popover: popover, hosting: hosting, model: model) else {
+            return Self.finish("the mode switch lost its layout probes", scratch: scratch)
+        }
+        for cycle in 1...3 {
+            for mode in [CostChartLabelMode.cost, .tokens] {
+                let label = mode == .cost ? "Cost" : "Tokens"
+                require(Self.press(label: label, in: hosting.view),
+                        "mode cycle \(cycle): the \(label) segment was not pressable")
+                require(await Self.wait(until: { settings.costChartLabelMode == mode }),
+                        "mode cycle \(cycle): the \(label) segment did not change the saved mode")
+                for delay in [0.01, 0.04, 0.10, 0.18, 0.35] {
+                    RunLoopDrain.run(for: delay)
+                    let context = "mode cycle \(cycle) \(label) at \(delay)s"
+                    requireStable(context, against: modeBaseline)
+                    guard let current = Self.sample(popover: popover, hosting: hosting, model: model) else {
+                        return Self.finish("\(context): layout probes disappeared", scratch: scratch)
+                    }
+                    require(abs(current.contentHeight - modeBaseline.contentHeight) <= 1,
+                            "\(context): the card height changed")
+                    require(abs(current.popoverHeight - modeBaseline.popoverHeight) <= 1,
+                            "\(context): the popover height changed")
+                }
+            }
+        }
+
         model.maximumHeight = 220
         model.onSizeChanged()
         RunLoopDrain.run(for: 0.05)
@@ -138,8 +228,93 @@ enum PopoverInteractionVerifier {
             VerifierReport.report(failure, label: "popover interaction verification")
             exit(1)
         }
-        print("Native Cmd-R, cooldown, and capped popover layout checks passed")
+        print("Native Cmd-R, disclosure, unit switching, and capped popover layout checks passed")
         exit(0)
+    }
+
+    private static func sample(
+        popover: NSPopover,
+        hosting: NSHostingController<MenuPopoverView>,
+        model: MenuPopoverModel
+    ) -> LayoutSample? {
+        let view = hosting.view
+        view.layoutSubtreeIfNeeded()
+        let probes = Self.layoutProbes(in: view)
+        guard let headline = probes.first(where: { $0.probeIdentifier == "headline" }),
+              let reset = probes.first(where: { $0.probeIdentifier == "reset" }) else { return nil }
+        func topLeft(of probe: QuotaLayoutProbeView) -> CGPoint {
+            let frame = probe.convert(probe.bounds, to: view)
+            return CGPoint(x: frame.minX, y: view.isFlipped ? frame.minY : view.bounds.maxY - frame.maxY)
+        }
+        return LayoutSample(
+            headline: topLeft(of: headline), reset: topLeft(of: reset),
+            popoverWidth: popover.contentSize.width, popoverHeight: popover.contentSize.height,
+            contentHeight: model.contentHeight
+        )
+    }
+
+    private static func layoutProbes(in view: NSView) -> [QuotaLayoutProbeView] {
+        view.subviews.flatMap { subview in
+            let own = subview as? QuotaLayoutProbeView
+            return (own.map { [$0] } ?? []) + Self.layoutProbes(in: subview)
+        }
+    }
+
+    private static func near(_ lhs: CGPoint, _ rhs: CGPoint) -> Bool {
+        abs(lhs.x - rhs.x) <= Self.positionTolerance
+            && abs(lhs.y - rhs.y) <= Self.positionTolerance
+    }
+
+    private static func pressProbe(_ identifier: String, in view: NSView) -> Bool {
+        guard let probe = Self.layoutProbes(in: view).first(where: { $0.probeIdentifier == identifier }),
+              let window = view.window else { return false }
+        let frame = probe.convert(probe.bounds, to: nil)
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        guard let down = NSEvent.mouseEvent(
+            with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ), let up = NSEvent.mouseEvent(
+            with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 0.01,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0
+        ) else { return false }
+        window.sendEvent(down)
+        window.sendEvent(up)
+        return true
+    }
+
+    private static func press(label: String, in view: NSView) -> Bool {
+        Self.accessibilityElements(in: view).contains { element in
+            guard Self.label(of: element) == label else { return false }
+            guard element.accessibilityActionNames().contains(.press) else { return false }
+            element.accessibilityPerformAction(.press)
+            return true
+        }
+    }
+
+    private static func label(of element: NSObject) -> String? {
+        let candidates = [
+            element.accessibilityAttributeValue(.title) as? String,
+            element.accessibilityAttributeValue(.description) as? String,
+            (element as? any NSAccessibilityProtocol)?.accessibilityLabel()
+        ]
+        return candidates.compactMap { $0 }.first(where: { !$0.isEmpty })
+    }
+
+    private static func accessibilityElements(in view: NSView) -> [NSObject] {
+        var visited: Set<ObjectIdentifier> = []
+        var result: [NSObject] = []
+        func visit(_ object: Any, depth: Int) {
+            guard depth < 40, let element = object as? NSObject else { return }
+            let identity = ObjectIdentifier(element)
+            guard visited.insert(identity).inserted else { return }
+            result.append(element)
+            let children = (element.accessibilityAttributeValue(.children) as? [Any])
+                ?? (element as? any NSAccessibilityProtocol)?.accessibilityChildren()
+                ?? []
+            for child in children { visit(child, depth: depth + 1) }
+        }
+        visit(view, depth: 0)
+        return result
     }
 }
 #endif
