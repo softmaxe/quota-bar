@@ -92,9 +92,11 @@ public struct UsageSnapshot: Sendable, Equatable {
 
 /// Result of one refresh attempt: either a snapshot or the reason it failed.
 public enum ProviderState: Sendable {
-    /// No credentials on this machine — the status item stays hidden.
+    /// No usable credentials on this machine.
     case signedOut(String)
     case failed(String)
+    /// A provider-enforced retry deadline. This remains structured so the UI never parses text.
+    case rateLimited(reason: String, retryAfter: Date)
     /// The provider stayed read-only, but an explicit Refresh may ask its credential owner to act.
     case recoveryRequired(String)
     case loaded(UsageSnapshot)

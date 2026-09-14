@@ -26,7 +26,10 @@ public enum ClaudeProvider {
     ) async -> ProviderState {
         // Refuse to spend a request while a previous 429 is still in force.
         if let until = await gate.blocked(.claude) {
-            return .failed(ClaudeFetchError.rateLimited(until).localizedDescription)
+            return .rateLimited(
+                reason: ClaudeFetchError.rateLimited(until).localizedDescription,
+                retryAfter: until
+            )
         }
 
         let credentials: ClaudeCredentials
@@ -59,6 +62,11 @@ public enum ClaudeProvider {
         } catch let error as ClaudeFetchError {
             if case let .rateLimited(retryAfter) = error {
                 await gate.recordRateLimit(.claude, retryAfter: retryAfter)
+                let until = await gate.blocked(.claude) ?? Date().addingTimeInterval(5 * 60)
+                return .rateLimited(
+                    reason: ClaudeFetchError.rateLimited(until).localizedDescription,
+                    retryAfter: until
+                )
             }
             guard case .unauthorized = error else {
                 return .failed(error.localizedDescription)
@@ -150,6 +158,11 @@ public enum ClaudeProvider {
         } catch let error as ClaudeFetchError {
             if case let .rateLimited(retryAfter) = error {
                 await gate.recordRateLimit(.claude, retryAfter: retryAfter)
+                let until = await gate.blocked(.claude) ?? Date().addingTimeInterval(5 * 60)
+                return .rateLimited(
+                    reason: ClaudeFetchError.rateLimited(until).localizedDescription,
+                    retryAfter: until
+                )
             }
             if case .unauthorized = error {
                 return .failed("Claude credential recovery produced a token the usage API rejected.")

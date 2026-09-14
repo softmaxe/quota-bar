@@ -144,6 +144,7 @@ struct PricingSettingsView: View {
                                 self.detail(row)
                                     .transition(self.detailTransition)
                             }
+                            self.rowErrors(row)
                             Divider().padding(.leading, 28)
                         }
                         .transition(self.rowTransition(index: index))
@@ -344,20 +345,24 @@ struct PricingSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("One-hour cache write and long-context rates")
 
-            self.rateField(row.id, \.input)
-            self.rateField(row.id, \.output)
-            self.rateField(row.id, \.cacheWrite)
-            self.rateField(row.id, \.cacheRead)
+            self.rateField(row.id, .input)
+            self.rateField(row.id, .output)
+            self.rateField(row.id, .cacheWrite)
+            self.rateField(row.id, .cacheRead)
 
-            Button {
-                self.model.reset(id: row.id)
+            Menu {
+                Button(row.hasDefault ? "Restore default rate" : "Clear custom rate") {
+                    self.model.reset(id: row.id)
+                }
             } label: {
-                Image(systemName: "arrow.uturn.backward")
+                Image(systemName: "ellipsis")
             }
-            .buttonStyle(.borderless)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .frame(width: 22)
-            .help("Restore the built-in rate")
-            .disabled(!row.hasDefault)
+            .help("Price actions for \(row.model)")
+            .accessibilityLabel("Price actions for \(row.model)")
+            .disabled(!self.model.canRestoreDefault(id: row.id) || self.model.saveStatus == .saving)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -370,7 +375,7 @@ struct PricingSettingsView: View {
             HStack(spacing: 8) {
                 Text("1-hour cache write")
                     .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.rateField(row.id, \.cacheWrite1h, placeholder: Self.rate(row.derivedCacheWrite1h))
+                self.rateField(row.id, .cacheWrite1h, placeholder: Self.rate(row.derivedCacheWrite1h))
                 Text("Empty bills it at 2× input, the ratio Anthropic publishes.")
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -379,7 +384,7 @@ struct PricingSettingsView: View {
             HStack(spacing: 8) {
                 Text("Long-context threshold")
                     .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.rateField(row.id, \.thresholdTokens, placeholder: "—")
+                self.rateField(row.id, .thresholdTokens, placeholder: "—")
                 Text("Tokens in one request. Empty means the model has a single tier.")
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -388,16 +393,16 @@ struct PricingSettingsView: View {
             HStack(alignment: .bottom, spacing: 8) {
                 Text("Rates above it")
                     .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.captionedField("Input", row.id, \.inputAbove)
-                self.captionedField("Output", row.id, \.outputAbove)
-                self.captionedField("Cache w", row.id, \.cacheWriteAbove)
+                self.captionedField("Input", row.id, .inputAbove)
+                self.captionedField("Output", row.id, .outputAbove)
+                self.captionedField("Cache w", row.id, .cacheWriteAbove)
                 self.captionedField(
                     "Cache 1h",
                     row.id,
-                    \.cacheWrite1hAbove,
+                    .cacheWrite1hAbove,
                     placeholder: Self.rate(row.derivedCacheWrite1hAbove)
                 )
-                self.captionedField("Cache r", row.id, \.cacheReadAbove)
+                self.captionedField("Cache r", row.id, .cacheReadAbove)
             }
 
             Text("An empty above-threshold rate falls back to the base rate on its left.")
@@ -412,23 +417,45 @@ struct PricingSettingsView: View {
     private func captionedField(
         _ caption: String,
         _ id: String,
-        _ keyPath: WritableKeyPath<PricingRow, String>,
+        _ field: PricingField,
         placeholder: String = "—"
     ) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(caption)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
-            self.rateField(id, keyPath, placeholder: placeholder)
+            self.rateField(id, field, placeholder: placeholder)
         }
     }
 
     private func rateField(
         _ id: String,
-        _ keyPath: WritableKeyPath<PricingRow, String>,
+        _ field: PricingField,
         placeholder: String = "—"
     ) -> some View {
-        RateField(placeholder, text: self.model.binding(for: id, keyPath: keyPath))
+        RateField(
+            placeholder,
+            text: self.model.binding(for: id, keyPath: field.keyPath),
+            accessibilityLabel: "\(self.model.modelName(for: id)), \(field.title), \(field.unit)",
+            error: self.model.error(for: id, field: field),
+            isDisabled: self.model.saveStatus == .saving
+        )
+    }
+
+    private func rowErrors(_ row: PricingRow) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(PricingField.allCases, id: \.self) { field in
+                if let error = self.model.error(for: row.id, field: field) {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.system(size: 10))
+        .padding(.leading, 30)
+        .padding(.trailing, 12)
+        .padding(.bottom, self.model.validationErrors[row.id] == nil ? 0 : 6)
     }
 
     private static func rate(_ value: Double?) -> String {
@@ -438,30 +465,43 @@ struct PricingSettingsView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            if let error = self.model.saveError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            } else {
-                Text(self.footerHint)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 2) {
+                if self.model.invalidFieldCount > 0 {
+                    Label("\(self.model.invalidFieldCount) invalid field\(self.model.invalidFieldCount == 1 ? "" : "s"). Changes not saved.",
+                          systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.red)
+                    Text("Your saved prices are unchanged.").foregroundStyle(.secondary)
+                } else if case .failed(let error) = self.model.saveStatus {
+                    Label("Save failed: \(error)", systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                    Text("Your edits are still here. Try Save again.").foregroundStyle(.secondary)
+                } else {
+                    Text(self.footerHint).foregroundStyle(.secondary)
+                }
             }
+            .font(.system(size: 11))
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)
-            Button("Reset all") { self.model.resetAll() }
+            Button("Discard") { self.model.discard() }
+                .disabled(!self.model.hasUnsavedChanges || self.model.saveStatus == .saving)
             Button("Save") {
                 Task { await self.model.save() }
             }
             .keyboardShortcut(.defaultAction)
-            .disabled(!self.model.hasUnsavedChanges)
+            .disabled(!self.model.hasUnsavedChanges || self.model.invalidFieldCount > 0
+                      || self.model.saveStatus == .saving)
         }
         .padding(12)
     }
 
     private var footerHint: String {
-        if self.model.lastSavedAt != nil {
+        if self.model.saveStatus == .saving {
+            return "Saving…"
+        }
+        if self.model.hasUnsavedChanges {
+            return "Unsaved changes. New rates apply only to usage recorded after saving."
+        }
+        if self.model.saveStatus == .saved {
             return "Saved. Usage already recorded keeps the prices it was billed at; "
                 + "the new rates apply from here on."
         }

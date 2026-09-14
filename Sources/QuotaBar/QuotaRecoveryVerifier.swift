@@ -258,47 +258,25 @@ enum QuotaRecoveryVerifier {
         Self.fillFailures() + Self.landingFailures() + Self.replayFailures() + Self.headlineFailures()
     }
 
-    /// What the headline above the bar owes the same timeline: the digits are the fill's own
-    /// easing, the blur belongs to the charge and nothing else, and every landing effect is over
-    /// when the clock stops.
+    /// The reading stays authoritative while its small color accent follows the landing.
     private static func headlineFailures() -> [String] {
         var failures: [String] = []
         let landing = QuotaCelebration.landing
         let duration = QuotaCelebration.duration
 
-        if QuotaNumberMotion.speed(at: 0) != 1 {
-            failures.append("the headline blur did not peak at the start of the charge")
-        }
-        if QuotaNumberMotion.speed(at: landing * 0.5) >= QuotaNumberMotion.speed(at: landing * 0.1) {
-            failures.append("the headline blur did not decay with the count")
-        }
-        if QuotaNumberMotion.speed(at: landing) != 0 || QuotaNumberMotion.speed(at: duration) != 0 {
-            failures.append("the headline was still blurred once the count had landed")
-        }
-
-        if QuotaNumberMotion.flash(at: landing - 0.01) != 0 {
+        if QuotaNumberMotion.accentOpacity(at: 0) != 0
+            || QuotaNumberMotion.accentOpacity(at: landing - 0.01) != 0 {
             failures.append("the headline washed warm before the landing")
         }
-        if QuotaNumberMotion.flash(at: landing) <= 0 {
+        if QuotaNumberMotion.accentOpacity(at: landing) <= 0 {
             failures.append("the headline did not take the landing beat")
         }
-        if QuotaNumberMotion.glow(at: landing - 0.01) != nil {
-            failures.append("the headline bloom rose before the landing")
-        }
-        if QuotaNumberMotion.glow(at: landing + 0.05) == nil {
-            failures.append("the headline bloom did not rise on the landing")
+        if QuotaNumberMotion.accentOpacity(at: duration) != 0 {
+            failures.append("the headline was still animating when the clock stopped")
         }
 
-        if QuotaNumberMotion.scale(at: landing) != 1 {
-            failures.append("the headline pop did not start from rest on the landing")
-        }
-        if QuotaNumberMotion.scale(at: landing + 0.1) <= 1 {
-            failures.append("the headline did not overshoot after the landing")
-        }
-        if QuotaNumberMotion.scale(at: duration) != 1
-            || QuotaNumberMotion.flash(at: duration) != 0
-            || QuotaNumberMotion.glow(at: duration) != nil {
-            failures.append("the headline was still animating when the clock stopped")
+        if duration > 0.9 || duration < landing {
+            failures.append("the reset feedback did not fit within the short settling timeline")
         }
 
         return failures

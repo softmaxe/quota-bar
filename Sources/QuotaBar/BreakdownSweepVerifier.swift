@@ -3,21 +3,18 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// Opening a day's model list sweeps the card's height while the rows fade in under it, because a
-/// menu has no animation of its own — `StatusItemController` steps the hosting view's frame and
-/// AppKit re-lays the menu out around each step.
+/// Opening the entire model list sweeps the card's height while the rows fade in under it.
 ///
 /// Everything above the breakdown has to hold still through that. It does only because the card is
 /// laid out at the height its own contents want and hangs from the top of the hosting view, so a
 /// sweep uncovers it; drop that and every step re-proposes a height to the whole card, and the
 /// chart and the lines above it shuffle their way through an animation happening beneath them.
-/// This renders the opened card at three points of the sweep and compares the pixels above the
-/// breakdown, which is that property and nothing else.
+/// This checks the natural height of both the section and card, then compares the pixels above the
+/// breakdown through six steps of the sweep.
 @MainActor
 enum BreakdownSweepVerifier {
     private static let label = "breakdown sweep verification"
-    /// Down to the last bar of the chart. Below this line the breakdown itself is drawing, which
-    /// is what the sweep is there to uncover.
+    /// The provider header and quota rows must not move as model rows appear below.
     private static let stillRegionHeight: CGFloat = 230
     private static let cardWidth: CGFloat = 280
 
@@ -35,33 +32,33 @@ enum BreakdownSweepVerifier {
             failures.append("opening the breakdown expected a taller card, got \(open) from \(collapsed)")
         }
 
-        // A selected day with one hidden model must only open one row, even when another chart
-        // day contains many more models. This is the layout reached after the chart label switches
-        // between tokens and cost; reserving the other day's rows leaves a blank block below
-        // "Show less".
+        // A selected five-model day opens exactly five rows, even when the latest day contains
+        // twelve models. The collapsed state shows no model rows.
         let unevenDisplay = ProviderDisplay(
             snapshot: CardDump.loadedSnapshot(provider),
             cost: Self.unevenCost(provider)
         )
         let layout = CostSectionView.breakdownLayout
-        let rowStripHeight = layout.rowsHeight(rows: 1)
+        let rowStripHeight = layout.rowsHeight(rows: 5)
         let selectedDayKey = unevenDisplay.cost?.days.first?.dayKey
-        if let cost = unevenDisplay.cost, let selectedDayKey {
-            let expandedSection = CostSectionView(
-                snapshot: cost,
-                previewTodayDayKey: cost.days.last?.dayKey,
-                isBreakdownExpanded: true,
-                breakdownOpenness: 1,
-                expandedBreakdownDayKey: selectedDayKey,
-                previewToggleHovered: true
-            )
-            if let highlightedDayKey = expandedSection.debugSelectedDayKey {
-                failures.append(
-                    "opening the breakdown off-bar expected no chart selection, got \(highlightedDayKey)"
-                )
-            }
-        }
         for mode in [CostChartLabelMode.tokens, .cost] {
+            if let cost = unevenDisplay.cost, let selectedDayKey {
+                let closedSectionHeight = Self.sectionHeight(of: Self.section(
+                    cost: cost, openness: 0, labelMode: mode
+                ))
+                let openSectionHeight = Self.sectionHeight(of: Self.section(
+                    cost: cost,
+                    openness: 1,
+                    labelMode: mode,
+                    expandedDayKey: selectedDayKey
+                ))
+                if abs(openSectionHeight - closedSectionHeight - rowStripHeight) > 0.5 {
+                    failures.append(
+                        "the \(mode.rawValue) section expected all five rows and no clipped content; "
+                            + "height grew \(openSectionHeight - closedSectionHeight)pt instead of \(rowStripHeight)pt"
+                    )
+                }
+            }
             let closedHeight = Self.height(of: Self.card(
                 provider: provider,
                 display: unevenDisplay,
@@ -78,12 +75,12 @@ enum BreakdownSweepVerifier {
             let growth = openHeight - closedHeight
             if abs(growth - rowStripHeight) > 0.5 {
                 failures.append(
-                    "opening a five-model day in \(mode.rawValue) mode expected \(rowStripHeight)pt of growth, got \(growth)pt"
+                    "opening the five-model day in \(mode.rawValue) mode expected \(rowStripHeight)pt of growth, got \(growth)pt"
                 )
             }
 
-            // A provider switch can invalidate the held day key while the menu stays open. The
-            // expanded card must fall back to a visible day so the detail and "Show less" remain.
+            // A refresh can invalidate the selected date. The expanded card falls back to the
+            // latest visible day, whose complete twelve-row list must fit.
             let fallbackHeight = Self.height(of: Self.card(
                 provider: provider,
                 display: unevenDisplay,
@@ -92,11 +89,28 @@ enum BreakdownSweepVerifier {
                 expandedDayKey: "missing-day"
             ))
             let fallbackGrowth = fallbackHeight - closedHeight
-            let expectedFallbackGrowth = layout.rowsHeight(rows: 8)
+            let expectedFallbackGrowth = layout.rowsHeight(rows: 12)
             if abs(fallbackGrowth - expectedFallbackGrowth) > 0.5 {
                 failures.append(
-                    "an unavailable expanded day in \(mode.rawValue) mode expected a visible-day fallback with \(expectedFallbackGrowth)pt of growth, got \(fallbackGrowth)pt"
+                    "an unavailable expanded day in \(mode.rawValue) mode expected the latest twelve rows "
+                        + "and \(expectedFallbackGrowth)pt of growth, got \(fallbackGrowth)pt"
                 )
+            }
+            if let cost = unevenDisplay.cost {
+                let fallbackSectionGrowth = Self.sectionHeight(of: Self.section(
+                    cost: cost,
+                    openness: 1,
+                    labelMode: mode,
+                    expandedDayKey: "missing-day"
+                )) - Self.sectionHeight(of: Self.section(
+                    cost: cost, openness: 0, labelMode: mode
+                ))
+                if abs(fallbackSectionGrowth - expectedFallbackGrowth) > 0.5 {
+                    failures.append(
+                        "the \(mode.rawValue) section expected all twelve fallback rows without clipping; "
+                            + "height grew \(fallbackSectionGrowth)pt"
+                    )
+                }
             }
         }
 
@@ -130,8 +144,25 @@ enum BreakdownSweepVerifier {
         VerifierReport.finish(
             failures,
             label: Self.label,
-            passed: "the card grew for the breakdown and held everything above it still while it did"
+            passed: "the entire model list fits when opened and the card remains stable above it"
         )
+    }
+
+    private static func section(
+        cost: CostSnapshot,
+        openness: Double,
+        labelMode: CostChartLabelMode,
+        expandedDayKey: String? = nil
+    ) -> some View {
+        CostSectionView(
+            snapshot: cost,
+            previewTodayDayKey: cost.days.last?.dayKey,
+            labelMode: labelMode,
+            isBreakdownExpanded: openness > 0,
+            breakdownOpenness: openness,
+            expandedBreakdownDayKey: expandedDayKey
+        )
+        .frame(width: Self.cardWidth - 28)
     }
 
     private static func card(
@@ -153,9 +184,7 @@ enum BreakdownSweepVerifier {
         )
     }
 
-    /// The selected first day has five models, while the latest visible day has twelve. Closed
-    /// cards may reserve a stable four-row block across hover changes; opened cards must fit the
-    /// selected day's full list rather than the busiest day's list.
+    /// The selected first day has five models, while the latest visible day has twelve.
     private static func unevenCost(_ provider: Provider) -> CostSnapshot {
         let sample = CardDump.busyCost(provider)
         guard let first = sample.days.first, let last = sample.days.last else { return sample }
@@ -199,12 +228,15 @@ enum BreakdownSweepVerifier {
         NSHostingView(rootView: card).fittingSize.height
     }
 
+    private static func sectionHeight(of section: some View) -> CGFloat {
+        NSHostingView(rootView: section).fittingSize.height
+    }
+
     /// The card drawn into a hosting view of `height` — one step of the sweep — as the raw pixels
     /// of the region that has to be identical in every step.
     private static func stillRegion(of card: MenuCardView, at height: CGFloat) -> Data? {
         let hosting = NSHostingView(rootView: card)
-        // The same clip the menu's own card has: what the sweep has not uncovered yet is cut off
-        // rather than drawn past the bottom edge.
+        // The card's visible frame clips rows that the sweep has not revealed yet.
         hosting.clipsToBounds = true
         hosting.frame = NSRect(x: 0, y: 0, width: Self.cardWidth, height: height)
         guard let rep = OffscreenCapture.render(hosting), let pixels = rep.bitmapData else {

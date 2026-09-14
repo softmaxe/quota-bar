@@ -1,13 +1,18 @@
 import QuotaBarCore
 import SwiftUI
 
+@MainActor
+final class SettingsSelection: ObservableObject {
+    @Published var tab: SettingsTab = .general
+}
+
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var pricing: PricingEditorModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var tab: SettingsTab = .general
+    @ObservedObject var selection: SettingsSelection = SettingsSelection()
     /// The pricing pane scans the cost database and refreshes the catalog when it first appears.
     /// Both panes live in the hierarchy so the switch can cross-fade, so that work is gated on
     /// the tab having actually been opened rather than on the view existing.
@@ -18,14 +23,20 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsTabBar(selection: self.$tab)
+            SettingsTabBar(selection: Binding(
+                get: { self.selection.tab },
+                set: { self.selection.tab = $0 }
+            ))
                 .background(Color(nsColor: .underPageBackgroundColor))
             Divider()
             self.panes
         }
         .frame(width: Self.paneWidth)
-        .onChange(of: self.tab) { _, newValue in
+        .onChange(of: self.selection.tab) { _, newValue in
             if newValue == .pricing { self.pricingWasOpened = true }
+        }
+        .onAppear {
+            if self.selection.tab == .pricing { self.pricingWasOpened = true }
         }
     }
 
@@ -42,10 +53,10 @@ struct SettingsView: View {
     }
 
     private func pane(_ tab: SettingsTab, @ViewBuilder content: () -> some View) -> some View {
-        let isActive = self.tab == tab
+        let isActive = self.selection.tab == tab
         return content()
             .opacity(isActive ? 1 : 0)
-            .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: self.tab)
+            .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: self.selection.tab)
             .disabled(!isActive)
             .allowsHitTesting(isActive)
             .accessibilityHidden(!isActive)

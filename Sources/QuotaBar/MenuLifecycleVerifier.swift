@@ -25,7 +25,7 @@ enum MenuLifecycleVerifier {
         NSApplication.shared.setActivationPolicy(.accessory)
         let settings = SettingsStore(defaults: defaults)
         let service = CostService(pricingOverlay: PricingOverlay())
-        let store = UsageStore(settings: settings, costService: service, clock: { 1_000 })
+        let store = UsageStore(settings: settings, costService: service, clock: { 1_000 }, recoveryDefaults: defaults)
         let started = ContinuousClock.now
         let controller = StatusItemController(
             store: store, settings: settings,
@@ -48,23 +48,22 @@ enum MenuLifecycleVerifier {
         RunLoopDrain.run()
         require(!controller.debugHasMenu, "a background update built the hidden menu")
 
-        let menu = NSMenu()
-        controller.menuWillOpen(menu)
+        controller.debugBeginPresentation()
         require(controller.debugHasMenu, "opening did not build the menu")
         require(controller.debugStatusLine() == "Refresh failed", "first open lost the latest state")
-        controller.menuDidClose(menu)
+        controller.debugEndPresentation()
         let updates = controller.debugCardUpdateCount
         display.isSignedOut = true
         store.debugSetDisplay(display, for: settings.menuBarProvider)
         RunLoopDrain.run()
         require(controller.debugCardUpdateCount == updates, "background updates laid out a closed card")
-        controller.menuWillOpen(menu)
+        controller.debugBeginPresentation()
         require(controller.debugStatusLine() == "Not signed in", "reopening showed stale state")
         require(controller.debugCardUpdateCount > updates, "reopening did not update the card")
 
         settings.menuBarProvider = Provider.allCases.first { $0 != settings.menuBarProvider }!
         require(controller.debugStatusLine() == "No data yet", "provider switch kept the old card")
-        controller.menuDidClose(menu)
+        controller.debugEndPresentation()
         print("Menu creation is deferred; closed cards stay idle and reopen with current state")
         finish(0)
     }

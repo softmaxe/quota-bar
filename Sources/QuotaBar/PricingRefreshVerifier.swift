@@ -59,7 +59,8 @@ enum PricingRefreshVerifier {
         let store = UsageStore(
             settings: settings, costService: service,
             fetchState: { _, _ in await fetches.fetchQuota() },
-            fetchCost: { _ in await fetches.fetchCost() }
+            fetchCost: { _ in await fetches.fetchCost() },
+            recoveryDefaults: defaults
         )
         let pricing = PricingEditorModel(costService: service)
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)

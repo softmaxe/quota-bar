@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings: self.settings,
             pricing: self.pricing
         )
+        self.controller?.installApplicationMenu()
         self.store.start()
         Log.ui.info("QuotaBar launched")
         print("QuotaBar launched — use the Quit menu item or Ctrl-C to stop.")
@@ -22,6 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         self.store.stop()
+    }
+
+    func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
+        self.controller?.applicationShouldTerminate(application) ?? .terminateNow
     }
 }
 
@@ -47,6 +52,9 @@ enum QuotaBarApp {
         // once its flag is present: the first match wins, and the order here is the order the
         // flags are checked in.
         let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
+            ("--verify-popover-interaction", PopoverInteractionVerifier.run),
+            ("--verify-provider-state", ProviderStateVerifier.run),
+            ("--verify-pricing-validation", PricingValidationVerifier.run),
             ("--verify-menu-lifecycle", MenuLifecycleVerifier.run),
             ("--verify-pricing-refresh", PricingRefreshVerifier.run),
             ("--benchmark-menu-startup", MenuLifecycleVerifier.benchmark),
@@ -54,7 +62,6 @@ enum QuotaBarApp {
             ("--verify-breakdown-sweep", BreakdownSweepVerifier.run),
             ("--verify-usage-bar-fill", UsageBarFillVerifier.run),
             ("--verify-icon-rendering", IconRenderingVerifier.run),
-            ("--verify-menu-pointer-follow", MenuPointerFollowVerifier.run),
             ("--verify-quota-recovery", QuotaRecoveryVerifier.run),
             ("--verify-relative-time", RelativeTimeVerifier.run),
             ("--verify-quota-reset-label", QuotaResetLabelVerifier.run),
@@ -68,8 +75,14 @@ enum QuotaBarApp {
             entry.run()
         }
 
+        if let state = values(after: "--preview-interface", count: 1)?.first
+            ?? (Bundle.main.object(forInfoDictionaryKey: "QuotaBarPreviewState") as? String) {
+            InterfacePreview.run(state: state)
+        }
+
         // `Scripts/readme_assets.sh` drives these. Each writes its frames and exits.
         let dumps: [(flag: String, run: @MainActor (String) -> Void)] = [
+            ("--dump-interaction-states", CardDump.dumpInteractionStates),
             ("--dump-icons", IconDump.run),
             ("--dump-card", CardDump.run),
             ("--dump-settings", CardDump.dumpSettings),

@@ -17,8 +17,8 @@ final class UsageStore: ObservableObject {
     private var refreshTasks: [Provider: Task<Void, Never>] = [:]
     private var costTasks: [Provider: Task<Void, Never>] = [:]
     private var pendingCostRefreshes: Set<Provider> = []
-    private let historyStore = UsageHistoryStore()
-    private let recovery = QuotaRecoveryTracker()
+    private let historyStore: UsageHistoryStore
+    private let recovery: QuotaRecoveryTracker
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
     private var providerObserver: AnyCancellable?
@@ -27,6 +27,7 @@ final class UsageStore: ObservableObject {
     /// each provider's own minute has to elapse before it is fetched again.
     private var cooldowns = ProviderRefreshCooldown()
     private let clock: () -> TimeInterval
+    private let dateClock: () -> Date
     private let fetchState: (Provider, ClaudeRefreshInteraction) async -> ProviderState
     private let fetchCost: (Provider) async -> CostSnapshot?
 
@@ -34,11 +35,17 @@ final class UsageStore: ObservableObject {
         settings: SettingsStore,
         costService: CostService,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        dateClock: @escaping () -> Date = Date.init,
         fetchState: ((Provider, ClaudeRefreshInteraction) async -> ProviderState)? = nil,
-        fetchCost: ((Provider) async -> CostSnapshot?)? = nil
+        fetchCost: ((Provider) async -> CostSnapshot?)? = nil,
+        historyStore: UsageHistoryStore? = nil,
+        recoveryDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.historyStore = historyStore ?? UsageHistoryStore()
+        self.recovery = QuotaRecoveryTracker(defaults: recoveryDefaults)
         self.clock = clock
+        self.dateClock = dateClock
         self.fetchState = fetchState ?? { await Self.fetch($0, interaction: $1) }
         self.fetchCost = fetchCost ?? { await costService.refresh($0) }
     }
@@ -92,9 +99,8 @@ final class UsageStore: ObservableObject {
         self.providerObserver = nil
     }
 
-    /// Refreshes the provider on screen. `force` is for refreshes that answer a change the user
-    /// just made rather than the passage of time, where serving the pre-change numbers would look
-    /// broken. It skips the cooldown but still starts it.
+    /// Refreshes the provider on screen. `force` only skips the local cooldown for an explicit
+    /// user-initiated credential recovery already requested by the provider.
     func refresh(
         force: Bool = false,
         interaction: ClaudeRefreshInteraction = .automatic
@@ -119,7 +125,12 @@ final class UsageStore: ObservableObject {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTasks[provider] == nil else { return }
-        guard self.claimRefresh(for: provider, force: force, at: self.clock()) else { return }
+        // Only a user click on a known credential-recovery state can skip the local cooldown.
+        // A server 429 remains authoritative, even for that click.
+        let allowsRecoveryBypass = force && interaction == .userInitiated
+            && self.displays[provider]?.canAttemptCredentialRecovery == true
+        guard self.serverCooldownRemaining(for: provider) == 0 else { return }
+        guard self.claimRefresh(for: provider, force: allowsRecoveryBypass, at: self.clock()) else { return }
 
         self.refreshingProviders.insert(provider)
 
@@ -158,8 +169,7 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Takes the cooldown for this provider, or reports that it is still running. A forced
-    /// refresh runs regardless but restarts the cooldown all the same.
+    /// Takes the local cooldown for this provider. A permitted recovery restarts it too.
     private func claimRefresh(for provider: Provider, force: Bool, at time: TimeInterval) -> Bool {
         guard !force else {
             self.cooldowns.recordRefresh(provider, at: time)
@@ -176,12 +186,18 @@ final class UsageStore: ObservableObject {
             return
         }
 
+        self.displays[provider, default: ProviderDisplay()].localScanStatus = .scanning
         self.costTasks[provider] = Task { [weak self, fetchCost] in
             let scanned = await fetchCost(provider)
             await MainActor.run {
                 guard let self else { return }
                 if let scanned {
                     self.displays[provider, default: ProviderDisplay()].cost = scanned
+                    self.displays[provider, default: ProviderDisplay()].localScanStatus =
+                        .completed(self.dateClock())
+                } else {
+                    self.displays[provider, default: ProviderDisplay()].localScanStatus =
+                        .failed("Local usage scan failed. Previous usage remains available.")
                 }
                 self.costTasks[provider] = nil
                 if self.pendingCostRefreshes.remove(provider) != nil {
@@ -197,6 +213,12 @@ final class UsageStore: ObservableObject {
         self.refreshCosts(for: self.settings.menuBarProvider, afterPricingChange: true)
     }
 
+    /// Retries only the selected provider's local usage scan. This has no quota cooldown and
+    /// shares the scan task with automatic and pricing-triggered work, so repeated clicks coalesce.
+    func retryLocalUsage() {
+        self.refreshCosts(for: self.settings.menuBarProvider)
+    }
+
     /// Seconds until the next refresh of the provider on screen would actually run. The Refresh
     /// row counts this down instead of accepting clicks it would drop.
     func refreshCooldownRemaining() -> TimeInterval {
@@ -204,7 +226,29 @@ final class UsageStore: ObservableObject {
     }
 
     func cooldownRemaining(for provider: Provider) -> TimeInterval {
-        self.cooldowns.remaining(provider, at: self.clock())
+        max(
+            self.cooldowns.remaining(provider, at: self.clock()),
+            self.serverCooldownRemaining(for: provider)
+        )
+    }
+
+    /// The same effective eligibility used by refresh(), expressed as a wall-clock date for UI.
+    func retryEligibleAt(for provider: Provider) -> Date? {
+        let remaining = self.cooldownRemaining(for: provider)
+        return remaining > 0 ? self.dateClock().addingTimeInterval(remaining) : nil
+    }
+
+    func canRefresh(_ provider: Provider) -> Bool {
+        guard !self.isRefreshing(provider) else { return false }
+        if self.displays[provider]?.canAttemptCredentialRecovery == true {
+            return self.serverCooldownRemaining(for: provider) == 0
+        }
+        return self.cooldownRemaining(for: provider) == 0
+    }
+
+    private func serverCooldownRemaining(for provider: Provider) -> TimeInterval {
+        guard let deadline = self.displays[provider]?.retryDeadline else { return 0 }
+        return max(0, deadline.timeIntervalSince(self.dateClock()))
     }
 
     /// Window resets that have not been shown yet. Consuming them arms the animation, so only the
@@ -230,22 +274,40 @@ final class UsageStore: ObservableObject {
     private func apply(state: ProviderState, to provider: Provider) {
         var display = self.displays[provider] ?? ProviderDisplay()
         switch state {
-        case .signedOut:
+        case let .signedOut(reason):
             display.snapshot = nil
             display.error = nil
+            display.failure = nil
+            display.signedOutReason = reason
             display.isSignedOut = true
             display.canAttemptCredentialRecovery = false
         case let .failed(reason):
             display.error = reason
+            display.failure = ProviderFailure(kind: .refresh, reason: reason)
+            display.signedOutReason = nil
+            display.isSignedOut = false
+            display.canAttemptCredentialRecovery = false
+        case let .rateLimited(reason, retryAfter):
+            display.error = reason
+            display.failure = ProviderFailure(
+                kind: .rateLimited,
+                reason: reason,
+                serverRetryAfter: retryAfter
+            )
+            display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false
         case let .recoveryRequired(reason):
             display.error = reason
+            display.failure = ProviderFailure(kind: .credentialRecovery, reason: reason)
+            display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = true
         case let .loaded(snapshot):
             display.snapshot = snapshot
             display.error = nil
+            display.failure = nil
+            display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false
             // Every reading of this provider, not just the ones the card is looking at: a window
@@ -261,6 +323,10 @@ final class UsageStore: ObservableObject {
             Log.ui.info("\(provider.rawValue, privacy: .public) signed out: \(reason, privacy: .public)")
         case let .failed(reason):
             Log.ui.error("\(provider.rawValue, privacy: .public) refresh failed: \(reason, privacy: .public)")
+        case let .rateLimited(reason, retryAfter):
+            Log.ui.warning(
+                "\(provider.rawValue, privacy: .public) rate-limited until \(retryAfter): \(reason, privacy: .public)"
+            )
         case let .recoveryRequired(reason):
             Log.ui.warning("\(provider.rawValue, privacy: .public) recovery required: \(reason, privacy: .public)")
         case let .loaded(snapshot):

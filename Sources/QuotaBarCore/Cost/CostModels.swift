@@ -110,6 +110,15 @@ public struct CostDay: Sendable, Equatable {
         self.byModel.values.reduce(into: TokenTotals()) { $0 += $1.tokens }
     }
 
+    /// A nil price means usage is unpriced, while an empty day is a known zero.
+    public var costAvailability: CostAvailability {
+        CostAvailability(
+            knownUSD: self.costUSD,
+            totalTokens: self.tokens.total,
+            unpricedTokens: self.unpricedTokens
+        )
+    }
+
     /// Source/model/tier rows that ran that day. Unpriced rows sort by token count behind every
     /// priced one.
     public var rankedModels: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
@@ -181,6 +190,53 @@ public struct CostSnapshot: Sendable, Equatable {
         self.hasUnpricedTokens = hasUnpricedTokens
         self.scannedAt = scannedAt
     }
+
+    public var windowCostAvailability: CostAvailability {
+        CostAvailability(
+            knownUSD: self.windowCostUSD,
+            totalTokens: self.windowTokens,
+            unpricedTokens: self.days.reduce(0) { $0 + $1.unpricedTokens }
+        )
+    }
+
+    public func costAvailability(forDayKey dayKey: String) -> CostAvailability {
+        self.days.first(where: { $0.dayKey == dayKey })?.costAvailability ?? .zero
+    }
+}
+
+/// Distinguishes a known zero, a partial estimate, and usage with no known price.
+public struct CostAvailability: Sendable, Equatable {
+    public enum State: Sendable, Equatable {
+        case priced
+        case partial
+        case unpriced
+    }
+
+    public let state: State
+    public let knownUSD: Double?
+    public let unpricedTokens: Int
+
+    public init(knownUSD: Double?, totalTokens: Int, unpricedTokens: Int) {
+        self.unpricedTokens = max(0, unpricedTokens)
+        if totalTokens <= 0 {
+            self.state = .priced
+            self.knownUSD = 0
+        } else if knownUSD == nil {
+            self.state = .unpriced
+            self.knownUSD = nil
+        } else if self.unpricedTokens <= 0 {
+            self.state = .priced
+            self.knownUSD = knownUSD
+        } else if self.unpricedTokens >= totalTokens {
+            self.state = .unpriced
+            self.knownUSD = nil
+        } else {
+            self.state = .partial
+            self.knownUSD = knownUSD
+        }
+    }
+
+    public static let zero = CostAvailability(knownUSD: 0, totalTokens: 0, unpricedTokens: 0)
 }
 
 package enum DayKey {

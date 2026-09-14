@@ -2,9 +2,12 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// The custom card hosted inside the status item's menu — the top half of CodexBar's popover.
-/// M1 renders the header and the two quota windows; cost, tokens and the chart arrive in M2.
+/// The 280 pt provider card hosted inside the status item's popover.
 struct MenuCardView: View {
+    @Environment(\.menuRefreshState) private var refreshState
+    @State private var copiedCommand = false
+    @State private var showsPaceDetails = false
+
     let provider: Provider
     let display: ProviderDisplay
     let isRefreshing: Bool
@@ -35,28 +38,31 @@ struct MenuCardView: View {
     /// reader the label is a switch.
     var hoveredResetLabelWindow: QuotaWindowKind?
     var onProviderSelected: (Provider) -> Void = { _ in }
+    var onRefresh: () -> Void = {}
+    var onOpenPricing: () -> Void = {}
+    var onRefreshLocalUsage: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             self.header
+            if !self.display.isSignedOut, let error = self.display.error {
+                self.refreshWarning(error)
+                    .padding(.top, 9)
+            }
             Divider().padding(.vertical, 8)
             self.content
+                .id(self.provider)
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 4)
         .frame(width: 280, alignment: .leading)
-        // The card is laid out at the height its own contents want, and hangs from the top of
-        // whatever the hosting view is currently sized to. Opening the breakdown sweeps that size
-        // over a third of a second, and without this every step of the sweep would re-propose a
-        // height to the whole card -- the chart and the lines above it would shuffle their way
-        // through an animation that is happening underneath them.
         .fixedSize(horizontal: false, vertical: true)
-        // `minHeight` is what makes this frame take the height it is offered rather than the one
-        // the card wants: without it the frame reports the card's own height, the hosting view
-        // finds a root taller than its bounds, and centres it -- so a sweep slides the whole card
-        // up and back down through the animation.
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+        .onChange(of: self.provider) { _, _ in
+            self.copiedCommand = false
+            self.showsPaceDetails = false
+        }
     }
 
     // MARK: - Header
@@ -83,12 +89,14 @@ struct MenuCardView: View {
     }
 
     private var statusLine: String {
-        if self.isRefreshing { return "Refreshing…" }
         if self.display.isSignedOut { return "Not signed in" }
+        if self.display.error != nil, let snapshot = self.display.snapshot {
+            return "Last successful update · \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
+        }
+        if self.isRefreshing { return "Refreshing…" }
         guard let snapshot = self.display.snapshot else {
             return self.display.error == nil ? "No data yet" : "Refresh failed"
         }
-        // Even after a failed refresh the age of the data on screen is what matters.
         return "Updated \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
     }
 
@@ -100,19 +108,158 @@ struct MenuCardView: View {
         self.display.snapshot?.planLabel
     }
 
-    private static func paceLine(for pace: UsagePace, context: UsagePace.Context) -> String {
+    private static func paceSummary(for pace: UsagePace, context: UsagePace.Context) -> String {
+        if pace.willLastToReset { return "Lasts until reset" }
         guard let eta = pace.etaLabel(context: context, durationText: Formatters.compactDuration) else {
             return pace.deltaLabel
         }
-        return "\(pace.deltaLabel) · \(eta)"
+        return (eta.components(separatedBy: " (").first ?? eta)
+            .replacingOccurrences(of: "Projected empty in ", with: "Empty in about ")
     }
 
     // MARK: - Body
 
+    private func refreshWarning(_ error: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(
+                self.display.snapshot == nil ? "Refresh failed" : "Refresh failed · Showing saved data",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.orange)
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if self.isRefreshing {
+                Label("Refreshing…", systemImage: "arrow.clockwise")
+                    .font(.system(size: 11))
+            } else if self.refreshState.isEnabled {
+                Button(self.display.canAttemptCredentialRecovery ? "Recover with Claude Code" : "Try again") {
+                    self.onRefresh()
+                }
+                .font(.system(size: 11, weight: .medium))
+                .buttonStyle(.link)
+            } else if let remaining = self.refreshState.trailingText {
+                Text("Try again in \(remaining)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var signInCommand: String {
+        switch self.provider {
+        case .codex: "codex login"
+        case .claude: "claude"
+        }
+    }
+
+    private var signInGuide: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sign in to \(self.provider.displayName)")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Use the \(self.provider.displayName) CLI in Terminal to sign in, then return here to check.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Text(self.signInCommand)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(self.copiedCommand ? "Copied" : "Copy command") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(self.signInCommand, forType: .string)
+                    self.copiedCommand = true
+                }
+                .font(.system(size: 11))
+                .accessibilityLabel("Copy \(self.signInCommand) command")
+            }
+            .padding(8)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+
+            Button(action: self.onRefresh) {
+                HStack(spacing: 6) {
+                    if self.isRefreshing { ProgressView().controlSize(.small) }
+                    Text(self.isRefreshing ? "Checking…" : "Check sign-in")
+                    if let remaining = self.refreshState.trailingText, !self.isRefreshing {
+                        Spacer(minLength: 4)
+                        Text(remaining).monospacedDigit()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(!self.refreshState.isEnabled)
+            .buttonStyle(.borderedProminent)
+            if let reason = self.display.signedOutReason, !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .task(id: self.copiedCommand) {
+            guard self.copiedCommand else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self.copiedCommand = false
+        }
+    }
+
+    @ViewBuilder
+    private var localUsage: some View {
+        if let cost = self.display.cost {
+            CostSectionView(
+                snapshot: cost,
+                labelMode: self.costChartLabelMode,
+                onLabelModeChanged: self.onCostChartLabelModeChanged,
+                isBreakdownExpanded: self.isCostBreakdownExpanded,
+                breakdownOpenness: self.costBreakdownOpenness,
+                expandedBreakdownDayKey: self.expandedCostBreakdownDayKey,
+                onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged,
+                onOpenPricing: self.onOpenPricing
+            )
+        }
+        switch self.display.localScanStatus {
+        case .idle:
+            if self.display.cost == nil {
+                Text("Local usage has not loaded yet.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        case .scanning:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(self.display.cost == nil ? "Scanning local usage…" : "Updating local usage…")
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        case .completed:
+            EmptyView()
+        case let .failed(reason):
+            VStack(alignment: .leading, spacing: 4) {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Retry local scan", action: self.onRefreshLocalUsage)
+                    .buttonStyle(.link)
+            }
+            .font(.system(size: 11))
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let snapshot = self.display.snapshot {
+            if self.display.isSignedOut {
+                self.signInGuide
+            } else {
+                if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
                     self.window(window: session, kind: .session)
                 } else if snapshot.sessionIsUnlimited {
@@ -126,40 +273,23 @@ struct MenuCardView: View {
                 if let weekly = snapshot.weekly {
                     self.window(window: weekly, kind: .weekly)
                 }
-                if snapshot.session == nil, snapshot.weekly == nil {
+                if snapshot.session == nil, snapshot.weekly == nil, !snapshot.sessionIsUnlimited {
                     Text("No quota windows reported.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
-
-                if let cost = self.display.cost {
-                    CostSectionView(
-                        snapshot: cost,
-                        labelMode: self.costChartLabelMode,
-                        onLabelModeChanged: self.onCostChartLabelModeChanged,
-                        isBreakdownExpanded: self.isCostBreakdownExpanded,
-                        breakdownOpenness: self.costBreakdownOpenness,
-                        expandedBreakdownDayKey: self.expandedCostBreakdownDayKey,
-                        onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged
-                    )
+                if snapshot.session != nil || snapshot.weekly != nil {
+                    self.paceDetails(for: snapshot)
                 }
-
-                // Only Codex reports credits at all, and the section is only worth the space
-                // when there is a balance left: with no credits the bar would sit empty at
-                // "0 left", which tells the user nothing their quota windows do not.
-                if let credits = snapshot.credits, credits.hasSpendableBalance {
+                }
+                if self.display.cost != nil || self.display.localScanStatus != .idle {
+                    if self.display.snapshot != nil { Divider().padding(.top, 2) }
+                    self.localUsage
+                }
+                if let credits = self.display.snapshot?.credits, credits.hasSpendableBalance {
                     Divider().padding(.top, 2)
                     CreditsSectionView(credits: credits)
                 }
-            }
-
-            // The error is appended, never a replacement: a rate-limited refresh should not blank
-            // out numbers that were correct a minute ago.
-            if let error = self.display.error {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.bottom, 6)
@@ -170,28 +300,75 @@ struct MenuCardView: View {
         kind: QuotaWindowKind
     ) -> some View {
         let presentation = kind.presentation
-        // Past weeks describe the real shape of usage better than the clock does, but only once
-        // enough of them are on record; until then this falls back to the linear model.
-        let pace = (presentation.paceContext == .weekly
-            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
-            : nil)
-            ?? UsagePace.evaluate(window: window, context: presentation.paceContext)
+        let pace = self.pace(for: window, kind: kind)
         return QuotaWindowRow(
             provider: self.provider,
             title: presentation.title,
             window: window,
-            pace: pace,
-            paceLine: pace.map { Self.paceLine(for: $0, context: presentation.paceContext) },
+            paceSummary: pace.map { Self.paceSummary(for: $0, context: presentation.paceContext) },
+            paceIsDeficit: pace?.stage.isAhead == true,
             animatesFill: self.animatesFill,
             celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
             celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
             now: self.now,
             resetDisplayMode: self.quotaResetDisplayMode,
             isResetLabelHovered: kind == self.hoveredResetLabelWindow,
-            onResetDisplayModeToggled: {
-                self.onQuotaResetDisplayModeChanged(self.quotaResetDisplayMode.toggled)
-            }
+            onResetDisplayModeChanged: self.onQuotaResetDisplayModeChanged
         )
+    }
+
+    private func pace(for window: UsageWindow, kind: QuotaWindowKind) -> UsagePace? {
+        let context = kind.presentation.paceContext
+        return (kind == .weekly
+            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
+            : nil)
+            ?? UsagePace.evaluate(window: window, context: context, now: self.now)
+    }
+
+    @ViewBuilder
+    private func paceDetails(for snapshot: UsageSnapshot) -> some View {
+        let sessionPace = snapshot.session.flatMap { self.pace(for: $0, kind: .session) }
+        let weeklyPace = snapshot.weekly.flatMap { self.pace(for: $0, kind: .weekly) }
+        if sessionPace != nil || weeklyPace != nil {
+            DisclosureGroup("Usage pace details", isExpanded: self.$showsPaceDetails) {
+                VStack(alignment: .leading, spacing: 9) {
+                    if let session = snapshot.session, let sessionPace {
+                        self.paceDetail(window: session, pace: sessionPace, kind: .session)
+                    }
+                    if let weekly = snapshot.weekly, let weeklyPace {
+                        self.paceDetail(window: weekly, pace: weeklyPace, kind: .weekly)
+                    }
+                }
+                .padding(.top, 5)
+            }
+            .font(.system(size: 11))
+        }
+    }
+
+    private func paceDetail(window: UsageWindow, pace: UsagePace, kind: QuotaWindowKind) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(kind.presentation.title) · \(pace.deltaLabel)")
+                .fontWeight(.medium)
+            if let eta = pace.etaLabel(
+                context: kind.presentation.paceContext,
+                durationText: Formatters.compactDuration
+            ) {
+                Text(eta.components(separatedBy: " · ").first ?? eta)
+            }
+            Text("Expected \(Formatters.percent(pace.expectedRemainingPercent)) left now")
+            if let multiplier = pace.speedMultiplierToReset {
+                Text(String(format: "%.1f× headroom at current pace", multiplier))
+            }
+            UsageProgressBar(
+                percent: window.remainingPercent,
+                tint: Theme.accent(for: self.provider),
+                pacePercent: pace.expectedRemainingPercent,
+                paceIsDeficit: pace.stage.isAhead,
+                animatesFill: false
+            )
+            .accessibilityLabel("\(kind.presentation.title) pace: \(pace.deltaLabel)")
+        }
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -204,15 +381,13 @@ private extension QuotaWindowKind {
     }
 }
 
-/// One quota window: the headline, the bar, and the pace line. It is its own view so the headline
-/// and the bar can share a reset — the bar owns the clock and publishes every frame into the relay
-/// held here, which is also how the headline follows the hidden replay it knows nothing about.
+/// One quota window with its authoritative reading above the bar and its reset control below.
 private struct QuotaWindowRow: View {
     let provider: Provider
     let title: String
     let window: UsageWindow
-    let pace: UsagePace?
-    let paceLine: String?
+    let paceSummary: String?
+    let paceIsDeficit: Bool
     let animatesFill: Bool
     let celebrationToken: Int
     let celebrationStartPercent: Double?
@@ -221,56 +396,72 @@ private struct QuotaWindowRow: View {
     let now: Date
     let resetDisplayMode: QuotaResetDisplayMode
     let isResetLabelHovered: Bool
-    let onResetDisplayModeToggled: () -> Void
+    let onResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void
 
     @StateObject private var celebration = QuotaCelebrationRelay()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                QuotaHeadline(
-                    title: self.title,
-                    percent: self.window.remainingPercent,
-                    tint: Theme.accent(for: self.provider),
-                    frame: self.celebration.frame
-                )
+            QuotaHeadline(
+                title: self.title,
+                percent: self.window.remainingPercent,
+                tint: Theme.accent(for: self.provider),
+                frame: self.celebration.frame
+            )
 #if DEBUG
-                .background {
-                    QuotaLayoutProbe(identifier: "headline")
-                }
-#endif
-                Spacer(minLength: 0)
-                if let resetsAt = self.window.resetsAt {
-                    ResetLabel(
-                        text: QuotaResetLabel.text(
-                            resetsAt: resetsAt,
-                            mode: self.resetDisplayMode,
-                            now: self.now
-                        ),
-                        previewHovered: self.isResetLabelHovered,
-                        onToggle: self.onResetDisplayModeToggled
-                    )
-                }
+            .background {
+                QuotaLayoutProbe(identifier: "headline")
             }
+#endif
             UsageProgressBar(
                 percent: self.window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
-                // The bar shows what is left, so the pace tip marks the remaining side too.
-                pacePercent: self.pace?.expectedRemainingPercent,
-                paceIsDeficit: self.pace?.stage.isAhead ?? false,
                 animatesFill: self.animatesFill,
                 celebrationToken: self.celebrationToken,
                 celebrationStartPercent: self.celebrationStartPercent,
                 allowsCelebrationReplay: true,
                 celebrationRelay: self.celebration
             )
-            if let paceLine = self.paceLine {
-                // One Text, not an HStack: split across views the line wraps mid-phrase.
-                Text(paceLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if self.paceSummary != nil || self.window.resetsAt != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        self.paceSummaryLabel
+                        Spacer(minLength: 0)
+                        self.resetMenu
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        self.paceSummaryLabel
+                        self.resetMenu
+                    }
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var paceSummaryLabel: some View {
+        if let paceSummary = self.paceSummary {
+            Text(paceSummary)
+                .font(.system(size: 11))
+                .foregroundStyle(self.paceIsDeficit ? Color.orange : Color.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    @ViewBuilder
+    private var resetMenu: some View {
+        if let resetsAt = self.window.resetsAt {
+            ResetLabel(
+                text: QuotaResetLabel.text(
+                    resetsAt: resetsAt,
+                    mode: self.resetDisplayMode,
+                    now: self.now
+                ),
+                mode: self.resetDisplayMode,
+                previewHovered: self.isResetLabelHovered,
+                onModeChanged: self.onResetDisplayModeChanged
+            )
         }
     }
 }
@@ -300,44 +491,46 @@ private struct UnlimitedWindowRow: View {
     }
 }
 
-/// The reset label doubles as its own switch: one click trades the countdown for the clock time
-/// it is counting down to, and back. The click cannot come from `.onTapGesture` — an NSMenu popup
-/// is never the key window, so SwiftUI's gestures never fire inside the card — so it arrives
-/// through the same always-active tracking view the cost chart uses.
-private struct ResetLabel: View {
+/// Both quota windows use the same saved reset-time mode.
+struct ResetLabel: View {
     let text: String
-    /// Held on by the frame dump, which has no pointer of its own.
+    let mode: QuotaResetDisplayMode
     var previewHovered = false
-    let onToggle: () -> Void
-
-    @State private var isHovered = false
-
-    private var showsHover: Bool { self.isHovered || self.previewHovered }
+    let onModeChanged: (QuotaResetDisplayMode) -> Void
 
     var body: some View {
-        Text(self.text)
-            .font(.system(size: 11))
-            // Nothing else on the card responds to the pointer this way, so the lift on hover is
-            // what tells the reader the label is worth clicking at all.
-            .foregroundStyle(self.showsHover ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .lineLimit(1)
-            .animation(.easeOut(duration: 0.12), value: self.showsHover)
+        Menu {
+            Picker("Reset time display", selection: Binding(
+                get: { self.mode },
+                set: self.onModeChanged
+            )) {
+                Text("Countdown").tag(QuotaResetDisplayMode.countdown)
+                Text("Clock time").tag(QuotaResetDisplayMode.clock)
+            }
+        } label: {
+            Text("\(self.text)  ▾")
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
             .overlay {
-                MouseLocationReader(
-                    onMoved: { location in
-                        let hovered = location != nil
-                        guard self.isHovered != hovered else { return }
-                        self.isHovered = hovered
-                    },
-                    onClicked: { _ in self.onToggle() }
-                )
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
             }
             .fixedSize(horizontal: true, vertical: false)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .controlSize(.small)
+        .font(.system(size: 11))
+        .fixedSize(horizontal: true, vertical: false)
 #if DEBUG
-            .background {
-                QuotaLayoutProbe(identifier: "reset")
-            }
+        .background {
+            QuotaLayoutProbe(identifier: "reset")
+        }
 #endif
+        .accessibilityLabel("Reset time display, \(self.text)")
     }
 }
 

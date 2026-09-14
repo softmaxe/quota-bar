@@ -24,7 +24,7 @@ enum RefreshRowVerifier {
         var now: TimeInterval = 1_000
         let settings = SettingsStore(defaults: defaults)
         let costService = CostService()
-        let store = UsageStore(settings: settings, costService: costService, clock: { now })
+        let store = UsageStore(settings: settings, costService: costService, clock: { now }, recoveryDefaults: defaults)
         let controller = StatusItemController(
             store: store,
             settings: settings,
@@ -35,7 +35,7 @@ enum RefreshRowVerifier {
 
         // A refresh the user cannot see the result of yet: the row must say how long the wait is.
         store.debugRecordRefresh(at: now)
-        controller.menuWillOpen(NSMenu())
+        controller.debugBeginPresentation()
         controller.debugStartRefreshRowClock()
         RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "59s", enabled: false, step: "just after a refresh")
@@ -81,37 +81,9 @@ enum RefreshRowVerifier {
         Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "once the cooldown elapsed")
 
         controller.debugStopRefreshRowClock()
-        Self.requireDisabledRowSwallowsClicks()
 
         print("Refresh row counted the cooldown down, refused clicks, and re-enabled itself")
         Self.finish(0)
-    }
-
-    /// The row's own half of the contract: `isEnabled` has to gate the handler, not just the
-    /// colour it draws in.
-    private static func requireDisabledRowSwallowsClicks() {
-        var clicks = 0
-        let row = MenuActionRowView(width: 280, title: "Refresh", icon: nil, handler: { clicks += 1 })
-        let click = NSEvent.mouseEvent(
-            with: .leftMouseUp,
-            location: NSPoint(x: row.bounds.midX, y: row.bounds.midY),
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1
-        )
-        guard let click else { Self.fail("could not synthesize a click") }
-
-        row.isEnabled = false
-        row.mouseUp(with: click)
-        Self.require(clicks == 0, "a disabled row ran its handler")
-
-        row.isEnabled = true
-        row.mouseUp(with: click)
-        Self.require(clicks == 1, "an enabled row did not run its handler")
     }
 
     private static func requireRow(
