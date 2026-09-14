@@ -30,7 +30,7 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 - 刷新失败时保留最后一次有效的额度数据，显示数据距今时间，并提供重试操作。
 - 支持键盘快捷键、明确的 Tokens / Cost 切换控件和图表日期选择。
 - 校验费率输入、保留编辑草稿，并在退出前询问如何处理未保存的修改。
-- 跟随 macOS 的 **减弱动态效果** 设置。
+- 遵循 macOS 的 **减弱动态效果** 设置，同时保留按钮按下和选中状态的视觉反馈。
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、刷新失败、无数据">
@@ -97,11 +97,13 @@ claude
 
 选中项使用高亮底色和加粗名称。悬停另一项时，只显示轻微底色并提亮色点，名称不加粗。切换时文字位置保持固定。
 
+左键按下时卡片打开，再次点击图标会立即关闭；右键则在松开时切换卡片。自定义按钮在按下时立即响应，标签切换在 180 毫秒内完成，展开控件的反馈在 160 毫秒内完成。多行内容同时出现，不逐行延迟。开启 **减弱动态效果** 后，自定义过渡动效会消失，但控件及状态反馈仍然保留。
+
 读取 Claude 凭据时，macOS 可能弹出 Keychain 授权提示。如果手动 `Refresh` 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 
 ## 额度统计方式
 
-每个可用的额度窗口都会显示剩余百分比和重置时间。打开重置时间控件，选择 **Countdown** 或 **Clock time**，即可同时切换两个窗口的倒计时或具体时间。展开 **Usage pace details**，可以查看额度储备、缺口和使用余量的计算。
+每个有限额的额度窗口都会显示剩余百分比和重置时间。无限额会话显示 **Session ∞** 和 **No limit**，没有倒计时。打开重置时间控件，选择 **Countdown** 或 **Clock time**，即可同时切换两个有限额窗口的倒计时或具体时间。展开 **Usage pace details**，可以查看额度储备、缺口和使用余量的计算。
 
 QuotaBar 会比较用量与已过时间。记录满三个可比较的每周窗口后，每周节奏会改用你的历史数据。额度采样保留 56 天。
 
@@ -109,7 +111,7 @@ QuotaBar 会比较用量与已过时间。记录满三个可比较的每周窗�
 
 会话或每周窗口重置后，下次打开卡片时会播放约 0.82 秒的额度条动画，标题中的百分比立即显示新读数。最后读数和尚未播放的动画会在重启后保留。
 
-卡片使用原生弹出面板，内容过长时可以滚动，底部操作保持可见。卡片打开时可以使用以下快捷键：
+卡片使用原生弹出面板，内容过长时可以滚动，底部操作保持可见。每次重新打开时，详情都会收起，卡片高度与当前内容一致。卡片打开时可以使用以下快捷键：
 
 | 快捷键 | 操作 |
 | --- | --- |
@@ -139,6 +141,8 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 在图表上方选择 **Tokens** 或 **Cost**。图表展示连续十个日历日，总计覆盖最近 30 天。悬停可以预览某一天，点击可以固定该日期；日期获得键盘焦点后，也可以用左右方向键切换。展开 **Model breakdown**，可以查看该日期的完整模型列表。
 
+固定日期后，可以点击其他日期栏或按方向键切换。关闭并重新打开卡片后，悬停预览会恢复。展开 **Model breakdown** 时，该日期也会保持固定，方便查看模型明细。
+
 缺失信息与零用量会分别显示：
 
 | 显示 | 含义 |
@@ -148,7 +152,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 | **—**、**Unpriced** | 已记录用量，但无法根据模型费率估算成本。 |
 | **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
 
-在 **Settings → Pricing** 中补充费率后，之后记录的用量会使用新费率。切换 Tokens / Cost 会保留选中的日期。
+在 **Settings → Pricing** 中补充费率后，之后记录的用量会使用新费率。切换 Tokens / Cost 会保留选中的日期，并同时更新柱形高度和读数。
 
 <p align="center">
   <img src="docs/images/chart-hover.gif" width="560" alt="图表按日期预览 token 总量，Model breakdown 默认折叠">
@@ -178,6 +182,8 @@ Standard 费率依次使用手动覆盖、价格目录和[内置价格表](Sourc
 ## 编辑模型费率
 
 打开 **Settings → Pricing**。费率单位是每百万 token 的美元价格。展开模型行，可以编辑一小时缓存写入费率、长上下文阈值，以及超过阈值后的费率。
+
+列表显示受支持的 API 模型，以及本地历史中仍没有可用费率的其他模型；它不是用过的所有模型的完整目录。点击列标题可以按该列排序；点击恢复默认顺序的按钮后，API 模型回到固定顺序，**Others** 中用量最多的模型排在前面。
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="价格设置，包含可编辑费率、展开的长上下文字段和各模型的操作菜单">
@@ -238,7 +244,8 @@ make test           # Run core assertions and UI/policy verifiers
 make probe          # Check both provider integrations
 make probe-cost     # Rescan local logs; may refresh model prices
 make benchmark-startup # Measure status-item construction offline in a debug build
-make benchmark-cost # Measure Codex scans with offline pricing; reads local logs
+make benchmark-cost # Benchmark Codex scans with offline pricing; reads local logs
+make benchmark-cost PROVIDER=claude # Benchmark Claude with the same offline pricing
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild screenshots, state examples, and GIFs; requires ffmpeg
 make clean
@@ -248,7 +255,18 @@ make clean
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。[实施记录](docs/design-implementation.md)列出了渲染命令和验证范围。
 
-如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**。发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 tag。workflow 会完成测试、打包 `arm64` ZIP，然后创建 GitHub Release。
+如需用示例额度和成本数据预览交互，运行：
+
+```bash
+make build
+.build/debug/QuotaBar --preview-interface loaded
+```
+
+将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。预览可以与已安装的应用同时运行，因此菜单栏会多出一个图标。
+
+如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**，并选择要构建的分支。手动运行会上传开发版 ZIP 和 SHA-256 文件作为 workflow artifacts，不会发布 Release。
+
+发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 tag。tag 决定应用版本号。workflow 会运行测试、打包 `arm64` ZIP、校验签名、版本、架构和 checksum，发布 GitHub Release，然后更新 `softmaxe/homebrew-tap`。tag 发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。确认 **Release** 和 **Update Homebrew tap** 都完成后，发布流程才算结束。
 
 ## 排查
 

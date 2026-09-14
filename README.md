@@ -30,7 +30,7 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Keeps the last good quota reading when a refresh fails, with its age and a retry action.
 - Provides keyboard shortcuts, a visible Tokens / Cost selector, and selectable chart dates.
 - Validates price edits, preserves drafts, and asks how to handle unsaved changes before quitting.
-- Disables motion when macOS Reduce Motion is enabled.
+- Respects macOS Reduce Motion while keeping pressed and selected states visible.
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
@@ -97,11 +97,13 @@ Then open QuotaBar:
 
 The selected tab has a highlighted background and a bold name. Hovering the other tab adds a subtle background and brightens its dot without making the name bold. Labels stay in place when you switch.
 
+The card opens on left mouse-down and closes immediately when you click the icon again. Right clicks toggle it on mouse-up. Custom buttons respond as you press them; tab selection settles within 180 ms, and disclosure feedback within 160 ms. Rows appear together without a stagger. Reduce Motion removes custom transitions while preserving the same controls and state feedback.
+
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual `Refresh` receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 
 ## How quota tracking works
 
-Each available quota window shows the percentage left and its reset time. Open the reset-time control and choose **Countdown** or **Clock time** for both windows. **Usage pace details** expands the reserve, deficit, and headroom calculation.
+Each limited quota window shows the percentage left and its reset time. An unlimited session shows **Session ∞** and **No limit** instead of a countdown. Open the reset-time control and choose **Countdown** or **Clock time** for both limited windows. **Usage pace details** expands the reserve, deficit, and headroom calculation.
 
 QuotaBar compares consumption with time elapsed. After three comparable weekly windows, it uses your recorded history for the weekly pace instead. Samples are kept for 56 days.
 
@@ -109,7 +111,7 @@ Background refresh can be manual or every 1, 2, 5, 15, or 30 minutes. The defaul
 
 When a session or weekly window resets, the next open plays a brief bar animation lasting about 0.82 seconds. The headline immediately shows the new reading. The last reading and pending animation survive an app restart.
 
-The card uses a native popover. Tall content scrolls while the actions at the bottom stay visible. Use these shortcuts while the card is open:
+The card uses a native popover. Tall content scrolls while the actions at the bottom stay visible. Each time you reopen the card, it starts with collapsed details at the current content height. Use these shortcuts while the card is open:
 
 | Shortcut | Action |
 | --- | --- |
@@ -139,6 +141,8 @@ QuotaBar calculates token and cost totals from local session data. It does not u
 
 Choose **Tokens** or **Cost** using the selector above the chart. The chart shows ten consecutive calendar days, while the totals cover the last 30 days. Hover to preview a day, click to hold that date, or use Left and Right Arrow when a date is focused. **Model breakdown** opens the complete model list for that day.
 
+Once a date is pinned, click another column or use the arrow keys to change it. Close and reopen the card to return to hover previews. Opening **Model breakdown** also keeps its date fixed while you inspect the rows.
+
 Missing information has a separate display from zero usage:
 
 | Display | Meaning |
@@ -148,7 +152,7 @@ Missing information has a separate display from zero usage:
 | **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
-Open **Settings → Pricing** to add missing rates for future usage. Changing units preserves the selected date.
+Open **Settings → Pricing** to add missing rates for future usage. Changing units preserves the selected date and updates the bar heights and readings together.
 
 <p align="center">
   <img src="docs/images/chart-hover.gif" width="560" alt="Chart date previews with token totals and a collapsed Model breakdown">
@@ -178,6 +182,8 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 ## Editing model prices
 
 Open **Settings → Pricing**. Rates are in USD per million tokens. Expand a model row to edit its one-hour cache write rate, long-context threshold, and rates above that threshold.
+
+The table lists supported API models and other models from your local history that have no available rate. It is not a complete catalog of every model you have used. Click a column heading to sort its values; the reset-order button restores the API model order and puts the most-used models first in **Others**.
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable rates, expanded long-context fields, and per-model action menus">
@@ -238,7 +244,8 @@ make test           # Run core assertions and UI/policy verifiers
 make probe          # Check both provider integrations
 make probe-cost     # Rescan local logs; may refresh model prices
 make benchmark-startup # Measure status-item construction offline in a debug build
-make benchmark-cost # Measure Codex scans with offline pricing; reads local logs
+make benchmark-cost # Benchmark Codex scans with offline pricing; reads local logs
+make benchmark-cost PROVIDER=claude # Benchmark Claude with the same offline pricing
 make logs           # Stream logs for com.quotabar.app
 make readme-assets  # Rebuild screenshots, state examples, and GIFs; requires ffmpeg
 make clean
@@ -248,7 +255,18 @@ make clean
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI. The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
 
-To create a test package, run **Build and Release** from the repository's **Actions** tab. To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The workflow tests and packages an `arm64` ZIP, then creates the GitHub Release.
+To preview interactions with sample quota and cost data, run:
+
+```bash
+make build
+.build/debug/QuotaBar --preview-interface loaded
+```
+
+Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history, with no credential access, provider requests, or real log scans. Choose **Quit** in the preview to clear its temporary data. It can run alongside the installed app, so an additional menu bar icon is expected.
+
+To create a test package, run **Build and Release** from the repository's **Actions** tab and select the branch to build. Manual runs upload a development ZIP and SHA-256 file as workflow artifacts without publishing a release.
+
+To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. The workflow tests and packages an `arm64` ZIP, verifies its signature, version, architecture, and checksum, publishes the GitHub Release, and then updates `softmaxe/homebrew-tap`. Tagged runs require the repository's `TAP_GITHUB_TOKEN` secret. Check both **Release** and **Update Homebrew tap** before treating the release process as complete.
 
 ## Troubleshooting
 
