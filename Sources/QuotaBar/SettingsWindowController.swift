@@ -7,6 +7,7 @@ import SwiftUI
 final class SettingsWindowController {
     private let settings: SettingsStore
     private let pricing: PricingEditorModel
+    private let selection = SettingsSelection()
     private var window: NSWindow?
 
     init(settings: SettingsStore, pricing: PricingEditorModel) {
@@ -26,9 +27,64 @@ final class SettingsWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 
+    func showPricing() {
+        self.selection.tab = .pricing
+        self.show()
+    }
+
+    func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
+        guard self.pricing.hasUnsavedChanges else { return .terminateNow }
+        if self.pricing.saveStatus == .saving {
+            Task {
+                while self.pricing.saveStatus == .saving {
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                let saved = !self.pricing.hasUnsavedChanges
+                if !saved { self.showPricing() }
+                application.reply(toApplicationShouldTerminate: saved)
+            }
+            return .terminateLater
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        let valid = self.pricing.invalidFieldCount == 0
+        alert.messageText = valid ? "Save price changes before quitting?" : "Price changes need correction"
+        alert.informativeText = valid
+            ? "Save the edited rates, discard the draft, or keep editing."
+            : "Fix the invalid fields before saving, discard the draft, or keep editing."
+        if valid { alert.addButton(withTitle: "Save") }
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        if !valid {
+            // Return should keep an invalid draft open, not discard it accidentally.
+            alert.buttons.first?.keyEquivalent = ""
+            alert.buttons.last?.keyEquivalent = "\r"
+        }
+        let response = alert.runModal()
+
+        if valid && response == .alertFirstButtonReturn {
+            Task {
+                let saved = await self.pricing.save()
+                if !saved { self.showPricing() }
+                application.reply(toApplicationShouldTerminate: saved)
+            }
+            return .terminateLater
+        }
+        let discardResponse: NSApplication.ModalResponse = valid
+            ? .alertSecondButtonReturn : .alertFirstButtonReturn
+        if response == discardResponse {
+            self.pricing.discard()
+            return .terminateNow
+        }
+        self.showPricing()
+        return .terminateCancel
+    }
+
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
-            rootView: SettingsView(settings: self.settings, pricing: self.pricing)
+            rootView: SettingsView(settings: self.settings, pricing: self.pricing,
+                                   selection: self.selection)
         )
         let window = NSWindow(contentViewController: hosting)
         window.title = "QuotaBar Settings"

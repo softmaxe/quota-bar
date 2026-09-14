@@ -20,6 +20,7 @@ mkdir -p "$OUT"
 
 echo "==> rendering frames"
 "$BIN" --dump-card "$WORK/card" >/dev/null
+"$BIN" --dump-interaction-states "$WORK/interactions" >/dev/null
 "$BIN" --dump-icons "$WORK/icons" >/dev/null
 "$BIN" --dump-settings "$WORK/settings" >/dev/null
 "$BIN" --dump-card-celebration "$WORK/reset" claude >/dev/null
@@ -27,8 +28,14 @@ echo "==> rendering frames"
 "$BIN" --dump-tab-switch "$WORK/tab" >/dev/null
 "$BIN" --dump-disclosure "$WORK/disclosure" >/dev/null
 "$BIN" --dump-chart-motion "$WORK/chart-motion" >/dev/null
-"$BIN" --dump-label-toggle "$WORK/label-toggle" >/dev/null
 "$BIN" --dump-reset-toggle "$WORK/reset-toggle" claude >/dev/null
+
+# AppKit captures can carry wide-gamut profiles. Convert their pixels before ffmpeg, which does
+# not preserve those PNG profiles through overlays or GIF palette generation.
+srgb_profile=/System/Library/ColorSync/Profiles/sRGB\ Profile.icc
+for capture in card interactions settings reset hover reset-toggle; do
+  sips --matchTo "$srgb_profile" "$WORK/$capture"/*.png >/dev/null
+done
 
 echo "==> hero"
 # The two cards are different heights — Codex carries a credits block Claude has no equivalent
@@ -38,8 +45,14 @@ codex_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height 
 hero_height=$(( (claude_height > codex_height ? claude_height : codex_height) + 80 ))
 ffmpeg -v error -y \
   -i "$WORK/card/claude-loaded.png" -i "$WORK/card/codex-loaded.png" \
-  -filter_complex "color=c=0x1a1a1a:s=1240x${hero_height}[bg];[bg][0:v]overlay=40:40[t];[t][1:v]overlay=640:40" \
+  -filter_complex "color=c=0x1a1a1a:s=1240x${hero_height},format=rgb24[bg];[bg][0:v]overlay=40:40:format=rgb[t];[t][1:v]overlay=640:40:format=rgb" \
   -frames:v 1 "$OUT/hero.png"
+
+echo "==> interaction states"
+mkdir -p "$OUT/interactions"
+for state in main-dark main-light sign-in refresh-failed pricing-invalid; do
+  cp "$WORK/interactions/$state.png" "$OUT/interactions/$state.png"
+done
 
 echo "==> quota reset gif"
 ffmpeg -v error -y -framerate 25 -i "$WORK/reset/frame-%04d.png" \
@@ -52,15 +65,15 @@ ffmpeg -v error -y -framerate 2.2 -i "$WORK/hover/frame-%04d.png" \
   "$OUT/chart-hover.gif"
 
 echo "==> reset toggle gif"
-# Ten frames a second, because nothing on this one moves: the label's two faces are a cut in the
-# app too. The crop keeps the two quota rows and drops the header and the chart under them, so
-# the only thing that changes in frame is the label being clicked.
+# A mode preview: choosing Countdown or Clock time in the reset menu updates both rows together.
+# Each face holds at ten frames a second. The source frame is 560px wide; the crop begins at the
+# first quota headline and ends after the second reset menu, omitting the provider header and chart.
 ffmpeg -v error -y -framerate 10 -i "$WORK/reset-toggle/frame-%04d.png" \
-  -filter_complex "fps=10,crop=560:268:0:146,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -filter_complex "fps=10,crop=iw:268:0:146,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
   "$OUT/reset-toggle.gif"
 
 echo "==> motion strips"
-# All four are dumped at 25fps, which is a whole number of GIF delay units, so they play back at
+# All three are dumped at 25fps, which is a whole number of GIF delay units, so they play back at
 # the speed the app animates at.
 strip() {
   ffmpeg -v error -y -framerate 25 -i "$WORK/$1/frame-%04d.png" \
@@ -70,22 +83,25 @@ strip() {
 strip tab 480 tab-switch.gif
 strip disclosure 560 disclosure.gif
 strip chart-motion 500 chart-motion.gif
-strip label-toggle 500 label-toggle.gif
 
 echo "==> menu bar icons"
 # One row: normal, the provider on show running low (red), a failed refresh, and no data.
 ffmpeg -v error -y \
   -i "$WORK/icons/full.png" -i "$WORK/icons/low.png" \
   -i "$WORK/icons/stale-reading.png" -i "$WORK/icons/stale.png" \
-  -filter_complex "color=c=0x1a1a1a:s=560x144[bg];\
+  -filter_complex "color=c=0x1a1a1a:s=560x144,format=rgb24[bg];\
 [0:v]scale=72:72[a0];[1:v]scale=72:72[a1];[2:v]scale=72:72[a2];[3:v]scale=72:72[a3];\
-[bg][a0]overlay=40:36[x0];[x0][a1]overlay=160:36[x1];[x1][a2]overlay=280:36[x2];[x2][a3]overlay=400:36" \
+[bg][a0]overlay=40:36:format=rgb[x0];[x0][a1]overlay=160:36:format=rgb[x1];[x1][a2]overlay=280:36:format=rgb[x2];[x2][a3]overlay=400:36:format=rgb" \
   -frames:v 1 "$OUT/menu-bar-icons.png"
 
 echo "==> settings"
 # The General pane is a short form in a tall window; the empty half below it says nothing.
 ffmpeg -v error -y -i "$WORK/settings/settings.png" -vf "crop=1240:620:0:0" -frames:v 1 "$OUT/settings-general.png"
 cp "$WORK/settings/settings-pricing-expanded.png" "$OUT/settings-pricing.png"
+
+# ffmpeg drops PNG profiles, so tag its now-sRGB composites for color-managed viewers.
+sips --embedProfile "$srgb_profile" \
+  "$OUT/hero.png" "$OUT/menu-bar-icons.png" "$OUT/settings-general.png" >/dev/null
 
 echo
 echo "wrote:"

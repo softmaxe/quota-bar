@@ -11,8 +11,11 @@ public enum CodexProvider {
         credentialLoader: CodexCredentialLoader? = nil
     ) async -> ProviderState {
         if let until = await gate.blocked(.codex) {
-            return .failed("Codex usage API rate-limited. Try again after "
-                + until.formatted(date: .omitted, time: .shortened) + ".")
+            return .rateLimited(
+                reason: "Codex usage API rate-limited. Try again after "
+                    + until.formatted(date: .omitted, time: .shortened) + ".",
+                retryAfter: until
+            )
         }
 
         var credentials: CodexCredentials
@@ -51,7 +54,8 @@ public enum CodexProvider {
             return .loaded(Self.snapshot(from: response))
         } catch CodexFetchError.serverError(429, _) {
             await gate.recordRateLimit(.codex, retryAfter: nil)
-            return .failed("Codex usage API rate-limited. Try again in a few minutes.")
+            let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
+            return .rateLimited(reason: "Codex usage API rate-limited. Try again in a few minutes.", retryAfter: until)
         } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
             // The stored token was stale after all — refresh once, then retry.
             do {
@@ -66,7 +70,8 @@ public enum CodexProvider {
                 return .loaded(Self.snapshot(from: response))
             } catch CodexFetchError.serverError(429, _) {
                 await gate.recordRateLimit(.codex, retryAfter: nil)
-                return .failed("Codex usage API rate-limited. Try again in a few minutes.")
+                let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
+                return .rateLimited(reason: "Codex usage API rate-limited. Try again in a few minutes.", retryAfter: until)
             } catch {
                 return .failed(error.localizedDescription)
             }

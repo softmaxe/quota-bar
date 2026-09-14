@@ -6,6 +6,7 @@ private actor CodexRefreshTransport: HTTPTransport {
         case unauthorized
         case refreshedToken
         case rateLimited
+        case forbidden
         case usage
     }
 
@@ -47,6 +48,9 @@ private actor CodexRefreshTransport: HTTPTransport {
         case .rateLimited:
             statusCode = 429
             body = Data()
+        case .forbidden:
+            statusCode = 403
+            body = Data()
         case .usage:
             statusCode = 200
             body = Data(#"{"rate_limit":{"primary_window":{"used_percent":12}}}"#.utf8)
@@ -71,6 +75,8 @@ enum CodexRefreshTests {
         await Self.firstUsageSuccessClearsGate()
         await Self.retryUsageSuccessClearsGate()
         await Self.retryRateLimitStartsBackoff()
+        await Self.credentialReadFailureIsNotSignedOut()
+        await Self.forbiddenResponseIsNotSignedOut()
     }
 
     private static func firstUsageSuccessClearsGate() async {
@@ -116,12 +122,41 @@ enum CodexRefreshTests {
 
         let state = await Self.fetch(transport: transport, gate: gate)
 
-        guard case .failed = state else {
-            Harness.expect(false, "a rate-limited usage retry reports failure")
+        guard case let .rateLimited(_, retryAfter) = state else {
+            Harness.expect(false, "a rate-limited usage retry reports its deadline")
             return
         }
-        Harness.expect(await gate.blocked(.codex) != nil, "a rate-limited usage retry starts the backoff")
+        Harness.expectEqual(
+            await gate.blocked(.codex), retryAfter,
+            "a rate-limited usage retry reports the gate's deadline"
+        )
         Harness.expectEqual(await transport.requestsMade(), 3, "a rate-limited usage request retries once")
+    }
+
+    private static func credentialReadFailureIsNotSignedOut() async {
+        let transport = CodexRefreshTransport(replies: [])
+        let state = await CodexProvider.fetch(
+            env: [:],
+            transport: transport,
+            gate: UsageRateLimitGate(),
+            credentialLoader: { throw CodexCredentialsError.unreadable }
+        )
+        guard case let .failed(reason) = state else {
+            Harness.expect(false, "unreadable credentials report a failure, not missing login")
+            return
+        }
+        Harness.expect(reason.contains("could not be read"), "credential failure keeps its specific remedy")
+        Harness.expectEqual(await transport.requestsMade(), 0, "unreadable credentials make no API call")
+    }
+
+    private static func forbiddenResponseIsNotSignedOut() async {
+        let transport = CodexRefreshTransport(replies: [.forbidden])
+        let state = await Self.fetch(transport: transport, gate: UsageRateLimitGate())
+        guard case let .failed(reason) = state else {
+            Harness.expect(false, "HTTP 403 reports a refresh failure, not missing login")
+            return
+        }
+        Harness.expect(reason.contains("403"), "HTTP 403 keeps its status code")
     }
 
     private static func fetch(

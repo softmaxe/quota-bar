@@ -22,7 +22,7 @@ enum RelativeTimeVerifier {
         var now = base
         let settings = SettingsStore(defaults: defaults)
         let costService = CostService()
-        let store = UsageStore(settings: settings, costService: costService)
+        let store = UsageStore(settings: settings, costService: costService, recoveryDefaults: defaults)
         let controller = StatusItemController(
             store: store,
             settings: settings,
@@ -42,7 +42,7 @@ enum RelativeTimeVerifier {
         )
         store.debugSetDisplay(display, for: .codex)
         store.debugRecordRefresh(at: ProcessInfo.processInfo.systemUptime)
-        controller.menuWillOpen(NSMenu())
+        controller.debugBeginPresentation()
 
         Self.require(
             controller.debugStatusLine() == "Updated just now",

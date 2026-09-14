@@ -4,13 +4,13 @@ import SwiftUI
 
 /// Equal-width provider navigation. Quota readings belong to the selected card below.
 ///
-/// Clicks and hover arrive through `MouseLocationReader`: the card lives in an NSMenu popup, which
-/// is never the key window, so a SwiftUI button or gesture here would never fire.
+/// Native buttons preserve keyboard focus and accessibility in the status popover.
 struct ProviderTabBar: View {
     let selection: Provider
     let onSelect: (Provider) -> Void
 
     @State private var hovered: Provider?
+    @FocusState private var focusedProvider: Provider?
     /// The pill's two edges as fractions of the bar's width. They travel on separate curves, the
     /// way the settings tabs do, so the pill stretches across and settles rather than sliding.
     @State private var pillMinX: CGFloat
@@ -45,7 +45,19 @@ struct ProviderTabBar: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(Self.providers, id: \.self) { provider in
-                self.segment(provider)
+                Button { self.select(provider) } label: { self.segment(provider) }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(provider == .codex ? "1" : "2", modifiers: .command)
+                    .focused(self.$focusedProvider, equals: provider)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .opacity(self.focusedProvider == provider ? 1 : 0)
+                            .allowsHitTesting(false)
+                    }
+                    .onHover { hovered in self.hovered = hovered ? provider : nil }
+                    .accessibilityLabel(provider.displayName)
+                    .accessibilityAddTraits(provider == self.selection ? .isSelected : [])
             }
         }
         .frame(height: Self.segmentHeight)
@@ -59,16 +71,6 @@ struct ProviderTabBar: View {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.07))
         }
-        .mouseLocation(
-            onMoved: { location, width in
-                let provider = location.map { Self.provider(at: $0.x, width: width) }
-                guard provider != self.hovered else { return }
-                self.hovered = provider
-            },
-            onClicked: { location, width in
-                self.select(Self.provider(at: location.x, width: width))
-            }
-        )
         .onChange(of: self.selection) { _, newValue in
             let span = Self.span(of: newValue)
             let curves = TabSwitchMotion.edgeCurves(
@@ -129,9 +131,7 @@ struct ProviderTabBar: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(provider.displayName)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
-        .accessibilityAction { self.select(provider) }
+
     }
 
     private func pill(width: CGFloat) -> some View {

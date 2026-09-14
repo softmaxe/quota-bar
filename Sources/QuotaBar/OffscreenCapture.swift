@@ -57,11 +57,13 @@ enum OffscreenCapture {
             backing: .buffered,
             defer: false
         )
-        window.appearance = NSAppearance(named: .darkAqua)
+        let appearance = hosting.appearance ?? NSAppearance(named: .darkAqua)
+        window.appearance = appearance
 
         let ground = NSView(frame: hosting.frame)
         ground.wantsLayer = true
-        ground.layer?.backgroundColor = Self.ground.cgColor
+        let isLight = appearance?.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        ground.layer?.backgroundColor = (isLight ? NSColor(white: 0.97, alpha: 1) : Self.ground).cgColor
         ground.addSubview(hosting)
         window.contentView = ground
 

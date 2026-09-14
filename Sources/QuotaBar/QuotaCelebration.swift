@@ -16,14 +16,14 @@ enum QuotaCelebration {
     // MARK: - Timeline
 
     /// One continuous exponential decay drives the fill all the way to its destination.
-    static let landing: TimeInterval = 2.8
+    static let landing: TimeInterval = 0.55
     static let sweepDuration = Self.landing
     /// How long the bar keeps springing after the head lands.
-    static let popDuration: TimeInterval = 0.8
+    static let popDuration: TimeInterval = 0.25
     /// The fill washes bright at the moment of landing and cools back to the tint.
-    static let flashDuration: TimeInterval = 0.55
+    static let flashDuration: TimeInterval = 0.20
     /// The wide glow, and therefore the last thing left on screen.
-    static let bloomDuration: TimeInterval = 0.9
+    static let bloomDuration: TimeInterval = 0.25
 
     /// A beat of slack on the end, so the last frame the clock runs is genuinely empty whatever
     /// floating point does to the sum below.
@@ -38,7 +38,7 @@ enum QuotaCelebration {
 
     // MARK: - Fill
 
-    /// Shared with the headline above the bar, which blurs its count by the same decay.
+    /// The bar reaches most of the new fill early, then settles at the landing.
     static let fillDecay: Double = 5.2
 
     /// Share of the final percentage the bar shows, 0...1.
@@ -59,10 +59,10 @@ enum QuotaCelebration {
     /// reads as the flash, not as the shine stopping.
     static func headShineOpacity(at time: TimeInterval) -> Double {
         guard time > 0 else { return 0 }
-        let fadeIn = min(1, time / 0.05)
+        let fadeIn = min(1, time / 0.04)
         let remaining = Self.landing - time
         guard remaining > 0 else { return 0 }
-        return 0.5 * fadeIn * min(1, remaining / 0.22)
+        return 0.5 * fadeIn * min(1, remaining / 0.10)
     }
 
     /// The whole fill washing white at the moment of landing.
@@ -79,8 +79,8 @@ enum QuotaCelebration {
     static func barScale(at time: TimeInterval) -> CGSize {
         let age = time - Self.landing
         guard age >= 0, age < Self.popDuration else { return CGSize(width: 1, height: 1) }
-        // A damped sine: zero at the landing, one overshoot, then it settles instead of snapping.
-        let pulse = exp(-5.4 * age) * sin(2 * .pi * 1.3 * age)
+        // One short pulse returns to rest exactly when the settling interval ends.
+        let pulse = sin(.pi * age / Self.popDuration) * pow(1 - age / Self.popDuration, 1.3)
         return CGSize(width: 1 + 0.02 * pulse, height: 1 + 0.5 * pulse)
     }
 
@@ -103,7 +103,7 @@ enum QuotaCelebration {
 
     /// The head fades out into the landing rather than switching off on it. Nothing in this
     /// choreography has a hard edge, and that includes the way things stop.
-    private static let headFadeOut: TimeInterval = 0.2
+    private static let headFadeOut: TimeInterval = 0.10
 
     static func head(at time: TimeInterval) -> Head? {
         guard time >= 0, time < Self.landing else { return nil }
@@ -153,7 +153,7 @@ enum QuotaCelebration {
             startScale: 0.72
         ),
         Bloom(
-            duration: 0.6,
+            duration: 0.20,
             spansBar: false,
             radiusX: 34,
             radiusY: 16,

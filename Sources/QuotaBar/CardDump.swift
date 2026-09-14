@@ -7,6 +7,50 @@ import SwiftUI
 /// Lets the card layout be checked without opening the real menu.
 @MainActor
 enum CardDump {
+    /// Additional review states use the real views with disposable fixtures.
+    static func dumpInteractionStates(directory: String) {
+        let root = OffscreenCapture.directory(directory)
+        let now = Date()
+        for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            Self.capture(
+                MenuCardView(provider: .codex,
+                             display: ProviderDisplay(snapshot: Self.loadedSnapshot(.codex), cost: Self.sampleCost(.codex)),
+                             isRefreshing: false, animatesFill: false),
+                named: appearance == .aqua ? "main-light" : "main-dark", into: root,
+                appearance: NSAppearance(named: appearance)
+            )
+        }
+        let signedOut = ProviderDisplay(signedOutReason: "Sign in with the CLI, then check again.", isSignedOut: true)
+        Self.capture(
+            MenuCardView(provider: .codex, display: signedOut, isRefreshing: false, animatesFill: false),
+            named: "sign-in", into: root
+        )
+        let failed = ProviderDisplay(
+            snapshot: Self.loadedSnapshot(.claude), cost: Self.sampleCost(.claude),
+            error: "The service is rate-limiting quota requests.",
+            failure: ProviderFailure(kind: .rateLimited, reason: "Rate limited", serverRetryAfter: now.addingTimeInterval(90))
+        )
+        Self.capture(
+            MenuCardView(provider: .claude, display: failed, isRefreshing: false, animatesFill: false)
+                .environment(\.menuRefreshState, RefreshRowPolicy.state(cooldownRemaining: 90, isRefreshing: false)),
+            named: "refresh-failed", into: root
+        )
+        let pricing = PricingEditorModel(
+            costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
+            fixtures: Self.pricingFixtures,
+            saveOperations: .init(freeze: {}, write: { _ in }, invalidate: {})
+        )
+        Task {
+            await pricing.load()
+            if let row = pricing.rows(in: .claude).first {
+                pricing.binding(for: row.id, keyPath: \.input).wrappedValue = "abc"
+            }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        Self.captureSettings(AnyView(PricingSettingsView(model: pricing, isLoadEnabled: false)),
+                             named: "pricing-invalid", into: root)
+    }
+
     /// Renders the settings window's content off screen too, so its layout can be checked
     /// without opening a real window.
     static func dumpSettings(directory: String) {
@@ -72,7 +116,7 @@ enum CardDump {
         settle: TimeInterval = 0,
         reporting: Bool = true
     ) {
-        let hosting = NSHostingView(rootView: view)
+        let hosting = NSHostingView(rootView: view.environment(\.controlActiveState, .active))
         hosting.appearance = appearance
         hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
         let outcome = OffscreenCapture.writePNG(
@@ -210,14 +254,12 @@ enum CardDump {
         print("wrote \(cost.days.count) chart hover frames to \(root.path)")
     }
 
-    /// `--dump-reset-toggle <dir> <provider>` plays the reset label as the switch it is: the
-    /// pointer arrives on the session line, one click trades the countdown for the clock time it
-    /// was counting down to, a second click trades it back. Both windows change together, because
-    /// the choice belongs to the card rather than to the row that was clicked.
+    /// `--dump-reset-toggle <dir> <provider>` previews both reset-time display modes: the
+    /// pointer arrives on the session menu, then the countdown changes to clock time and back.
+    /// Both windows change together because the choice belongs to the card.
     ///
-    /// The swap is a cut in the app too, so the frames hold each face instead of crossing between
-    /// them. What the dump has to supply is the hover: off screen there is no pointer, and the
-    /// lift on the label is the only thing that says where the click goes.
+    /// Selecting a menu choice changes the label without a transition, so the frames hold each
+    /// face. The dump seeds hover because off screen there is no pointer.
     static func dumpResetToggle(directory: String, provider: Provider) {
         let root = OffscreenCapture.directory(directory)
         let display = ProviderDisplay(

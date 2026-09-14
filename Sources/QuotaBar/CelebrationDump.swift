@@ -24,8 +24,10 @@ enum CelebrationDump {
                 startPercent: 18,
                 provider: provider
             )
-            OffscreenCapture.renderPNG(
-                frame,
+            let hosting = NSHostingView(rootView: frame.environment(\.controlActiveState, .active))
+            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+            _ = OffscreenCapture.writePNG(
+                hosting,
                 named: String(format: "frame-%04d", index),
                 into: root
             )
@@ -52,26 +54,24 @@ private struct CelebrationCardFrame: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                QuotaHeadline(
-                    title: "Session",
+            QuotaHeadline(
+                title: "Session",
+                percent: 100,
+                tint: self.tint,
+                frame: QuotaCelebrationFrame(
+                    elapsed: self.elapsed,
                     percent: self.percent,
-                    tint: self.tint,
-                    frame: QuotaCelebrationFrame(
-                        elapsed: self.elapsed,
-                        percent: self.percent,
-                        isReplay: false
-                    )
+                    isReplay: false
                 )
-                Spacer(minLength: 8)
-                Text("Resets in 5h 00m")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
+            )
             self.bar
-            Text("Lasts until reset")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text("Lasts until reset")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                ResetLabel(text: "Resets in 5h 00m", mode: .countdown, onModeChanged: { _ in })
+            }
         }
         .padding(.horizontal, 14)
         .frame(width: 280, height: 96, alignment: .center)

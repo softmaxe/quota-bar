@@ -27,6 +27,9 @@ struct RateField: View {
     let animationSpeed: Double
     let reduceMotionOverride: Bool
     let clearFocusToken: Int
+    let accessibilityLabel: String?
+    let error: String?
+    let isDisabled: Bool
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @FocusState private var isFocused: Bool
@@ -36,13 +39,19 @@ struct RateField: View {
         text: Binding<String>,
         animationSpeed: Double = 1,
         reduceMotionOverride: Bool = false,
-        clearFocusToken: Int = 0
+        clearFocusToken: Int = 0,
+        accessibilityLabel: String? = nil,
+        error: String? = nil,
+        isDisabled: Bool = false
     ) {
         self.placeholder = placeholder
         self._text = text
         self.animationSpeed = animationSpeed
         self.reduceMotionOverride = reduceMotionOverride
         self.clearFocusToken = clearFocusToken
+        self.accessibilityLabel = accessibilityLabel
+        self.error = error
+        self.isDisabled = isDisabled
     }
 
     private var reduceMotion: Bool {
@@ -61,7 +70,10 @@ struct RateField: View {
                 cornerRadius: RateFieldFocusMotion.cornerRadius,
                 style: .continuous
             )
-            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.85), lineWidth: 1)
+            .strokeBorder(
+                self.error == nil ? Color(nsColor: .separatorColor).opacity(0.85) : .red,
+                lineWidth: 1
+            )
 
             TextField(self.placeholder, text: self.$text)
                 .textFieldStyle(.plain)
@@ -73,6 +85,9 @@ struct RateField: View {
                     height: RateFieldFocusMotion.height
                 )
                 .focused(self.$isFocused)
+                .disabled(self.isDisabled)
+                .accessibilityLabel(self.accessibilityLabel ?? self.placeholder)
+                .accessibilityHint(self.error ?? "")
 
             RoundedRectangle(
                 cornerRadius: RateFieldFocusMotion.cornerRadius,

@@ -4,7 +4,7 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// Proves the reset label's two faces read correctly, and that clicking one swaps to the other.
+/// Proves both reset-time formats read correctly and fit in the card's stacked layout.
 /// The whole point of the clock face is planning around a reset, so a label that names the wrong
 /// day is worse than no label: every case that adds or drops the day is pinned here.
 @MainActor
@@ -68,12 +68,6 @@ enum QuotaResetLabelVerifier {
             mode: .countdown,
             now: now,
             "Resets in 0m"
-        )
-
-        Self.require(
-            QuotaResetDisplayMode.countdown.toggled == .clock
-                && QuotaResetDisplayMode.clock.toggled == .countdown,
-            "clicking the label does not swap the two faces"
         )
 
         let layoutFailures = Self.layoutFailures()
@@ -232,19 +226,25 @@ enum QuotaResetLabelVerifier {
             )
         }
         let headlineIntrinsic = headlineIdeal.fittingSize
-        if headlineFrame.width + 1 < headlineIntrinsic.width {
-            failures.append(
-                "\(mode) headline was compressed to \(Self.round(headlineFrame.width))pt; "
-                    + "its \(Self.round(headlineIntrinsic.width))pt intrinsic width was not preserved"
-            )
-        }
         if headlineFrame.height > headlineIntrinsic.height + 1 {
             failures.append(
                 "\(mode) headline wrapped to \(Self.round(headlineFrame.height))pt high; "
                     + "its single-line height is \(Self.round(headlineIntrinsic.height))pt"
             )
         }
+        if headlineFrame.maxY > resetFrame.minY - 1 {
+            failures.append(
+                "\(mode) reset menu overlaps the headline in the card's flipped coordinates"
+            )
+        }
+        let contentMinX: CGFloat = 14
         let contentMaxX = hosting.bounds.maxX - 14
+        if headlineFrame.minX < contentMinX - 0.5 || headlineFrame.maxX > contentMaxX + 0.5 {
+            failures.append("\(mode) headline extends beyond the card content edges")
+        }
+        if resetFrame.minX < contentMinX - 0.5 {
+            failures.append("\(mode) reset menu starts outside the card content edge")
+        }
         if resetFrame.maxX > contentMaxX + 0.5 {
             failures.append(
                 "\(mode) reset label ended at \(Self.round(resetFrame.maxX))pt, outside the "

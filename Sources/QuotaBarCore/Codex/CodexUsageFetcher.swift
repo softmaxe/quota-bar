@@ -155,8 +155,10 @@ public enum CodexUsageFetcher {
                 throw CodexFetchError.invalidResponse
             }
             return decoded
-        case 401, 403:
+        case 401:
             throw CodexFetchError.unauthorized
+        case 403:
+            throw CodexFetchError.serverError(403, String(data: data, encoding: .utf8))
         default:
             throw CodexFetchError.serverError(response.statusCode, String(data: data, encoding: .utf8))
         }

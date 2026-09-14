@@ -2,19 +2,8 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
-/// How the cost chart changes which bar is highlighted. A hover is the pointer's own motion and
-/// has to keep up with it; clearing hover is not a move the reader aimed at anything, so it
-/// is allowed to take longer and to arrive with zero velocity — the shape `QuotaCelebrationReplay`
-/// already uses to come back from the landing.
-///
-/// The selected bar is also marked by a rule under the baseline, so the highlight reads as a shape
-/// and not only as a tone. The mark sits below the bars rather than on them because every bar's
-/// height is a quantity the reader is comparing: a bar that grows under the pointer is a bar whose
-/// height briefly means something other than what it means everywhere else on the chart. That is a
-/// state rather than a motion: Reduce Motion changes how the mark arrives, never where it sits.
-///
-/// The label on that bar has a second change of its own — a click swaps its unit between tokens
-/// and cost — and it lives here too, so everything the highlight can do is timed in one place.
+/// Chart marker geometry and the optional transitions for selection, units, and model disclosure.
+/// The marker sits below the bars so no animation changes their quantitative heights.
 enum CostChartHoverMotion {
     /// The mark under the selected bar: as thick as the bar's own corner radius, and far enough
     /// below the baseline to read as a separate thing rather than as part of the bar.
@@ -71,18 +60,13 @@ enum CostChartHoverMotion {
 
     // MARK: - Breakdown
 
-    /// A day's model list is the one thing on this card the reader opens rather than points at, so
-    /// it is the one change allowed to take its time. The extra rows unroll out of the row above
+    /// The full model list opens under its disclosure. The rows unroll out of the row above
     /// and fade in, and leave the same way, on a curve that eases out of rest and back into it --
     /// still the longest move on the card, but only just: past this the click stops feeling like
     /// it landed.
     static let breakdownDuration: TimeInterval = 0.34
 
-    /// The shape the reveal takes, sampled by hand. Both halves of it are stepped rather than
-    /// handed to an animator: the card's height is an AppKit frame -- an open menu re-lays itself
-    /// out whenever its item view resizes -- and the rows inside it follow the same reading, which
-    /// is the only way the two stay together. Smoothstep rather than SwiftUI's cubic bezier: over
-    /// a third of a second the two agree to well within a frame.
+    /// The controller steps the card height and the row reveal from the same eased progress.
     static func breakdownEase(_ progress: Double) -> Double {
         let progress = min(1, max(0, progress))
         return progress * progress * (3 - 2 * progress)
@@ -100,20 +84,10 @@ enum CostChartHoverMotion {
 
     // MARK: - Unit swap
 
-    /// Clicking the selected bar swaps its label between tokens and cost. The click lands on a
-    /// target the reader is already pointing at, so the swap has no distance to cover and can be
-    /// quick; it still has to read as one number becoming another rather than as two numbers
-    /// trading places.
+    /// Choosing another unit changes the highlighted label in place.
     static let swapDuration: TimeInterval = 0.26
 
-    /// The swap is the reset headline's treatment, sized for a 10 pt label: the old unit blurs
-    /// out and the new one resolves out of the blur. Nothing moves, which is what says the two
-    /// readings are the same quantity counted differently — a positional swap would say the
-    /// label had been replaced by a different label.
-    ///
-    /// Read off `QuotaNumberMotion.blurRadius`, but held here rather than taken from it: the
-    /// headline applies that radius through a decaying multiplier on 14 pt text, and this is the
-    /// full radius on a 10 pt one. Two amplitudes that happen to agree, not one shared amplitude.
+    /// The old unit blurs out and the new one resolves into the same position.
     static let swapBlur: CGFloat = 2.6
     /// How small the number is while it is still blurred. Enough to feel unresolved, not enough
     /// to read as a separate zoom.
