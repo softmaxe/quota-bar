@@ -25,13 +25,12 @@ enum CostChartHoverMotion {
         return Self.markerRestWidth + (1 - Self.markerRestWidth) * share
     }
 
-    /// A move between bars, on the spring that carries the mark with the tone.
-    static let hoverResponse: TimeInterval = 0.27
+    /// Keep the selection cue close to the pointer as it moves between bars.
+    static let hoverResponse: TimeInterval = 0.14
     /// Internal rather than private so the README film strip can sample the same spring.
-    static let hoverDamping: Double = 0.9
-    /// The return to rest is longer and critically damped, so the highlight disappears without
-    /// springing away from the pointer.
-    static let clearResponse: TimeInterval = 0.33
+    static let hoverDamping: Double = 1
+    /// Clearing the hover settles without pulling attention from the chart.
+    static let clearResponse: TimeInterval = 0.16
     static let clearDamping: Double = 1
 
     static var systemReduceMotion: Bool {
@@ -56,12 +55,6 @@ enum CostChartHoverMotion {
 
     // MARK: - Breakdown
 
-    /// The full model list opens under its disclosure. The rows unroll out of the row above
-    /// and fade in, and leave the same way, on a curve that eases out of rest and back into it --
-    /// still the longest move on the card, but only just: past this the click stops feeling like
-    /// it landed.
-    static let breakdownDuration: TimeInterval = 0.34
-
     /// The controller steps the card height and the row reveal from the same eased progress.
     static func breakdownEase(_ progress: Double) -> Double {
         let progress = min(1, max(0, progress))
@@ -76,16 +69,6 @@ enum CostChartHoverMotion {
     /// shimmers instead of sliding.
     static func breakdownHeight(start: CGFloat, target: CGFloat, progress: Double) -> CGFloat {
         start + ((target - start) * Self.breakdownEase(progress)).rounded()
-    }
-
-    // MARK: - Unit swap
-
-    /// Choosing another unit rescales the bars while the text updates in place.
-    static let swapDuration: TimeInterval = 0.26
-
-    static func swapAnimation(reduceMotion: Bool, timeScale: Double = 1) -> Animation? {
-        guard !reduceMotion else { return nil }
-        return .easeOut(duration: Self.scaled(Self.swapDuration, timeScale: timeScale))
     }
 
     /// The demo windows slow these curves down so a quarter-second response can be judged by

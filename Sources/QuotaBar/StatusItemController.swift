@@ -114,7 +114,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         item.autosaveName = "quotabar"
         item.button?.target = self
         item.button?.action = #selector(self.statusItemClicked)
-        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        // Left clicks open on the press; right clicks keep AppKit's mouse-up behavior.
+        item.button?.sendAction(on: [.leftMouseDown, .rightMouseUp])
         self.statusItem = item
         return item
     }
@@ -149,10 +150,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         }
         guard let button = self.statusItem?.button else { return }
         let popover = self.materializedPopover()
-        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        self.beginPresentation()
         self.presentation?.maximumHeight = max(160, (button.window?.screen?.visibleFrame.height ?? 800) - 120)
-        self.updatePopoverSize()
+        self.beginPresentation()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
@@ -172,7 +171,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         model.onSizeChanged = { [weak self] in self?.updatePopoverSize() }
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        // The native popover keeps anchoring and dismissal behavior. Its default opening
+        // animation adds a wait to this frequent glance; local controls provide feedback.
+        popover.animates = false
         popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: MenuPopoverView(model: model))
         self.presentation = model
@@ -295,6 +296,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.expandedBreakdownDayKey = nil
         self.presentedProvider = nil
         self.presentation?.presentationID = UUID()
+        // A closed card may have changed or been left expanded. Measure its collapsed state
+        // before showing it, so the first visible frame already has the correct height.
+        self.presentation?.measuredProvider = nil
         self.refreshOpenCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()
@@ -349,6 +353,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         return (state.title, state.trailingText, state.isEnabled)
     }
     var debugPopover: NSPopover? { self.popover }
+    var debugStatusButton: NSStatusBarButton? { self.statusItem?.button }
     func debugShowPopover() { self.statusItemClicked() }
 #endif
 }

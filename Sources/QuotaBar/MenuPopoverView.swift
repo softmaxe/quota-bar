@@ -94,11 +94,14 @@ struct MenuPopoverView: View {
 }
 
 private struct MenuPopoverAction: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     let trailing: String
     let action: () -> Void
     @State private var hovered = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         Button(action: self.action) {
@@ -113,8 +116,18 @@ private struct MenuPopoverAction: View {
             .frame(height: 24)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
-        .background(self.hovered ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 5))
+        .buttonStyle(ControlFeedbackStyle())
+        .foregroundStyle(self.isEnabled ? .primary : .tertiary)
+        .background(self.isEnabled && self.hovered ? Color.primary.opacity(0.06) : .clear,
+                    in: RoundedRectangle(cornerRadius: 5))
+        .animation(self.reduceMotion ? nil : .easeOut(duration: 0.10), value: self.isEnabled && self.hovered)
+        .focused(self.$focused)
+        .overlay {
+            RoundedRectangle(cornerRadius: 5)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(self.isEnabled && self.focused ? 1 : 0)
+                .allowsHitTesting(false)
+        }
         .onHover { self.hovered = $0 }
         .accessibilityLabel(self.title)
     }

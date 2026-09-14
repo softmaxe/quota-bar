@@ -1,51 +1,18 @@
 #if DEBUG
 import Foundation
 
-/// Proves the cascade stays a beat rather than becoming a wait: rows arrive one stagger apart,
-/// the stagger stops growing before a fourteen-model group could still be arriving half a second
-/// after the click, and Reduce Motion takes the curve away entirely.
+/// Proves disclosure timing is brief and respects Reduce Motion.
 enum DisclosureMotionVerifier {
-    /// What the pricing table actually asks for: Claude's group is the longest one on screen.
-    private static let longestGroup = 14
-    /// The whole group has to be settled inside this, counted from the click.
-    private static let budget: TimeInterval = 0.5
+    private static let budget: TimeInterval = 0.2
 
     static func run() -> Never {
         Self.require(
-            abs(DisclosureMotion.providerGroupPressScale - 0.985) < 1e-9,
-            "provider group press scale remains 0.985"
+            DisclosureMotion.openDuration > 0,
+            "the opening retains a visible state change"
         )
         Self.require(
-            abs(DisclosureMotion.providerGroupPressDuration - 0.10) < 1e-9,
-            "provider group press duration remains 0.10s"
-        )
-
-        Self.require(DisclosureMotion.rowDelay(index: 0) == 0, "the first row waits for nothing")
-        Self.require(
-            DisclosureMotion.rowDelay(index: -3) == 0,
-            "an index below the top of the group clamps rather than arriving early"
-        )
-
-        for index in 1...DisclosureMotion.maxStaggeredRows {
-            let expected = DisclosureMotion.rowStagger * Double(index)
-            Self.require(
-                abs(DisclosureMotion.rowDelay(index: index) - expected) < 1e-9,
-                "row \(index) arrives \(index) beats after the header, not "
-                    + "\(DisclosureMotion.rowDelay(index: index))s"
-            )
-        }
-
-        let capped = DisclosureMotion.rowDelay(index: DisclosureMotion.maxStaggeredRows)
-        Self.require(
-            DisclosureMotion.rowDelay(index: Self.longestGroup) == capped,
-            "the stagger stops growing past \(DisclosureMotion.maxStaggeredRows) rows"
-        )
-
-        let lastArrival = DisclosureMotion.rowDelay(index: Self.longestGroup)
-            + DisclosureMotion.openDuration
-        Self.require(
-            lastArrival < Self.budget,
-            "a \(Self.longestGroup)-row group settles in \(lastArrival)s, past the "
+            DisclosureMotion.openDuration < Self.budget,
+            "the disclosure settles in \(DisclosureMotion.openDuration)s, past the "
                 + "\(Self.budget)s budget"
         )
 

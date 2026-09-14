@@ -12,6 +12,14 @@ This implementation follows the approved interaction proposal. The original befo
 - Local usage has a visible Tokens / Cost selector and ten calendar date columns. Dates support whole-column pointer targets and keyboard selection. Model details are collapsed as a group; complete labels remain available to accessibility. Unit changes and refreshes preserve a still-valid date selection. Unpriced and partially priced usage have distinct labels; dates not covered by the last completed scan do not claim zero usage.
 - Quota headlines immediately display authoritative values. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Pace calculations are available through Usage pace details; duplicate Top model text is removed. Credits follow local usage.
 
+## Interaction timing
+
+The status card opens on left mouse-down with the native popover animation disabled. Right clicks retain AppKit's mouse-up behavior. Each opening measures the collapsed card before showing it, including when the previous card was expanded or changed while closed.
+
+Custom buttons acknowledge a press immediately through opacity and restore it over 100 ms. Tab selection settles within 180 ms, disclosure chevrons and pricing expansion within 160 ms, and chart hover feedback uses a short critically damped response. Pricing rows appear together without stagger or scale effects. Unit changes update chart heights and labels together. These timings are project choices guided by brief feedback and uninterrupted interaction, not fixed Apple requirements.
+
+Reduce Motion removes custom transitions while preserving pressed and selected states. Native links, menus, segmented pickers, and bordered buttons retain their system feedback. The popover verifier exercises left and right mouse events, repeated opening, first-frame height, and stable content positions.
+
 ## Validation
 
 The project uses an assertion executable and native UI verifiers rather than XCTest. Run the repository command with the installed Xcode toolchain:

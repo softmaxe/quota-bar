@@ -259,9 +259,6 @@ struct CostSectionView: View {
                                 reduceMotion: CostChartHoverMotion.systemReduceMotion
                             ), value: selected)
                             .frame(height: max(2, height))
-                            .animation(CostChartHoverMotion.swapAnimation(
-                                reduceMotion: CostChartHoverMotion.systemReduceMotion
-                            ), value: self.selectedLabelMode)
                             .padding(.horizontal, 2)
                     } else {
                         Text(self.zeroMark(for: day))
@@ -284,7 +281,7 @@ struct CostSectionView: View {
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ControlFeedbackStyle())
         .frame(maxWidth: .infinity)
         .focused(self.$focusedDayKey, equals: day.dayKey)
         .overlay {
@@ -463,12 +460,15 @@ struct CostSectionView: View {
                     Spacer(minLength: 4)
                     Image(systemName: "chevron.right")
                         .rotationEffect(.degrees(self.breakdownOpenness * 90))
+                        .animation(DisclosureMotion.open(
+                            reduceMotion: CostChartHoverMotion.systemReduceMotion
+                        ), value: self.breakdownOpenness)
                 }
                 .font(.system(size: 11))
                 .contentShape(Rectangle())
                 .frame(height: CGFloat(Self.breakdownLayout.toggleHeight))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ControlFeedbackStyle())
             .accessibilityLabel("Model breakdown")
             .accessibilityValue(self.isBreakdownExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(self.isBreakdownExpanded ? "Collapse model list" : "Expand model list")
