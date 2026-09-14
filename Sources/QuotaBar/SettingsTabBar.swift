@@ -43,6 +43,7 @@ struct SettingsTabBar: View {
     @State private var pillMinX: CGFloat = 0
     @State private var pillMaxX: CGFloat = 0
     @State private var hovered: SettingsTab?
+    @FocusState private var focusedTab: SettingsTab?
 
     private static let segmentHeight: CGFloat = 28
     private static let cornerRadius: CGFloat = 6
@@ -89,16 +90,23 @@ struct SettingsTabBar: View {
                     .fill(Color.primary.opacity(0.07))
                     .opacity(self.hovered == tab && self.selection != tab ? 1 : 0)
                     .animation(
-                        self.reduceMotion ? nil : .easeOut(duration: 0.14),
+                        self.reduceMotion ? nil : .easeOut(duration: 0.10),
                         value: self.hovered
                     )
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(SettingsTabButtonStyle(reduceMotion: self.reduceMotion))
+        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
         .keyboardShortcut(tab.shortcut, modifiers: .command)
+        .focused(self.$focusedTab, equals: tab)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(self.selection == tab ? [.isSelected] : [])
+        .overlay {
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                .strokeBorder(self.selection == tab ? Color.white : Color.accentColor, lineWidth: 2)
+                .opacity(self.focusedTab == tab ? 1 : 0)
+                .allowsHitTesting(false)
+        }
         .background {
             GeometryReader { proxy in
                 Color.clear.preference(
@@ -141,21 +149,6 @@ struct SettingsTabBar: View {
     private func snapPill(to rect: CGRect) {
         self.pillMinX = rect.minX
         self.pillMaxX = rect.maxX
-    }
-}
-
-/// The segment dips while it is held, on the same spring the pricing table's chevron uses. The
-/// click gets a weight of its own, separate from where the pill then goes.
-private struct SettingsTabButtonStyle: ButtonStyle {
-    var reduceMotion = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(!self.reduceMotion && configuration.isPressed ? 0.94 : 1)
-            .animation(
-                self.reduceMotion ? nil : DisclosureMotion.pressCurve,
-                value: configuration.isPressed
-            )
     }
 }
 

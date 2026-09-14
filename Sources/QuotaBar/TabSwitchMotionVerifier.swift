@@ -10,7 +10,7 @@ enum TabSwitchMotionVerifier {
     private static let source = (minX: 0.0, maxX: 80.0)
     private static let destination = (minX: 82.0, maxX: 156.0)
     /// A click has to be finished inside this. Past it the window stops feeling like it answered.
-    private static let budget: TimeInterval = 0.45
+    private static let budget: TimeInterval = 0.2
     private static let samples = 240
 
     static func run() -> Never {

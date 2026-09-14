@@ -8,9 +8,9 @@ import SwiftUI
 /// `QuotaCelebration` is a function of elapsed seconds; a pill driven by two `@State` edges and a
 /// `withAnimation` cannot be posed at t = 0.14s from outside.
 ///
-/// So the layouts here are stand-ins. The timing is not: every duration, curve, spring and stagger
-/// is read from the same `TabSwitchMotion`, `DisclosureMotion` and `CostChartHoverMotion` the real
-/// controls animate on, and the curve sampler solves the same cubic Bézier the verifier walks.
+/// So the layouts here are stand-ins. The sampled timings come from `TabSwitchMotion`,
+/// `DisclosureMotion` and `CostChartHoverMotion`, and the curve sampler solves the same cubic
+/// Bézier the verifier walks.
 /// Change a constant in one of those and these strips change with it. Change the shipped layout and
 /// they will not, which is the cost of doing it this way.
 @MainActor
@@ -28,9 +28,8 @@ enum MotionFilmStrip {
         TabSwitchMotion.progress(at: time, duration: duration)
     }
 
-    /// `.easeOut`, the unit cubic Bézier through (0, 0) and (0.58, 1), which is what the chart's
-    /// bar-height swap runs on. `TabSwitchMotion` solves its own control points and only its own,
-    /// so this one solves these.
+    /// `.easeOut`, the unit cubic Bézier through (0, 0) and (0.58, 1), used when pressed
+    /// controls return to full opacity.
     static func easeOut(_ time: TimeInterval, duration: TimeInterval) -> Double {
         guard duration > 0 else { return 1 }
         let x = min(max(time / duration, 0), 1)
@@ -112,12 +111,11 @@ enum MotionFilmStrip {
 
     // MARK: - Pricing disclosure
 
-    /// `--dump-disclosure <dir>`: a group unfolding four rows on the open curve, one stagger beat
-    /// apart, with the control taking the press spring on the way in.
+    /// `--dump-disclosure <dir>`: a group unfolding four rows together on the open curve.
     static func dumpDisclosure(directory: String) {
         let root = OffscreenCapture.directory(directory)
         let rows = 4
-        let opening = DisclosureMotion.openDuration + DisclosureMotion.rowDelay(index: rows - 1)
+        let opening = DisclosureMotion.openDuration
         let hold: TimeInterval = 0.7
 
         Self.strip([true, false], into: root, named: "disclosure") { _ in opening + hold } frame: {
@@ -151,19 +149,16 @@ enum MotionFilmStrip {
 
     // MARK: - Cost chart unit
 
-    /// `--dump-label-toggle <dir>`: switch cost and token readings twice. The selected day's
-    /// primary and secondary values update immediately below the chart while the bars rescale.
+    /// `--dump-label-toggle <dir>`: switch cost and token readings twice. Labels and bar heights
+    /// use the selected unit in the first frame.
     static func dumpLabelToggle(directory: String) {
         let root = OffscreenCapture.directory(directory)
         let hold: TimeInterval = 0.9
 
         Self.strip([CostChartLabelMode.cost, .tokens], into: root, named: "label toggle") { _ in
-            CostChartHoverMotion.swapDuration + hold
-        } frame: { mode, time in
-            ChartLabelSwapFrame(
-                mode: mode,
-                progress: Self.easeOut(time, duration: CostChartHoverMotion.swapDuration)
-            )
+            hold
+        } frame: { mode, _ in
+            ChartLabelSwapFrame(mode: mode)
         }
     }
 }
@@ -237,8 +232,7 @@ private struct TabPillFrame: View {
     }
 }
 
-/// A pricing group unrolling its rows. Row height, stagger and the chevron's quarter turn are the
-/// shipped numbers; the row contents are a sketch of the real table.
+/// A pricing group opening its rows together. The row contents sketch the real table.
 private struct DisclosureFrame: View {
     let elapsed: TimeInterval
     let isOpening: Bool
@@ -248,14 +242,12 @@ private struct DisclosureFrame: View {
     private static let rates = [("5", "25"), ("2", "10"), ("0.5", "2.5"), ("10", "50")]
     private static let rowHeight: CGFloat = 34
 
-    /// How far a row has arrived, 0...1. Closing runs the same curve backwards, and without the
-    /// stagger: a group folding away is one movement, not four.
-    private func arrival(_ index: Int) -> Double {
+    /// How far the group has opened, 0...1. Rows share this timing in both directions.
+    private var arrival: Double {
         guard self.isOpening else {
             return 1 - MotionFilmStrip.curve(self.elapsed, duration: DisclosureMotion.openDuration)
         }
-        let delay = DisclosureMotion.rowDelay(index: index)
-        return MotionFilmStrip.curve(self.elapsed - delay, duration: DisclosureMotion.openDuration)
+        return MotionFilmStrip.curve(self.elapsed, duration: DisclosureMotion.openDuration)
     }
 
     private var openness: Double {
@@ -264,15 +256,11 @@ private struct DisclosureFrame: View {
             : 1 - MotionFilmStrip.curve(self.elapsed, duration: DisclosureMotion.openDuration)
     }
 
-    /// The control dips under the pointer and comes back on the settle spring. Only the control:
-    /// a table that overshoots its own height pushes every row below it.
-    private var pressScale: Double {
-        let press = MotionFilmStrip.spring(
-            self.elapsed,
-            response: DisclosureMotion.pressResponse,
-            damping: DisclosureMotion.pressDamping
-        )
-        return 0.94 + 0.06 * press
+    /// The pressed control fades back after mouse-up; no text or row changes scale.
+    private var pressOpacity: Double {
+        ControlFeedbackStyle.pressedOpacity
+            + (1 - ControlFeedbackStyle.pressedOpacity)
+            * MotionFilmStrip.easeOut(self.elapsed, duration: ControlFeedbackStyle.releaseDuration)
     }
 
     var body: some View {
@@ -288,11 +276,11 @@ private struct DisclosureFrame: View {
                     .background(Capsule().fill(Color.primary.opacity(0.12)))
                 Spacer(minLength: 0)
             }
-            .scaleEffect(self.pressScale, anchor: .leading)
+            .opacity(self.pressOpacity)
             .frame(height: 30)
 
             ForEach(0..<self.rows, id: \.self) { index in
-                let arrival = self.arrival(index)
+                let arrival = self.arrival
                 HStack(spacing: 8) {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
@@ -392,12 +380,10 @@ private struct ChartHighlightFrame: View {
     }
 }
 
-/// The selected day's readings change below the chart as its bars rescale. The layout is a
-/// stand-in; each bar uses `CostChartHighlightPolicy.value` and the matching metric's maximum.
+/// The selected day's readings and bar heights change together. The layout is a stand-in;
+/// each bar uses `CostChartHighlightPolicy.value` and the matching metric's maximum.
 private struct ChartLabelSwapFrame: View {
-    /// The new mode is visible from the first frame; progress only moves bar heights.
     let mode: CostChartLabelMode
-    let progress: Double
 
     /// A week the two metrics disagree about, because a cheap model spends tokens a dear one does
     /// not: the tallest token day is the second, the tallest cost day is the third. A fixture that
@@ -424,13 +410,8 @@ private struct ChartLabelSwapFrame: View {
         )
     }
 
-    /// Height as a share of the chart, interpolated on the swap's own progress. The shipped mode
-    /// flips immediately while SwiftUI animates the bars from the old ratio to the new one.
     private func ratio(for day: CostDay) -> Double {
-        let leaving = self.mode == .tokens ? CostChartLabelMode.cost : .tokens
-        return Self.ratio(for: day, mode: leaving)
-            + (Self.ratio(for: day, mode: self.mode) - Self.ratio(for: day, mode: leaving))
-            * self.progress
+        Self.ratio(for: day, mode: self.mode)
     }
 
     private static func ratio(for day: CostDay, mode: CostChartLabelMode) -> Double {

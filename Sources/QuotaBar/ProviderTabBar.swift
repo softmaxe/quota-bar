@@ -46,7 +46,7 @@ struct ProviderTabBar: View {
         HStack(spacing: 0) {
             ForEach(Self.providers, id: \.self) { provider in
                 Button { self.select(provider) } label: { self.segment(provider) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ControlFeedbackStyle())
                     .keyboardShortcut(provider == .codex ? "1" : "2", modifiers: .command)
                     .focused(self.$focusedProvider, equals: provider)
                     .overlay {
@@ -90,7 +90,7 @@ struct ProviderTabBar: View {
         let isSelected = provider == self.selection
         let isEmphasized = isSelected || self.hovered == provider
         let emphasisAnimation: Animation? = CostChartHoverMotion.systemReduceMotion
-            ? nil : .easeInOut(duration: 0.18)
+            ? nil : .easeOut(duration: 0.12)
         // Align the provider dot with the name's capitals.
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Circle()

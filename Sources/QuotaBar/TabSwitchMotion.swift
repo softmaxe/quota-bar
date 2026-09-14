@@ -8,10 +8,10 @@ import SwiftUI
 /// vocabulary for "this moved", not one per control.
 enum TabSwitchMotion {
     /// The edge facing the destination.
-    static let leadDuration: TimeInterval = 0.24
+    static let leadDuration: TimeInterval = 0.13
     /// The edge behind it. The gap between the two is the whole effect: too small and the pill
     /// reads as a plain slide, too large and it reads as tearing.
-    static let trailDuration: TimeInterval = 0.38
+    static let trailDuration: TimeInterval = 0.18
 
     static var lead: Animation {
         .timingCurve(Self.control1.x, Self.control1.y, Self.control2.x, Self.control2.y,

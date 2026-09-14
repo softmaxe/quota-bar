@@ -198,6 +198,34 @@ enum PopoverInteractionVerifier {
             }
         }
 
+        // Reopening an expanded card must start at its collapsed size, without a visible
+        // second resize. Exercise the status button's installed action in both directions.
+        require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                "reopen setup: the pace disclosure could not expand")
+        require(await Self.wait(until: { model.contentHeight > baseline.contentHeight + 30 }),
+                "reopen setup: the card did not expand")
+        guard let statusButton = controller.debugStatusButton else {
+            return Self.finish("the status item has no button", scratch: scratch)
+        }
+        for cycle in 1...4 {
+            let rightMouse = cycle.isMultiple(of: 2)
+            require(Self.clickStatusButton(statusButton, rightMouse: rightMouse),
+                    "status click \(cycle): the mouse events could not be created")
+            require(!popover.isShown, "status click \(cycle): the popover did not close")
+            RunLoopDrain.run(for: 0.02)
+            require(!popover.isShown, "status click \(cycle): mouse-up reopened the popover")
+            require(Self.clickStatusButton(statusButton, rightMouse: rightMouse),
+                    "status reopen \(cycle): the mouse events could not be created")
+            require(popover.isShown, "status click \(cycle): the popover did not reopen")
+            require(abs(model.contentHeight - baseline.contentHeight) <= 1,
+                    "reopen \(cycle): the first frame retained the expanded height")
+            require(abs(popover.contentSize.height - (model.viewportHeight + model.footerHeight)) <= 1,
+                    "reopen \(cycle): the native popover retained its previous height")
+            RunLoopDrain.run(for: 0.04)
+            require(popover.isShown, "status reopen \(cycle): mouse-up closed the popover")
+            requireStable("reopen \(cycle)")
+        }
+
         model.maximumHeight = 220
         model.onSizeChanged()
         RunLoopDrain.run(for: 0.05)
@@ -279,6 +307,34 @@ enum PopoverInteractionVerifier {
         ) else { return false }
         window.sendEvent(down)
         window.sendEvent(up)
+        return true
+    }
+
+    /// Queue mouse-up before entering AppKit's button tracking loop. Events stay inside this
+    /// fixture application's queue and exercise the installed mouse-down action mask.
+    private static func clickStatusButton(_ button: NSStatusBarButton, rightMouse: Bool) -> Bool {
+        guard let window = button.window else { return false }
+        let frame = button.convert(button.bounds, to: nil)
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        guard let down = NSEvent.mouseEvent(
+            with: rightMouse ? .rightMouseDown : .leftMouseDown, location: point,
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ), let up = NSEvent.mouseEvent(
+            with: rightMouse ? .rightMouseUp : .leftMouseUp, location: point,
+            modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime + 0.01,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0
+        ) else { return false }
+        NSApp.postEvent(up, atStart: true)
+        window.sendEvent(down)
+        // Some buttons return on mouse-down; others consume mouse-up while tracking.
+        // Deliver an unconsumed release once, just as NSApplication's event loop would.
+        if let release = NSApp.nextEvent(
+            matching: rightMouse ? .rightMouseUp : .leftMouseUp,
+            until: Date(), inMode: .default, dequeue: true
+        ) {
+            window.sendEvent(release)
+        }
         return true
     }
 

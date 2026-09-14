@@ -119,9 +119,7 @@ struct PricingSettingsView: View {
         }
     }
 
-    /// Hand-rolled rather than a `DisclosureGroup`, because the native control owns its own
-    /// chevron and its own timing; the group opens on the app's easing instead, and its rows
-    /// arrive one beat apart so the list unrolls from under the header.
+    /// Hand-rolled to keep the chevron and the content on the same brief opening curve.
     private func group(_ group: PricingGroup) -> some View {
         let rows = self.model.rows(in: group)
         let isExpanded = self.expandedGroups.contains(group)
@@ -135,9 +133,9 @@ struct PricingSettingsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 28)
                         .padding(.vertical, 8)
-                        .transition(self.rowTransition(index: 0))
+                        .transition(self.rowTransition)
                 } else {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    ForEach(rows) { row in
                         VStack(alignment: .leading, spacing: 0) {
                             self.row(row)
                             if self.model.isExpanded(row.id) {
@@ -147,7 +145,7 @@ struct PricingSettingsView: View {
                             self.rowErrors(row)
                             Divider().padding(.leading, 28)
                         }
-                        .transition(self.rowTransition(index: index))
+                        .transition(self.rowTransition)
                     }
                 }
             }
@@ -179,25 +177,19 @@ struct PricingSettingsView: View {
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ProviderGroupHeaderPressStyle(reduceMotion: self.reduceMotion))
+        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
     }
 
-    /// Rows arrive on the group's easing, each one a beat after the row above it. They leave all
-    /// at once: a group being closed is one movement, and staggering it only delays the collapse.
-    private func rowTransition(index: Int) -> AnyTransition {
+    /// All rows appear together as the group changes height.
+    private var rowTransition: AnyTransition {
         guard !self.reduceMotion else { return .identity }
-        return .asymmetric(
-            insertion: .opacity
-                .combined(with: .offset(y: -4))
-                .animation(DisclosureMotion.rowArrival(index: index)),
-            removal: .opacity.animation(DisclosureMotion.openCurve)
-        )
+        return .opacity.animation(DisclosureMotion.openCurve)
     }
 
     /// The per-row disclosure is one block, not a list, so it has no beat of its own to keep.
     private var detailTransition: AnyTransition {
         guard !self.reduceMotion else { return .identity }
-        return .opacity.combined(with: .offset(y: -4)).animation(DisclosureMotion.openCurve)
+        return .opacity.animation(DisclosureMotion.openCurve)
     }
 
     private func expansionBinding(for group: PricingGroup) -> Binding<Bool> {
@@ -231,7 +223,7 @@ struct PricingSettingsView: View {
                     .frame(width: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
             .frame(width: 22)
             .help("Back to the default order: API whitelist fixed order; Others most-used first")
         }
@@ -276,7 +268,7 @@ struct PricingSettingsView: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
         .frame(maxWidth: leading ? .infinity : Self.rateColumnWidth)
         .onHover { self.hoveredSortField = $0 ? field : nil }
         .help(self.sortHint(title, field))
@@ -307,7 +299,7 @@ struct PricingSettingsView: View {
                     .frame(width: Self.disclosureHitSize.width, height: Self.disclosureHitSize.height)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(DisclosurePressStyle(reduceMotion: self.reduceMotion))
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
             .frame(width: Self.disclosureHitSize.width)
             .help("One-hour cache write and long-context rates")
 
@@ -341,7 +333,7 @@ struct PricingSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("One-hour cache write and long-context rates")
 
