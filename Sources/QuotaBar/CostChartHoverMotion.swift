@@ -54,10 +54,6 @@ enum CostChartHoverMotion {
         )
     }
 
-    /// The label belongs to the bar, so it arrives the way the bar does: rising into place as it
-    /// fades in, rather than blinking on above a bar that is still moving.
-    static let labelTransition: AnyTransition = .opacity.combined(with: .offset(y: 4))
-
     // MARK: - Breakdown
 
     /// The full model list opens under its disclosure. The rows unroll out of the row above
@@ -84,41 +80,17 @@ enum CostChartHoverMotion {
 
     // MARK: - Unit swap
 
-    /// Choosing another unit changes the highlighted label in place.
+    /// Choosing another unit rescales the bars while the text updates in place.
     static let swapDuration: TimeInterval = 0.26
-
-    /// The old unit blurs out and the new one resolves into the same position.
-    static let swapBlur: CGFloat = 2.6
-    /// How small the number is while it is still blurred. Enough to feel unresolved, not enough
-    /// to read as a separate zoom.
-    static let swapScale: Double = 0.86
 
     static func swapAnimation(reduceMotion: Bool, timeScale: Double = 1) -> Animation? {
         guard !reduceMotion else { return nil }
         return .easeOut(duration: Self.scaled(Self.swapDuration, timeScale: timeScale))
     }
 
-    static let swapTransition: AnyTransition = .modifier(
-        active: LabelResolve(progress: 1),
-        identity: LabelResolve(progress: 0)
-    )
-
     /// The demo windows slow these curves down so a quarter-second response can be judged by
     /// eye. A playback rate, so a slower rate is a longer animation.
     static func scaled(_ duration: TimeInterval, timeScale: Double) -> TimeInterval {
         duration / max(0.01, timeScale)
-    }
-}
-
-/// One end of the unit swap: at full strength the number is blurred and slightly small, at
-/// identity it is the label as it is read.
-struct LabelResolve: ViewModifier {
-    let progress: Double
-
-    func body(content: Content) -> some View {
-        content
-            .blur(radius: CostChartHoverMotion.swapBlur * self.progress)
-            .scaleEffect(1 - (1 - CostChartHoverMotion.swapScale) * self.progress)
-            .opacity(1 - self.progress)
     }
 }

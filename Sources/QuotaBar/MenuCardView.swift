@@ -342,6 +342,7 @@ struct MenuCardView: View {
                 .padding(.top, 5)
             }
             .font(.system(size: 11))
+            .disclosureGroupStyle(PopoverDisclosureStyle())
         }
     }
 
@@ -369,6 +370,8 @@ struct MenuCardView: View {
             .accessibilityLabel("\(kind.presentation.title) pace: \(pace.deltaLabel)")
         }
         .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -491,49 +494,6 @@ private struct UnlimitedWindowRow: View {
     }
 }
 
-/// Both quota windows use the same saved reset-time mode.
-struct ResetLabel: View {
-    let text: String
-    let mode: QuotaResetDisplayMode
-    var previewHovered = false
-    let onModeChanged: (QuotaResetDisplayMode) -> Void
-
-    var body: some View {
-        Menu {
-            Picker("Reset time display", selection: Binding(
-                get: { self.mode },
-                set: self.onModeChanged
-            )) {
-                Text("Countdown").tag(QuotaResetDisplayMode.countdown)
-                Text("Clock time").tag(QuotaResetDisplayMode.clock)
-            }
-        } label: {
-            Text("\(self.text)  ▾")
-            .font(.system(size: 11, weight: .regular))
-            .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
-            .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .controlSize(.small)
-        .font(.system(size: 11))
-        .fixedSize(horizontal: true, vertical: false)
-#if DEBUG
-        .background {
-            QuotaLayoutProbe(identifier: "reset")
-        }
-#endif
-        .accessibilityLabel("Reset time display, \(self.text)")
-    }
-}
-
 #if DEBUG
 /// A zero-drawing AppKit view that records the frame SwiftUI assigned to one card label. It is
 /// present only in debug builds so the layout verifier can inspect the real hosting hierarchy.
@@ -550,7 +510,7 @@ final class QuotaLayoutProbeView: NSView {
     }
 }
 
-private struct QuotaLayoutProbe: NSViewRepresentable {
+struct QuotaLayoutProbe: NSViewRepresentable {
     let identifier: String
 
     func makeNSView(context: Context) -> QuotaLayoutProbeView {

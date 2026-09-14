@@ -1,6 +1,45 @@
 import Foundation
 import SwiftUI
 
+/// Popover disclosures resize once, keeping text fixed while the chevron acknowledges the click.
+struct PopoverDisclosureStyle: DisclosureGroupStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withTransaction(Transaction(animation: nil)) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    DisclosureChevron(isOpen: configuration.isExpanded, reduceMotion: self.reduceMotion)
+                        .frame(width: 10, height: 12)
+                        .accessibilityHidden(true)
+                    configuration.label
+                }
+                .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+#if DEBUG
+            .background { QuotaLayoutProbe(identifier: "pace-disclosure") }
+#endif
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(configuration.isExpanded ? "Collapse details" : "Expand details")
+
+            if configuration.isExpanded {
+                configuration.content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 16)
+                    .transition(.identity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// How the pricing table's disclosures open. Both curves are readings of what the reset
 /// choreography already does — `QuotaCelebration` charges the fill on an exponential decay and
 /// settles its landing on a damped sine — shortened from a celebration to the length of a click.

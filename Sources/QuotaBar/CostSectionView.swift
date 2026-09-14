@@ -1,4 +1,3 @@
-import AppKit
 import QuotaBarCore
 import SwiftUI
 
@@ -8,7 +7,6 @@ struct CostSectionView: View {
 
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
-    private static let chartLabelHeight: CGFloat = 17
     static let breakdownLayout = CostBreakdownLayout(
         summaryHeight: 61,
         rowHeight: 17,
@@ -93,7 +91,7 @@ struct CostSectionView: View {
                 .accessibilityLabel("Usage unit")
             }
 
-            self.kpiGrid
+            self.kpiRow
             self.chart
             self.dayDetail
             self.modelDisclosure
@@ -106,7 +104,10 @@ struct CostSectionView: View {
             self.reconcileSelection(providerChanged: false)
         }
         .onChange(of: self.parentLabelMode) { _, newMode in
-            if self.selectedLabelMode != newMode { self.selectedLabelMode = newMode }
+            guard self.selectedLabelMode != newMode else { return }
+            withTransaction(Transaction(animation: nil)) {
+                self.selectedLabelMode = newMode
+            }
         }
     }
 
@@ -145,46 +146,51 @@ struct CostSectionView: View {
 
     private func changeMode(to mode: CostChartLabelMode) {
         guard mode != self.selectedLabelMode else { return }
-        withAnimation(CostChartHoverMotion.swapAnimation(
-            reduceMotion: CostChartHoverMotion.systemReduceMotion
-        )) {
+        // The Picker can supply its own animation transaction. Keep it out of the card layout.
+        withTransaction(Transaction(animation: nil)) {
             self.selectedLabelMode = mode
+            self.onLabelModeChanged(mode)
         }
-        self.onLabelModeChanged(mode)
     }
 
-    private var kpiGrid: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16) {
-            GridRow {
-                self.kpi(
-                    label: "Today",
-                    value: self.isUnobserved(self.todayDayKey) ? "—" : self.selectedLabelMode == .tokens
-                        ? Formatters.tokens(self.todayDay.tokens.total)
-                        : self.costValue(self.todayDay.costAvailability),
-                    status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : self.selectedLabelMode == .cost
-                        ? self.status(self.todayDay.costAvailability) : nil
-                )
-                self.kpi(
-                    label: "Last 30 days",
-                    value: self.selectedLabelMode == .tokens
-                        ? Formatters.tokens(self.snapshot.windowTokens)
-                        : self.costValue(self.snapshot.windowCostAvailability),
-                    status: self.selectedLabelMode == .cost
-                        ? self.status(self.snapshot.windowCostAvailability) : nil
-                )
-            }
+    private var kpiRow: some View {
+        HStack(alignment: .top, spacing: 16) {
+            self.kpi(
+                label: "Today",
+                value: self.isUnobserved(self.todayDayKey) ? "—" : self.selectedLabelMode == .tokens
+                    ? Formatters.tokens(self.todayDay.tokens.total)
+                    : self.costValue(self.todayDay.costAvailability),
+                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : self.selectedLabelMode == .cost
+                    ? self.status(self.todayDay.costAvailability) : nil
+            )
+            self.kpi(
+                label: "Last 30 days",
+                value: self.selectedLabelMode == .tokens
+                    ? Formatters.tokens(self.snapshot.windowTokens)
+                    : self.costValue(self.snapshot.windowCostAvailability),
+                status: self.selectedLabelMode == .cost
+                    ? self.status(self.snapshot.windowCostAvailability) : nil
+            )
         }
+    }
+
+    private var needsKPIStatusRow: Bool {
+        self.isUnobserved(self.todayDayKey)
+            || self.status(self.todayDay.costAvailability) != nil
+            || self.status(self.snapshot.windowCostAvailability) != nil
     }
 
     private func kpi(label: String, value: String, status: String?) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
             Text(value).font(.system(size: 16, weight: .semibold)).monospacedDigit()
-            if let status {
-                Text(status)
+            if self.needsKPIStatusRow {
+                Text(status ?? " ")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .opacity(status == nil ? 0 : 1)
+                    .accessibilityHidden(status == nil)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -203,34 +209,14 @@ struct CostSectionView: View {
 
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
-                ZStack(alignment: .topLeading) {
-                    HStack(alignment: .bottom, spacing: 0) {
-                        ForEach(self.bars, id: \.dayKey) { day in
-                            self.dayButton(day)
-                                .frame(width: slotWidth)
-                        }
-                    }
-                    if let day = self.selectedDay,
-                       let index = self.bars.firstIndex(where: { $0.dayKey == day.dayKey }) {
-                        let label = self.chartLabel(for: day)
-                        Text(label)
-                            .font(.system(size: 10, weight: .medium))
-                            .fixedSize()
-                            .position(
-                                x: self.labelCenter(
-                                    for: label,
-                                    index: index,
-                                    slotWidth: slotWidth,
-                                    chartWidth: geometry.size.width
-                                ),
-                                y: Self.chartLabelHeight / 2
-                            )
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
+                HStack(alignment: .bottom, spacing: 0) {
+                    ForEach(self.bars, id: \.dayKey) { day in
+                        self.dayButton(day)
+                            .frame(width: slotWidth)
                     }
                 }
             }
-            .frame(height: Self.chartLabelHeight + Self.chartHeight + CostChartHoverMotion.markerBand)
+            .frame(height: Self.chartHeight + CostChartHoverMotion.markerBand)
             .onMoveCommand { direction in
                 switch direction {
                 case .left: self.moveSelection(by: -1)
@@ -259,7 +245,6 @@ struct CostSectionView: View {
             self.selectDay(day.dayKey)
         } label: {
             VStack(spacing: 0) {
-                Color.clear.frame(height: Self.chartLabelHeight)
                 ZStack(alignment: .bottom) {
                     Color.clear
                     if value > 0 {
@@ -269,7 +254,14 @@ struct CostSectionView: View {
                                 dayKey: day.dayKey,
                                 selectedDayKey: self.selectedDayKey
                             ))
+                            .animation(CostChartHoverMotion.animation(
+                                clearingHover: false,
+                                reduceMotion: CostChartHoverMotion.systemReduceMotion
+                            ), value: selected)
                             .frame(height: max(2, height))
+                            .animation(CostChartHoverMotion.swapAnimation(
+                                reduceMotion: CostChartHoverMotion.systemReduceMotion
+                            ), value: self.selectedLabelMode)
                             .padding(.horizontal, 2)
                     } else {
                         Text(self.zeroMark(for: day))
@@ -283,6 +275,10 @@ struct CostSectionView: View {
                     .fill(Theme.accent(for: self.snapshot.provider))
                     .frame(width: 12, height: CostChartHoverMotion.markerHeight)
                     .opacity(selected ? 1 : 0)
+                    .animation(CostChartHoverMotion.animation(
+                        clearingHover: false,
+                        reduceMotion: CostChartHoverMotion.systemReduceMotion
+                    ), value: selected)
                     .frame(height: CostChartHoverMotion.markerBand)
             }
             .frame(maxWidth: .infinity)
@@ -317,34 +313,12 @@ struct CostSectionView: View {
         .help("\(self.fullDate(day.dayKey)): \(self.accessibleDayValue(day))")
     }
 
-    private func chartLabel(for day: CostDay) -> String {
-        if self.isUnobserved(day.dayKey) { return "—" }
-        return switch self.selectedLabelMode {
-        case .tokens: Formatters.tokens(day.tokens.total)
-        case .cost: day.costAvailability.knownUSD.map(Formatters.compactCost) ?? "—"
-        }
-    }
-
     private func zeroMark(for day: CostDay) -> String {
         if self.isUnobserved(day.dayKey) { return "—" }
         if self.selectedLabelMode == .cost, day.costAvailability.state == .unpriced {
             return "—"
         }
         return "0"
-    }
-
-    private func labelCenter(
-        for label: String,
-        index: Int,
-        slotWidth: CGFloat,
-        chartWidth: CGFloat
-    ) -> CGFloat {
-        let width = (label as NSString).size(withAttributes: [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-        ]).width
-        let half = min(chartWidth / 2, width / 2 + 2)
-        let natural = (CGFloat(index) + 0.5) * slotWidth
-        return min(chartWidth - half, max(half, natural))
     }
 
     private func accessibleDayValue(_ day: CostDay) -> String {
@@ -418,6 +392,12 @@ struct CostSectionView: View {
         self.bars.first { $0.dayKey == self.selectedDayKey }
     }
 
+    private var needsDayStatusRow: Bool {
+        self.bars.contains { day in
+            !self.isUnobserved(day.dayKey) && self.status(day.costAvailability) != nil
+        }
+    }
+
     private var dayDetail: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -439,6 +419,7 @@ struct CostSectionView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
+                    .frame(height: 22, alignment: .top)
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         let cost = self.costValue(day.costAvailability)
@@ -454,11 +435,18 @@ struct CostSectionView: View {
                             .minimumScaleFactor(0.8)
                     }
                     .monospacedDigit()
-                    if let status = self.status(day.costAvailability) {
-                        Text(self.availabilityDetail(status, day.costAvailability))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
+                    .frame(height: 22, alignment: .top)
+                }
+                if self.needsDayStatusRow {
+                    let status = self.isUnobserved(day.dayKey)
+                        ? nil : self.status(day.costAvailability)
+                    Text(status.map { self.availabilityDetail($0, day.costAvailability) } ?? " ")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(height: 24, alignment: .top)
+                        .opacity(status == nil ? 0 : 1)
+                        .accessibilityHidden(status == nil)
                 }
             }
             Divider()

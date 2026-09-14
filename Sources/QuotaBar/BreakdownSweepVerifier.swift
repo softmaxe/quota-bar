@@ -20,9 +20,10 @@ enum BreakdownSweepVerifier {
 
     static func run() -> Never {
         let provider = Provider.codex
+        let cost = CardDump.busyCost(provider)
         let display = ProviderDisplay(
             snapshot: CardDump.loadedSnapshot(provider),
-            cost: CardDump.busyCost(provider)
+            cost: cost
         )
         let collapsed = Self.height(of: Self.card(provider: provider, display: display, openness: 0))
         let open = Self.height(of: Self.card(provider: provider, display: display, openness: 1))
@@ -30,6 +31,57 @@ enum BreakdownSweepVerifier {
         var failures: [String] = []
         if open <= collapsed {
             failures.append("opening the breakdown expected a taller card, got \(open) from \(collapsed)")
+        }
+
+        for testedCost in [cost, Self.partiallyPricedCost(cost)] {
+            let testedDisplay = ProviderDisplay(snapshot: display.snapshot, cost: testedCost)
+            for openness in [0.0, 1.0] {
+                let tokenSection = Self.sectionHeight(of: Self.section(
+                    cost: testedCost, openness: openness, labelMode: .tokens
+                ))
+                let costSection = Self.sectionHeight(of: Self.section(
+                    cost: testedCost, openness: openness, labelMode: .cost
+                ))
+                if abs(tokenSection - costSection) > 0.5 {
+                    failures.append(
+                        "switching usage units at \(openness) openness moved the section height "
+                            + "from \(tokenSection)pt to \(costSection)pt"
+                    )
+                }
+                let tokenCard = Self.height(of: Self.card(
+                    provider: provider, display: testedDisplay, openness: openness, labelMode: .tokens
+                ))
+                let costCard = Self.height(of: Self.card(
+                    provider: provider, display: testedDisplay, openness: openness, labelMode: .cost
+                ))
+                if abs(tokenCard - costCard) > 0.5 {
+                    failures.append(
+                        "switching usage units at \(openness) openness moved the card height "
+                            + "from \(tokenCard)pt to \(costCard)pt"
+                    )
+                }
+            }
+        }
+
+        let partialCost = Self.partiallyPricedCost(cost)
+        if let pricedDay = partialCost.days.first?.dayKey,
+           let partialDay = partialCost.days.last?.dayKey,
+           let zeroDay = CostChartHighlightPolicy.visibleDays(
+                from: partialCost.days, todayDayKey: partialDay, maxBars: 10
+           ).first?.dayKey {
+            for mode in [CostChartLabelMode.tokens, .cost] {
+                let selectedHeights = [pricedDay, zeroDay, partialDay].map { dayKey in
+                    Self.sectionHeight(of: Self.section(
+                        cost: partialCost, openness: 0, labelMode: mode,
+                        hoveredDayKey: dayKey
+                    ))
+                }
+                if let firstHeight = selectedHeights.first,
+                   selectedHeights.contains(where: { abs($0 - firstHeight) > 0.5 }) {
+                    failures.append("hovering priced, empty, and partially priced days in \(mode.rawValue) mode "
+                        + "moved the section heights to \(selectedHeights)")
+                }
+            }
         }
 
         // A selected five-model day opens exactly five rows, even when the latest day contains
@@ -152,10 +204,12 @@ enum BreakdownSweepVerifier {
         cost: CostSnapshot,
         openness: Double,
         labelMode: CostChartLabelMode,
-        expandedDayKey: String? = nil
+        expandedDayKey: String? = nil,
+        hoveredDayKey: String? = nil
     ) -> some View {
         CostSectionView(
             snapshot: cost,
+            previewHoveredDayKey: hoveredDayKey,
             previewTodayDayKey: cost.days.last?.dayKey,
             labelMode: labelMode,
             isBreakdownExpanded: openness > 0,
@@ -220,6 +274,33 @@ enum BreakdownSweepVerifier {
             windowTokens: sample.windowTokens,
             topModel: sample.topModel,
             hasUnpricedTokens: sample.hasUnpricedTokens,
+            scannedAt: sample.scannedAt
+        )
+    }
+
+    private static func partiallyPricedCost(_ sample: CostSnapshot) -> CostSnapshot {
+        guard let last = sample.days.last else { return sample }
+        let missingTokens = 1_000
+        var byModel = last.byModel
+        byModel[ModelUsageKey(source: .codex, model: "fixture-unpriced")] = ModelDayUsage(
+            tokens: TokenTotals(input: missingTokens), costUSD: nil
+        )
+        var days = sample.days
+        days[days.index(before: days.endIndex)] = CostDay(
+            dayKey: last.dayKey,
+            byModel: byModel,
+            costUSD: last.costUSD,
+            unpricedTokens: missingTokens
+        )
+        return CostSnapshot(
+            provider: sample.provider,
+            days: days,
+            todayCostUSD: sample.todayCostUSD,
+            windowCostUSD: sample.windowCostUSD,
+            latestTokens: sample.latestTokens + missingTokens,
+            windowTokens: sample.windowTokens + missingTokens,
+            topModel: sample.topModel,
+            hasUnpricedTokens: true,
             scannedAt: sample.scannedAt
         )
     }

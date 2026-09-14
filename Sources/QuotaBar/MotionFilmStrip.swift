@@ -28,9 +28,9 @@ enum MotionFilmStrip {
         TabSwitchMotion.progress(at: time, duration: duration)
     }
 
-    /// `.easeOut`, the unit cubic Bézier through (0, 0) and (0.58, 1), which is what the label's
-    /// unit swap runs on. `TabSwitchMotion` solves its own control points and only its own, so
-    /// this one solves these.
+    /// `.easeOut`, the unit cubic Bézier through (0, 0) and (0.58, 1), which is what the chart's
+    /// bar-height swap runs on. `TabSwitchMotion` solves its own control points and only its own,
+    /// so this one solves these.
     static func easeOut(_ time: TimeInterval, duration: TimeInterval) -> Double {
         guard duration > 0 else { return 1 }
         let x = min(max(time / duration, 0), 1)
@@ -149,12 +149,10 @@ enum MotionFilmStrip {
         }
     }
 
-    // MARK: - Cost chart label
+    // MARK: - Cost chart unit
 
-    /// `--dump-label-toggle <dir>`: a click on the highlighted bar swapping its label between
-    /// tokens and cost, twice, on the shipped blur-and-resolve. The click changes the chart's
-    /// height metric as well as the reading, so the bars rescale under the label on the same
-    /// curve.
+    /// `--dump-label-toggle <dir>`: switch cost and token readings twice. The selected day's
+    /// primary and secondary values update immediately below the chart while the bars rescale.
     static func dumpLabelToggle(directory: String) {
         let root = OffscreenCapture.directory(directory)
         let hold: TimeInterval = 0.9
@@ -394,21 +392,17 @@ private struct ChartHighlightFrame: View {
     }
 }
 
-/// The highlighted bar's label changing unit, and the whole chart rescaling under it. The layout
-/// is the stand-in; the readings and the heights are not. The text comes from
-/// `CostChartHighlightPolicy`, the two readings are drawn through the same `LabelResolve` the
-/// shipped transition ends on, and every bar is scaled by `CostChartHighlightPolicy.value` against
-/// that metric's own maximum, which is the height the shipped chart animates to on the same click.
+/// The selected day's readings change below the chart as its bars rescale. The layout is a
+/// stand-in; each bar uses `CostChartHighlightPolicy.value` and the matching metric's maximum.
 private struct ChartLabelSwapFrame: View {
-    /// The unit arriving. The one leaving is the other one; there are only two.
+    /// The new mode is visible from the first frame; progress only moves bar heights.
     let mode: CostChartLabelMode
     let progress: Double
 
     /// A week the two metrics disagree about, because a cheap model spends tokens a dear one does
     /// not: the tallest token day is the second, the tallest cost day is the third. A fixture that
     /// read the same in both units would hold the chart still and show half of what the click does.
-    /// The selected day is the one place they agree, at 37M tokens and $37, so the two readings are
-    /// the same length and the swap is worth watching rather than a change of width.
+    /// The selected day has 37M tokens and $37, so both readings remain visible through a swap.
     private static let fixture: [(tokensM: Double, costUSD: Double)] = [
         (62, 18), (90, 24), (48, 40), (71, 30), (9, 7), (88, 22), (41, 35), (37, 37),
     ]
@@ -430,30 +424,8 @@ private struct ChartLabelSwapFrame: View {
         )
     }
 
-    private func text(for mode: CostChartLabelMode) -> some View {
-        let day = Self.days[Self.days.count - 1]
-        return Text(CostChartHighlightPolicy.labelText(
-            selectedMode: mode,
-            tokens: day.tokens.total,
-            costUSD: day.costUSD
-        ))
-        .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.primary)
-        .fixedSize()
-    }
-
-    private var label: some View {
-        ZStack {
-            self.text(for: self.mode == .tokens ? .cost : .tokens)
-                .modifier(LabelResolve(progress: self.progress))
-            self.text(for: self.mode)
-                .modifier(LabelResolve(progress: 1 - self.progress))
-        }
-    }
-
-    /// Height as a share of the chart, interpolated on the swap's own progress. The shipped bars
-    /// get there the same way: the mode flips inside `withAnimation`, so SwiftUI runs the frame
-    /// from the old metric's ratio to the new one over the curve the label resolves on.
+    /// Height as a share of the chart, interpolated on the swap's own progress. The shipped mode
+    /// flips immediately while SwiftUI animates the bars from the old ratio to the new one.
     private func ratio(for day: CostDay) -> Double {
         let leaving = self.mode == .tokens ? CostChartLabelMode.cost : .tokens
         return Self.ratio(for: day, mode: leaving)
@@ -469,33 +441,61 @@ private struct ChartLabelSwapFrame: View {
 
     var body: some View {
         let tint = Theme.accent(for: .claude)
-        return HStack(alignment: .bottom, spacing: Self.spacing) {
-            ForEach(Array(Self.days.enumerated()), id: \.offset) { index, day in
-                let isSelected = index == Self.days.count - 1
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(tint)
-                    .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
-                    .frame(height: max(4, Self.chartHeight * self.ratio(for: day)))
-                    .frame(maxWidth: .infinity)
-                    .overlay(alignment: .bottom) {
-                        if isSelected {
-                            Capsule(style: .continuous)
-                                .fill(tint)
-                                .frame(height: CostChartHoverMotion.markerHeight)
-                                .offset(y: CostChartHoverMotion.markerBand)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if isSelected { self.label.offset(y: -14) }
-                    }
+        let selectedDay = Self.days[Self.days.count - 1]
+        let cost = selectedDay.costAvailability.knownUSD.map(Formatters.cost) ?? "—"
+        let tokens = "\(Formatters.tokens(selectedDay.tokens.total)) tokens"
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("Last \(Self.days.count) calendar days")
+                Spacer(minLength: 4)
+                Text(self.mode == .tokens ? "Tokens" : "Cost")
             }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+
+            HStack(alignment: .bottom, spacing: Self.spacing) {
+                ForEach(Array(Self.days.enumerated()), id: \.offset) { index, day in
+                    let isSelected = index == Self.days.count - 1
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(tint)
+                        .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
+                        .frame(height: max(4, Self.chartHeight * self.ratio(for: day)))
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .bottom) {
+                            if isSelected {
+                                Capsule(style: .continuous)
+                                    .fill(tint)
+                                    .frame(height: CostChartHoverMotion.markerHeight)
+                                    .offset(y: CostChartHoverMotion.markerBand)
+                            }
+                        }
+                }
+            }
+            .frame(width: Self.chartWidth, height: Self.chartHeight)
+            .padding(.bottom, CostChartHoverMotion.markerBand)
+
+            HStack {
+                Text(Formatters.dayLabel(Self.days[0].dayKey))
+                Spacer(minLength: 4)
+                Text(Formatters.dayLabel(selectedDay.dayKey))
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+
+            Divider()
+            Text(Formatters.dayLabel(selectedDay.dayKey))
+                .font(.system(size: 11, weight: .medium))
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(self.mode == .tokens ? tokens : cost)
+                    .font(.system(size: 17, weight: .medium))
+                Text(self.mode == .tokens ? cost : tokens)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .monospacedDigit()
         }
-        .frame(width: Self.chartWidth, height: Self.chartHeight)
-        // Room for the label above and the mark below, the way the card reserves them.
-        .padding(.top, 14)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12 + CostChartHoverMotion.markerBand)
-        .frame(width: 280, alignment: .bottom)
+        .padding(14)
+        .frame(width: 280, alignment: .leading)
         .background(OffscreenCapture.groundColor)
     }
 }

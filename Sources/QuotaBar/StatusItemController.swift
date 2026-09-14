@@ -246,8 +246,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private func updatePopoverSize() {
         guard let model = self.presentation else { return }
         let size = NSSize(width: 280, height: model.viewportHeight + model.footerHeight)
-        guard self.popover?.contentSize != size else { return }
-        self.popover?.contentSize = size
+        guard let popover = self.popover, popover.contentSize != size else { return }
+        // Resizing the host during a SwiftUI transition moves every line in the popover.
+        // Local controls animate their own feedback after the content takes its final size.
+        let animates = popover.animates
+        popover.animates = false
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            popover.contentSize = size
+        }
+        popover.animates = animates
     }
 
     @objc private func refreshClicked() {
