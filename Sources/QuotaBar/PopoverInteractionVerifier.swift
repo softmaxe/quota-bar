@@ -235,7 +235,32 @@ enum PopoverInteractionVerifier {
         require(model.footerHeight == 85 && model.viewportHeight <= 135,
                 "the action footer did not retain space below the scroll viewport")
 
+        // Calling the card action checks saved-mode updates while the popover stays open.
+        // It does not exercise SwiftUI's native Menu tracking or a real desktop click.
+        for cycle in 1...3 {
+            require(popover.isShown && controller.debugDismissalMonitorCount == 2,
+                    "dismissal cycle \(cycle): the open popover lacks a dismissal monitor")
+            let mode: QuotaResetDisplayMode = cycle.isMultiple(of: 2) ? .countdown : .clock
+            model.card.onQuotaResetDisplayModeChanged(mode)
+            require(await Self.wait(until: {
+                settings.quotaResetDisplayMode == mode && model.card.quotaResetDisplayMode == mode
+            }), "dismissal cycle \(cycle): the reset display mode did not update")
+            require(popover.isShown && controller.debugDismissalMonitorCount == 2,
+                    "dismissal cycle \(cycle): changing reset mode closed the popover or lost a monitor")
+
+            NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
+            require(await Self.wait(until: {
+                !popover.isShown && controller.debugDismissalMonitorCount == 0
+            }), "dismissal cycle \(cycle): app deactivation did not close and clean up the popover")
+
+            controller.debugShowPopover()
+            require(await Self.wait(until: { popover.isShown && controller.debugDismissalMonitorCount == 2 }),
+                    "dismissal cycle \(cycle): reopening did not restore dismissal monitors")
+        }
+
         popover.performClose(nil)
+        require(await Self.wait(until: { controller.debugDismissalMonitorCount == 0 }),
+                "final close retained dismissal monitors")
         store.stop()
         withExtendedLifetime(controller) {}
         Self.finish(nil, scratch: scratch)
@@ -256,7 +281,7 @@ enum PopoverInteractionVerifier {
             VerifierReport.report(failure, label: "popover interaction verification")
             exit(1)
         }
-        print("Native Cmd-R, disclosure, unit switching, and capped popover layout checks passed")
+        print("Native Cmd-R, disclosure, unit switching, capped layout, and dismissal lifecycle checks passed")
         exit(0)
     }
 

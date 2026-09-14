@@ -19,6 +19,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var isMenuOpen = false
     private var openMenuClock: Timer?
     private var refreshRowClock: Timer?
+    private var outsideClickMonitor: Any?
+    private var applicationDeactivationObserver: Any?
     private var recoveries: [Provider: [QuotaWindowKind: QuotaRecoveryEvent]] = [:]
     private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
     private var isCostBreakdownExpanded = false
@@ -45,6 +47,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.store.$refreshingProviders.receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refreshOpenCard()
         }.store(in: &self.cancellables)
+    }
+
+    deinit {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        if let applicationDeactivationObserver {
+            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        }
     }
 
     func installApplicationMenu() {
@@ -304,10 +313,36 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.startRefreshRowClock()
     }
 
+    func popoverDidShow(_ notification: Notification) {
+        self.stopDismissalMonitoring()
+        // A nested reset-time menu can leave AppKit's transient dismissal inactive.
+        // Global mouse events exclude this app's menus and status-button toggle.
+        self.outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            self?.popover?.performClose(nil)
+        }
+        self.applicationDeactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover?.performClose(nil) }
+        }
+    }
+
     func popoverDidClose(_ notification: Notification) { self.endPresentation() }
+
+    private func stopDismissalMonitoring() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        self.outsideClickMonitor = nil
+        if let applicationDeactivationObserver {
+            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        }
+        self.applicationDeactivationObserver = nil
+    }
 
     private func endPresentation() {
         self.isMenuOpen = false
+        self.stopDismissalMonitoring()
         self.stopOpenMenuClock()
         self.stopRefreshRowClock()
     }
@@ -353,6 +388,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         return (state.title, state.trailingText, state.isEnabled)
     }
     var debugPopover: NSPopover? { self.popover }
+    var debugDismissalMonitorCount: Int {
+        (self.outsideClickMonitor == nil ? 0 : 1)
+            + (self.applicationDeactivationObserver == nil ? 0 : 1)
+    }
     var debugStatusButton: NSStatusBarButton? { self.statusItem?.button }
     func debugShowPopover() { self.statusItemClicked() }
 #endif
