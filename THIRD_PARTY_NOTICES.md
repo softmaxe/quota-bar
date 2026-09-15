@@ -36,3 +36,9 @@ The menu bar robot in `Sources/QuotaBar/IconRenderer.swift` is the `robot-excite
 [Material Design Icons](https://pictogrammers.com/library/mdi/) 7.4.47 by Pictogrammers,
 transcribed from its SVG path. Material Design Icons is distributed under the Apache License,
 Version 2.0: <https://www.apache.org/licenses/LICENSE-2.0>.
+
+## Chart.js
+
+Offline usage reports embed [Chart.js](https://www.chartjs.org/) 4.5.1, distributed under the
+MIT License by the Chart.js Contributors. The full license is retained in
+`Sources/QuotaBarCore/Resources/UsageReport/Chart.js.LICENSE.md` and embedded in each exported HTML.

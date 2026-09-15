@@ -23,6 +23,8 @@ echo "==> rendering frames"
 "$BIN" --dump-interaction-states "$WORK/interactions" >/dev/null
 "$BIN" --dump-icons "$WORK/icons" >/dev/null
 "$BIN" --dump-settings "$WORK/settings" >/dev/null
+"$BIN" --dump-usage-report "$WORK/report" >/dev/null
+node Scripts/report_image.mjs "$WORK/report/usage-report.html" "$OUT/report-export.png"
 "$BIN" --dump-card-celebration "$WORK/reset" claude >/dev/null
 "$BIN" --dump-chart-hover "$WORK/hover" claude >/dev/null
 "$BIN" --dump-tab-switch "$WORK/tab" >/dev/null

@@ -9,12 +9,13 @@ final class SettingsSelection: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var pricing: PricingEditorModel
+    @ObservedObject var export: ExportSettingsModel = ExportSettingsModel()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var selection: SettingsSelection = SettingsSelection()
     /// The pricing pane scans the cost database and refreshes the catalog when it first appears.
-    /// Both panes live in the hierarchy so the switch can cross-fade, so that work is gated on
+    /// All panes live in the hierarchy so the switch can cross-fade, so that work is gated on
     /// the tab having actually been opened rather than on the view existing.
     @State private var pricingWasOpened = false
 
@@ -40,13 +41,16 @@ struct SettingsView: View {
         }
     }
 
-    /// Both panes stay mounted; what changes is which one is opaque. The hidden one is disabled
+    /// All panes stay mounted; what changes is which one is opaque. Each hidden pane is disabled
     /// as well as transparent, so it takes neither a click nor the keyboard on its way out.
     private var panes: some View {
         ZStack(alignment: .topLeading) {
             self.pane(.general) { self.general }
             self.pane(.pricing) {
                 PricingSettingsView(model: self.pricing, isLoadEnabled: self.pricingWasOpened)
+            }
+            self.pane(.export) {
+                ExportSettingsView(model: self.export)
             }
         }
         .frame(width: Self.paneWidth, height: Self.paneHeight, alignment: .topLeading)

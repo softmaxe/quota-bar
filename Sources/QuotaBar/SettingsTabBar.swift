@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// The settings window's two panes. AppKit's own tab bar would draw this for free, but it offers
+/// The settings window's panes. AppKit's own tab bar would draw this for free, but it offers
 /// nowhere to put a curve — the selection jumps — so the control is drawn here instead.
 enum SettingsTab: Int, CaseIterable, Identifiable {
     case general
     case pricing
+    case export
 
     var id: Int { self.rawValue }
 
@@ -12,6 +13,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .pricing: "Pricing"
+        case .export: "Export"
         }
     }
 
@@ -19,16 +21,17 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .pricing: "dollarsign.circle"
+        case .export: "square.and.arrow.up"
         }
     }
 
-    /// ⌘1 and ⌘2, the shortcuts the system tab bar would have given these panes.
+    /// ⌘1 through ⌘3, the shortcuts the system tab bar would have given these panes.
     var shortcut: KeyEquivalent {
         KeyEquivalent(Character("\(self.rawValue + 1)"))
     }
 }
 
-/// Two segments and one pill. The segments size themselves to their labels and report where they
+/// The segments size themselves to their labels and report where they
 /// landed; the pill is drawn from those frames, so nothing here assumes two equal halves of the
 /// width or a fixed label.
 struct SettingsTabBar: View {
@@ -63,6 +66,11 @@ struct SettingsTabBar: View {
             if let rect = value[self.selection], rect.minX != self.pillMinX || rect.maxX != self.pillMaxX {
                 if self.pillMaxX == 0 { self.snapPill(to: rect) }
             }
+        }
+        .onChange(of: self.selection) { _, newValue in
+            guard let rect = self.bounds[newValue],
+                  rect.minX != self.pillMinX || rect.maxX != self.pillMaxX else { return }
+            self.movePill(to: rect)
         }
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
@@ -134,13 +142,16 @@ struct SettingsTabBar: View {
 
     private func select(_ tab: SettingsTab) {
         guard tab != self.selection, let rect = self.bounds[tab] else { return }
+        self.selection = tab
+        self.movePill(to: rect)
+    }
+
+    private func movePill(to rect: CGRect) {
         let movingRight = rect.minX >= self.pillMinX
         let curves = TabSwitchMotion.edgeCurves(
             movingRight: movingRight,
             reduceMotion: self.reduceMotion
         )
-
-        self.selection = tab
         // Two transactions, because the point is that the edges are not on one clock.
         withAnimation(curves.minX) { self.pillMinX = rect.minX }
         withAnimation(curves.maxX) { self.pillMaxX = rect.maxX }

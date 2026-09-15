@@ -30,6 +30,7 @@ QuotaBar supports Codex and Claude in one menu bar item. It is a rebuild of [Cod
 - Keeps the last good quota reading when a refresh fails, with its age and a retry action.
 - Provides keyboard shortcuts, a visible Tokens / Cost selector, and selectable chart dates.
 - Validates price edits, preserves drafts, and asks how to handle unsaved changes before quitting.
+- Exports an offline HTML usage trend report from **Settings → Export**, with Chinese/English switching and the last 7 or 30 days of saved usage.
 - Respects macOS Reduce Motion while keeping pressed and selected states visible.
 
 <p align="center">
@@ -179,6 +180,20 @@ Standard rates use manual overrides first, then the catalog, then the [built-in 
 
 Cost totals are estimates. Provider billing rules, cache accounting, and price changes can make them differ from an invoice.
 
+## Exporting a usage report
+
+Open **Settings → Export**, or press ⌘3 while the settings window is active. Choose **Last 7 days** or **Last 30 days**, leave **Open after export** selected if you want to inspect the result immediately, then choose **Export Report…**. If the selected period has no saved usage, QuotaBar reports that before opening a Save panel.
+
+<p align="center">
+  <img src="docs/images/report-export.png" width="760" alt="Bilingual offline usage report rendered with sample data">
+</p>
+
+The report is one self-contained HTML file. It works offline and lets the reader switch between Chinese and English. It summarizes every eligible source already stored in QuotaBar's SQLite history, including Codex, Claude, matching OpenCode OAuth usage, and matching Pi Agent OAuth usage. The page shows a daily usage line, stored cost by model, token and cache composition, and expandable tables with exact token totals and displayed costs.
+
+Export creates a snapshot of saved data. It does not refresh quota, rescan session logs, update prices, or make model or network requests. Costs keep the estimates saved when QuotaBar scanned each record. Unpriced tokens are excluded from the cost total, and the report marks partial pricing coverage. QuotaBar does not store cache cost as a separate USD amount, so the report does not reconstruct one. These estimates can differ from a provider bill.
+
+An exported file contains the selected period, capture time and timezone, source and model names, token counts, unpriced-token counts, and stored cost totals. Prompt, response, and reasoning text are not included. See [Usage report export](docs/usage-report-export.md) for the full data contract and developer checks.
+
 ## Editing model prices
 
 Open **Settings → Pricing**. Rates are in USD per million tokens. Expand a model row to edit its one-hour cache write rate, long-context threshold, and rates above that threshold.
@@ -247,13 +262,13 @@ make benchmark-startup # Measure status-item construction offline in a debug bui
 make benchmark-cost # Benchmark Codex scans with offline pricing; reads local logs
 make benchmark-cost PROVIDER=claude # Benchmark Claude with the same offline pricing
 make logs           # Stream logs for com.quotabar.app
-make readme-assets  # Rebuild screenshots, state examples, and GIFs; requires ffmpeg
+make readme-assets  # Rebuild screenshots, state examples, and GIFs; requires ffmpeg, Node.js, Playwright, and Chromium
 make clean
 ```
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
 
-`make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI. The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
+`make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI. The HTML report image also needs Node.js, Playwright, and a Chromium browser; see [report development checks](docs/usage-report-export.md#verification). The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
 
 To preview interactions with sample quota and cost data, run:
 

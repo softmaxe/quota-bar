@@ -14,6 +14,7 @@ let package = Package(
         // Data layer: credentials, usage endpoints, snapshot models. No AppKit.
         .target(
             name: "QuotaBarCore",
+            resources: [.copy("Resources/UsageReport")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Menu bar UI.

@@ -30,6 +30,7 @@ QuotaBar 将 Codex 和 Claude 放在同一个菜单栏图标中。项目基于 [
 - 刷新失败时保留最后一次有效的额度数据，显示数据距今时间，并提供重试操作。
 - 支持键盘快捷键、明确的 Tokens / Cost 切换控件和图表日期选择。
 - 校验费率输入、保留编辑草稿，并在退出前询问如何处理未保存的修改。
+- Exports a bilingual offline HTML report for the last 7 or 30 days of saved usage.
 - 遵循 macOS 的 **减弱动态效果** 设置，同时保留按钮按下和选中状态的视觉反馈。
 
 <p align="center">
@@ -178,6 +179,16 @@ Pi Agent 遵循同样的规则。只有匹配 OAuth 账号的 `openai-codex` ass
 Standard 费率依次使用手动覆盖、价格目录和[内置价格表](Sources/QuotaBarCore/Cost/CostPricing.swift)。目录条目缺少缓存费率或长上下文费率时，Astra 回退到完整的内置价格。Codex Fast 用量使用单独的内置表，不受手动覆盖和目录费率影响；表中没有的 Fast 模型不计价。这些规则描述 QuotaBar 如何估算成本，不保证与供应商当前定价一致。
 
 成本是估算值。供应商计费规则、缓存计算方式和价格变化，都可能让结果与账单不同。
+
+## Exporting a usage report
+
+Open **Settings → Export**, or press ⌘3 in the settings window. Choose **Last 7 days** or **Last 30 days**, then choose **Export Report…**. The saved HTML file works offline and switches between Chinese and English.
+
+<p align="center">
+  <img src="docs/images/report-export.png" width="760" alt="Bilingual offline usage report rendered with sample data">
+</p>
+
+The report covers all eligible sources already stored by QuotaBar and shows daily usage, stored model cost, token and cache composition, exact token tables, and displayed costs. Export reads the SQLite history only. It does not refresh quota, scan logs, update prices, or make model or network requests. Stored costs remain frozen estimates rather than provider bills. Unpriced tokens are excluded from cost, and separate cache USD amounts are unavailable because QuotaBar does not store them. See [Usage report export](docs/usage-report-export.md) for details.
 
 ## 编辑模型费率
 
