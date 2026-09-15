@@ -7,6 +7,10 @@ Package.resolved
 build/
 *.app
 
+# Local report design proposals and review evidence
+docs/report-templates/
+docs/usage-report-c-review.md
+
 # macOS
 .DS_Store
 

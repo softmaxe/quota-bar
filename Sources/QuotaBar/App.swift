@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.controller?.installApplicationMenu()
         self.store.start()
+        if CommandLine.arguments.contains("--show-export-settings") {
+            self.controller?.showExportSettings()
+        }
         Log.ui.info("QuotaBar launched")
         print("QuotaBar launched — use the Quit menu item or Ctrl-C to stop.")
     }
@@ -70,9 +73,14 @@ enum QuotaBarApp {
             ("--verify-pricing-model-filter", PricingModelFilterVerifier.run),
             ("--verify-disclosure-motion", DisclosureMotionVerifier.run),
             ("--verify-tab-switch-motion", TabSwitchMotionVerifier.run),
+            ("--verify-report-export", ExportReportVerifier.run),
         ]
         if let entry = verifiers.first(where: { arguments.contains($0.flag) }) {
             entry.run()
+        }
+
+        if let destination = values(after: "--export-usage-report", count: 1)?.first {
+            ExportReportVerifier.exportLive(to: destination)
         }
 
         if let state = values(after: "--preview-interface", count: 1)?.first
@@ -86,6 +94,8 @@ enum QuotaBarApp {
             ("--dump-icons", IconDump.run),
             ("--dump-card", CardDump.run),
             ("--dump-settings", CardDump.dumpSettings),
+            ("--dump-export-settings", ExportReportVerifier.dump),
+            ("--dump-usage-report", ExportReportVerifier.dumpSampleReport),
             ("--dump-tab-switch", MotionFilmStrip.dumpTabSwitch),
             ("--dump-disclosure", MotionFilmStrip.dumpDisclosure),
             ("--dump-chart-motion", MotionFilmStrip.dumpChartMotion),

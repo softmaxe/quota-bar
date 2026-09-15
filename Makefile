@@ -24,7 +24,8 @@ VERIFIERS := \
 	pricing-sort \
 	pricing-model-filter \
 	disclosure-motion \
-	tab-switch-motion
+	tab-switch-motion \
+	report-export
 
 .PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
 
