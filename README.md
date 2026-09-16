@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" alt="QuotaBar app logo" width="128">
+  <img src="Resources/AppIcon.png" alt="QuotaBar app logo" width="96">
 </p>
 
 <h1 align="center">QuotaBar</h1>
@@ -11,26 +11,24 @@
 
 A macOS menu bar app for checking Codex and Claude quota, reset times, local token usage, and estimated cost.
 
-[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
+[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
 <p align="center">
   <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards rendered with sample data">
 </p>
 
-Screenshots and animations use sample data, including model names, quota, and costs. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
+Screenshots and animations use sample data. The app interface is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
 ## Features
 
-- View remaining session and weekly quota, reset times, usage pace, and available credits for the selected provider.
-- Chart local tokens and estimated cost by day and model, including matching OpenCode and Pi Agent OAuth usage under Codex.
-- Price GPT-6 Astra Standard, Fast, and long-context usage with built-in rates, the [models.dev](https://models.dev) catalog, and editable Standard rates. Price edits are validated, and drafts stay available while the app is running.
-- Keep the last good quota reading after a failed refresh, with its age and a retry action.
+- Track session and weekly quota, reset times, usage pace, and available credits. Failed refreshes keep the last good reading.
+- View local tokens and estimated cost by day and model, including matching OpenCode and Pi Agent OAuth usage under Codex.
+- Estimate Standard, Fast, and long-context costs, including GPT-6 Astra. Edit Standard rates in Settings.
 - Export 7 or 30 days of saved usage as an offline HTML report with Chinese and English views.
-- Use keyboard shortcuts, Tokens / Cost switching, chart date selection, and macOS Reduce Motion.
 
 ## Install
 
-QuotaBar requires macOS 14 or later. The Homebrew cask and release ZIP currently support Apple Silicon only. Prebuilt releases do not require Xcode or Swift.
+Requires **macOS 14+**. Prebuilt releases and the Homebrew cask support **Apple Silicon** and do not require Xcode or Swift.
 
 Quota tracking uses OAuth credentials created by Codex CLI, Claude Code, or both on the same Mac. API-key-only sessions are not supported.
 
@@ -40,7 +38,8 @@ Quota tracking uses OAuth credentials created by Codex CLI, Claude Code, or both
 brew install --cask softmaxe/tap/quota-bar
 ```
 
-Update or remove it with:
+<details>
+<summary>Update or uninstall</summary>
 
 ```bash
 brew upgrade --cask quota-bar
@@ -53,7 +52,10 @@ To remove the app and its saved data:
 brew uninstall --zap --cask quota-bar
 ```
 
-### Manual download
+</details>
+
+<details>
+<summary>Manual download and first-launch security prompt</summary>
 
 Download the `arm64` ZIP from [GitHub Releases](https://github.com/softmaxe/quota-bar/releases), unzip it, and move `QuotaBar.app` to `/Applications`.
 
@@ -69,6 +71,8 @@ Releases are ad hoc signed, not notarized with an Apple Developer ID. If macOS b
 xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 ```
 
+</details>
+
 ## First launch
 
 QuotaBar reuses OAuth credentials created by the official CLIs. It has no separate login flow. Sign in through each CLI you want to track:
@@ -78,11 +82,7 @@ codex login
 claude
 ```
 
-Then open QuotaBar:
-
-1. Click the menu bar icon to view quota and local cost.
-2. Use the tabs at the top of the card to switch between Codex and Claude. Quota details appear below the selected provider.
-3. Open **Settings** to choose a refresh interval or [edit model prices](#editing-model-prices).
+Open QuotaBar, click its menu bar icon, and select **Codex** or **Claude**. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
 
 If a provider is not signed in, choose **Copy command**, run the copied command in Terminal, then return and choose **Check sign-in**. Copying the command does not run it.
 
@@ -92,15 +92,20 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 ### Quota windows and usage pace
 
-Each limited quota window shows the percentage left and its reset time. An unlimited session shows **Session ∞** and **No limit** instead of a countdown. Open the reset-time control and choose **Countdown** or **Clock time** for both limited windows. **Usage pace details** expands the reserve, deficit, and headroom calculation.
+Each limited quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** in the reset-time control to update both limited windows. Unlimited sessions show **Session ∞** and **No limit**. Expand **Usage pace details** for reserve, deficit, and headroom.
 
-QuotaBar compares consumption with time elapsed. After three comparable weekly windows, it uses your recorded history for the weekly pace instead. Samples are kept for 56 days.
+QuotaBar compares consumption with time elapsed. After at least three comparable recorded weekly windows, history also informs the weekly pace. Samples are kept for 56 days.
 
-When a session or weekly window resets, the next open plays a brief bar animation lasting about 0.82 seconds. The headline immediately shows the new reading. The last reading and pending animation survive an app restart.
+After QuotaBar detects a session or weekly reset, the next open plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
+
+<details>
+<summary>Quota reset animation</summary>
 
 <p align="center">
   <img src="docs/images/quota-reset.gif" width="560" alt="Brief quota reset feedback while the headline keeps the new reading">
 </p>
+
+</details>
 
 ### Refresh and recovery
 
@@ -112,6 +117,9 @@ Choose manual refresh or an interval of 1, 2, 5, 15, or 30 minutes in Settings. 
 
 A failed refresh keeps the last good quota and shows its age and recovery instructions at the top. The retry control shows the remaining wait when a cooldown applies. Local scanning has its own progress and **Retry local scan** action.
 
+<details>
+<summary>Sign-in and refresh-failure examples</summary>
+
 <table align="center">
   <tr><th>Sign-in guidance</th><th>Refresh failure with saved quota</th></tr>
   <tr>
@@ -120,17 +128,17 @@ A failed refresh keeps the last good quota and shows its age and recovery instru
   </tr>
 </table>
 
+</details>
+
 ### Menu bar and shortcuts
 
-The menu bar robot shows the selected provider. It turns red when either the session or weekly window has 10% or less left. It dims after a failed refresh and fades further when no data is available.
+The menu bar robot reflects the selected provider's quota and refresh status. It turns red when either the session or weekly window has 10% or less left. It dims after a failed refresh and fades further when no data is available.
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
 </p>
 
-The icon is Material Design Icons' `robot-excited`.
-
-The card uses a native popover. Tall content scrolls while the actions at the bottom stay visible. Each time you reopen the card, it starts with collapsed details at the current content height. Use these shortcuts while the card is open:
+The icon is Material Design Icons' `robot-excited`. The card scrolls when needed, keeps its bottom actions visible, and reopens with details collapsed. Shortcuts apply while the card is open:
 
 | Shortcut | Action |
 | --- | --- |
@@ -143,9 +151,7 @@ The card uses a native popover. Tall content scrolls while the actions at the bo
 <details>
 <summary>Mouse, tab, and motion behavior</summary>
 
-The equal-width provider tabs show a name and color dot. The selected tab has a highlighted background and a bold name. Hovering the other tab adds a subtle background and brightens its dot without making the name bold. Labels stay in place when you switch.
-
-The card opens on left mouse-down and closes immediately when you click the icon again. Right clicks toggle it on mouse-up. Custom buttons respond as you press them; tab selection settles within 180 ms, and disclosure feedback within 160 ms. Rows appear together without a stagger. Reduce Motion removes custom transitions while preserving the controls and their pressed and selected states.
+Provider tabs have equal widths and fixed label positions. The selected tab has a highlighted background and bold name; hover adds a lighter highlight. Left clicks toggle the card on mouse-down, right clicks on mouse-up. Buttons respond on press, and expanded rows appear together. Reduce Motion removes custom transitions while keeping pressed and selected states visible.
 
 </details>
 
@@ -155,9 +161,7 @@ QuotaBar calculates token and cost totals from local session data. It does not u
 
 ### Reading the chart
 
-Choose **Tokens** or **Cost** using the selector above the chart. The chart shows ten consecutive calendar days, while the totals cover the last 30 days. Hover to preview a day, click to hold that date, or use Left and Right Arrow when a date is focused. **Model breakdown** opens the complete model list for that day.
-
-Once a date is pinned, click another column or use the arrow keys to change it. Close and reopen the card to return to hover previews. Opening **Model breakdown** also keeps its date fixed while you inspect the rows.
+Choose **Tokens** or **Cost** above the chart. The chart covers ten calendar days; totals cover the last 30 days. Hover to preview a day, click to pin it, or use Left and Right Arrow when a date is focused. **Model breakdown** lists that day's models and keeps the date fixed. Reopen the card to resume hover previews. Switching units preserves the selected date.
 
 Missing information has a separate display from zero usage:
 
@@ -168,11 +172,16 @@ Missing information has a separate display from zero usage:
 | **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
-Open **Settings → Pricing** to add missing rates for future usage. Changing units preserves the selected date and updates the bar heights and readings together.
+Add missing rates for future usage in **Settings → Pricing**.
+
+<details>
+<summary>Chart date previews</summary>
 
 <p align="center">
   <img src="docs/images/chart-hover.gif" width="560" alt="Chart date previews with token totals and a collapsed Model breakdown">
 </p>
+
+</details>
 
 ### Data sources
 
@@ -183,15 +192,11 @@ Open **Settings → Pricing** to add missing rates for future usage. Changing un
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`, `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions`, or `~/.pi/agent/sessions` |
 
-OpenCode data is included only when its `openai` provider uses OAuth and its account ID matches the current Codex account. Other providers, API-key sessions, and account mismatches are ignored. OpenCode totals do not affect quota bars.
-
-Pi Agent data follows the same rule. Only `openai-codex` assistant usage from a matching OAuth account is included. Pi Agent totals do not affect quota bars, and their cost is estimated from QuotaBar's model prices rather than treated as an OpenAI billing statement.
+OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage count toward Codex totals only when they use OAuth with the current Codex account. Other providers, API-key sessions, and account mismatches are excluded. These local totals do not affect quota bars.
 
 ### Saved history
 
-The first scan of a large history may take time. QuotaBar stores usage in SQLite, recording the day, model, source tool, token counts, and estimated cost, along with identifiers and scan positions for deduplication.
-
-Deleting source sessions does not delete recorded usage, even after restarting QuotaBar. Records older than the chart's ten-day and totals' 30-day windows remain stored. Sessions deleted before QuotaBar scanned them cannot be recovered.
+The first scan of a large history may take time. QuotaBar saves dates, models, sources, tokens, and estimated costs in SQLite, with identifiers and scan positions for deduplication. Saved usage survives source-session deletion and app restarts, including records outside the chart and totals windows. Sessions deleted before scanning cannot be recovered.
 
 <details>
 <summary>Incremental scanning and database migration</summary>
@@ -204,7 +209,7 @@ On first use, QuotaBar copies any existing cost database from `~/Library/Caches/
 
 ### Pricing rules
 
-- Standard rates use manual overrides first, then the catalog, then the [built-in pricing table](Sources/QuotaBarCore/Cost/CostPricing.swift).
+- Standard rates use manual overrides first, then the [models.dev](https://models.dev) catalog, then the [built-in pricing table](Sources/QuotaBarCore/Cost/CostPricing.swift).
 - Astra falls back to its complete built-in row when a catalog entry omits cache or long-context rates.
 - Codex Fast usage uses a separate built-in table and ignores manual overrides and catalog rates. A Fast model without an entry stays unpriced.
 
@@ -220,39 +225,29 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 4. Choose **Export Report…** and select a destination. If the period has no saved usage, QuotaBar reports that before opening the Save panel.
 
 <p align="center">
-  <img src="docs/images/report-export.png" width="760" alt="Bilingual offline usage report rendered with sample data">
+  <img src="docs/images/report-export.png" width="760" alt="English view of the offline usage report, with a Chinese/English switch and sample data">
 </p>
 
-### Report contents
+The report is a single offline HTML file with a Chinese/English switch. It includes all eligible Codex, Claude, OpenCode, and Pi Agent usage already saved in SQLite, with daily usage, cost by model, token and cache composition, and expandable data tables.
 
-The report is one self-contained HTML file that works offline and supports Chinese and English. It covers every eligible source already stored in QuotaBar's SQLite history: Codex, Claude, matching OpenCode OAuth usage, and matching Pi Agent OAuth usage.
+Export reads saved data without refreshing quota, rescanning logs, updating prices, or making network requests. Costs retain their saved estimates; unpriced tokens are excluded from costs and pricing gaps are marked. Cache tokens are shown without inferring a separate cache cost.
 
-The page shows a daily usage line chart, stored cost estimates by model, token and cache composition, and expandable tables with exact token totals and displayed costs.
-
-### Snapshot and privacy
-
-Export reads saved data. It does not refresh quota, rescan session logs, update prices, or make model or network requests.
-
-- Costs keep the estimates saved when each record was scanned and can differ from a provider bill.
-- Unpriced tokens are excluded from the cost total. The report marks partial pricing coverage.
-- QuotaBar does not store cache cost as a separate USD amount, so the report does not reconstruct one.
-
-An exported file contains the selected period, capture time and timezone, source and model names, token counts, unpriced-token counts, and stored cost totals. Prompt, response, and reasoning text are not included. See [Usage report export](docs/usage-report-export.md) for the full data contract and developer checks.
+The file includes the period, capture time, timezone, sources, models, token counts, unpriced-token counts, and saved costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the data contract and developer checks.
 
 ## Editing model prices
 
 Open **Settings → Pricing**. Rates are in USD per million tokens. Expand a model row to edit its one-hour cache write rate, long-context threshold, and rates above that threshold.
 
-The table lists supported API models and other models from your local history that have no available rate. It is not a complete catalog of every model you have used. Click a column heading to sort its values; the reset-order button restores the API model order and puts the most-used models first in **Others**.
+The table lists supported API models and unpriced models found locally. Click a column heading to sort; reset the order to restore the API model list and sort **Others** by usage.
 
 <p align="center">
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable rates, expanded long-context fields, and per-model action menus">
 </p>
 
-- Rates must be finite numbers at least zero. A long-context threshold, when set, must be a positive whole token count. Invalid fields show an error and disable **Save**.
-- **Save** shows progress and a saved or failed result. A failed save keeps your edits. Switching settings tabs or reopening the settings window also keeps the draft while the app is running.
-- **Discard** returns to the last saved rates. To remove a manual override, open the model's **…** menu and choose **Restore default rate**, or **Clear custom rate** when no default exists, then save. These actions change the draft first.
-- Quitting with a valid draft offers **Save**, **Discard**, or **Cancel**. An invalid draft must be corrected before saving; **Cancel** returns to editing.
+- Rates must be finite and nonnegative; an optional long-context threshold must be a positive whole token count. Invalid fields disable **Save**.
+- **Save** shows progress and its result. Drafts survive failed saves, tab switches, and closing Settings while the app is running. **Discard** restores the last saved rates.
+- To remove an override, choose **Restore default rate** or **Clear custom rate** in the model's **…** menu, then save.
+- Quitting with a valid draft offers **Save**, **Discard**, or **Cancel**. Invalid drafts must be corrected before saving.
 
 <details>
 <summary>Invalid price example</summary>
@@ -269,7 +264,8 @@ Saved rates apply to newly recorded usage. Existing history keeps the prices use
 
 QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores itself. A manual Claude credential recovery can launch Claude Code, which may update its own credentials. QuotaBar uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning text are not stored in QuotaBar's usage history or uploaded.
 
-The app stores its own data here:
+<details>
+<summary>Local storage paths</summary>
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json
@@ -278,6 +274,8 @@ The app stores its own data here:
 ~/Library/Caches/QuotaBar/model-pricing/
 ~/Library/Preferences/com.quotabar.app.plist
 ```
+
+</details>
 
 Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, `api.anthropic.com` for Claude quota, and `models.dev` for model pricing. It does not send local session records to these services.
 
@@ -305,7 +303,8 @@ make app
 
 </details>
 
-### Common commands
+<details>
+<summary>Development commands</summary>
 
 | Command | Purpose |
 | --- | --- |
@@ -323,7 +322,10 @@ make app
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
 
-### UI previews and screenshots
+</details>
+
+<details>
+<summary>UI previews and screenshots</summary>
 
 To preview interactions with sample quota and cost data, run:
 
@@ -338,11 +340,16 @@ Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview
 
 Asset generation requires ffmpeg. The HTML report image also needs Node.js, Playwright, and a Chromium browser; see [report development checks](docs/usage-report-export.md#verification). The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
 
-### Packaging and releases
+</details>
+
+<details>
+<summary>Packaging and releases</summary>
 
 To create a test package, run **Build and Release** from the repository's **Actions** tab and select the branch to build. Manual runs upload a development ZIP and SHA-256 file as workflow artifacts without publishing a release.
 
 To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. The workflow tests and packages an `arm64` ZIP, verifies its signature, version, architecture, and checksum, publishes the GitHub Release, and then updates `softmaxe/homebrew-tap`. Tagged runs require the repository's `TAP_GITHUB_TOKEN` secret. Check both **Release** and **Update Homebrew tap** before treating the release process as complete.
+
+</details>
 
 ## Troubleshooting
 
@@ -364,10 +371,8 @@ To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies
 - Cost figures come from local logs and are not billing statements.
 - OpenCode does not save the authentication method for each historical request. QuotaBar cannot reconstruct an OAuth to API key to OAuth switch that happened while it was not running.
 
-## License
+## License and acknowledgements
 
 QuotaBar is licensed under [AGPL-3.0](LICENSE). Code adapted from CodexBar remains available under its MIT terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Acknowledgements
 
 QuotaBar is a rebuild of [CodexBar](https://github.com/steipete/CodexBar) and uses its ideas and implementation details. Copyright © 2026 Peter Steinberger.
