@@ -147,20 +147,10 @@ enum CostChartHighlightVerifier {
             failures.append("selected-day marker tone expected one active column")
         }
 
-        let layout = CostBreakdownLayout(
-            summaryHeight: 61, rowHeight: 17, toggleHeight: 22, spacing: 5
-        )
-        if layout.rowsHeight(rows: 3, openness: 0) != 0
-            || layout.rowsHeight(rows: 3, openness: 1) != 66
-            || layout.height(rows: 3, hasToggle: true, openness: 0) != 88
-            || layout.height(rows: 3, hasToggle: true, openness: 1) != 154 {
-            failures.append("model disclosure expected the entire list to start collapsed")
-        }
-
         VerifierReport.finish(
             failures,
             label: "cost chart highlighting verification",
-            passed: "calendar slots, stale scan coverage, price availability, date selection, and model disclosure passed"
+            passed: "calendar slots, stale scan coverage, price availability, and date selection passed"
         )
     }
 

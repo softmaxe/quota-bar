@@ -111,9 +111,8 @@ enum CostChartHighlightPolicy {
     }
 }
 
-/// Parent-driven disclosure motion and the view use the same row height.
+/// Sizing for the model breakdown rows and disclosure control.
 struct CostBreakdownLayout {
-    let summaryHeight: Double
     let rowHeight: Double
     let toggleHeight: Double
     let spacing: Double
@@ -124,10 +123,5 @@ struct CostBreakdownLayout {
 
     func rowsHeight(rows: Int, openness: Double) -> Double {
         (self.rowsHeight(rows: rows) * min(1, max(0, openness))).rounded()
-    }
-
-    func height(rows: Int, hasToggle: Bool, openness: Double) -> Double {
-        self.summaryHeight + (hasToggle ? self.spacing + self.toggleHeight : 0)
-            + self.rowsHeight(rows: rows, openness: openness)
     }
 }

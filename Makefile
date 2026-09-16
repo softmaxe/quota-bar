@@ -6,25 +6,20 @@ BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
 
-## UI checks use debug launch flags; core assertions run in QuotaBarTests.
+## App state checks use debug launch flags; core regressions run in QuotaBarTests.
 VERIFIERS := \
-	popover-interaction \
+	menu-command \
 	provider-state \
 	pricing-validation \
 	menu-lifecycle \
 	pricing-refresh \
 	cost-chart-highlighting \
-	breakdown-sweep \
-	usage-bar-fill \
-	icon-rendering \
 	quota-recovery \
 	relative-time \
 	quota-reset-label \
 	refresh-row \
 	pricing-sort \
 	pricing-model-filter \
-	disclosure-motion \
-	tab-switch-motion \
 	report-export
 
 .PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean

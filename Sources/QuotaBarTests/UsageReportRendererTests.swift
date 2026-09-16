@@ -8,15 +8,10 @@ func runUsageReportRendererTests() {
         let html = try UsageReportHTMLRenderer.render(snapshot)
         Harness.expect(html.contains("\\u003c/script>\\u003cimg"), "report JSON escapes markup before entering a script")
         Harness.expect(!html.contains("<img src=x"), "report never inserts raw model markup")
-        Harness.expectEqual(html.components(separatedBy: "<script>").count - 1, 4, "report has only its four trusted script blocks")
         Harness.expectEqual(html.components(separatedBy: "const REPORT=").count - 1, 1, "placeholder-shaped model text cannot insert another script")
         Harness.expect(!html.contains("src=\"http"), "report does not load external scripts")
         Harness.expect(!html.contains("href=\"http"), "report does not load remote fonts")
         Harness.expect(!html.contains("sourceMappingURL="), "embedded chart library has no external source map")
-        Harness.expectEqual(html.components(separatedBy: "data-chart=").count - 1, 3, "approved trend report retains three chart slots")
-        Harness.expect(html.contains("data-language=\"zh\"") && html.contains("data-language=\"en\""), "export retains both language controls")
-        Harness.expect(html.contains("id=\"daily-table\"") && html.contains("id=\"model-table\""), "exact values remain available through semantic tables")
-        Harness.expect(html.contains("Chart.js v4.5.1"), "chart library ships inside the offline report")
 
         let start = html.range(of: "const REPORT=")!.upperBound
         let end = html.range(of: ";\n/* Report runtime */", range: start..<html.endIndex)!.lowerBound

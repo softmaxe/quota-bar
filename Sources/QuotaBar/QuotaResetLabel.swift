@@ -52,11 +52,6 @@ struct ResetLabel: View {
         .controlSize(.small)
         .font(.system(size: 11))
         .fixedSize(horizontal: true, vertical: false)
-#if DEBUG
-        .background {
-            QuotaLayoutProbe(identifier: "reset")
-        }
-#endif
         .accessibilityLabel("Reset time display, \(self.text)")
     }
 }

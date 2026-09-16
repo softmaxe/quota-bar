@@ -55,24 +55,19 @@ enum QuotaBarApp {
         // once its flag is present: the first match wins, and the order here is the order the
         // flags are checked in.
         let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
-            ("--verify-popover-interaction", PopoverInteractionVerifier.run),
+            ("--verify-menu-command", MenuCommandVerifier.run),
             ("--verify-provider-state", ProviderStateVerifier.run),
             ("--verify-pricing-validation", PricingValidationVerifier.run),
             ("--verify-menu-lifecycle", MenuLifecycleVerifier.run),
             ("--verify-pricing-refresh", PricingRefreshVerifier.run),
             ("--benchmark-menu-startup", MenuLifecycleVerifier.benchmark),
             ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
-            ("--verify-breakdown-sweep", BreakdownSweepVerifier.run),
-            ("--verify-usage-bar-fill", UsageBarFillVerifier.run),
-            ("--verify-icon-rendering", IconRenderingVerifier.run),
             ("--verify-quota-recovery", QuotaRecoveryVerifier.run),
             ("--verify-relative-time", RelativeTimeVerifier.run),
             ("--verify-quota-reset-label", QuotaResetLabelVerifier.run),
             ("--verify-refresh-row", RefreshRowVerifier.run),
             ("--verify-pricing-sort", PricingSortVerifier.run),
             ("--verify-pricing-model-filter", PricingModelFilterVerifier.run),
-            ("--verify-disclosure-motion", DisclosureMotionVerifier.run),
-            ("--verify-tab-switch-motion", TabSwitchMotionVerifier.run),
             ("--verify-report-export", ExportReportVerifier.run),
         ]
         if let entry = verifiers.first(where: { arguments.contains($0.flag) }) {

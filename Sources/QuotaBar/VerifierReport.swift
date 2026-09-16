@@ -1,6 +1,5 @@
 #if DEBUG
 import Foundation
-import Metal
 
 /// Command Line Tools ship no XCTest, so the suite is a set of launch flags and every `--verify-*`
 /// run ends the same way: name what passed and exit 0, or put each failure on stderr and exit 1.
@@ -62,21 +61,6 @@ enum RunLoopDrain {
         while Date() < deadline {
             _ = RunLoop.main.run(mode: mode, before: deadline)
         }
-    }
-}
-
-/// Whether a pixel-level check can run here. `ImageRenderer` and `NSHostingView` need Metal, and a
-/// headless Intel runner without it aborts inside MTLLoader, so those checks stand down and the
-/// policy assertions around them carry the run.
-enum GPURenderCheck {
-    static var skipReason: String? {
-        if ProcessInfo.processInfo.environment["QUOTA_BAR_SKIP_GPU_RENDER_CHECK"] == "1" {
-            return "requested by the test environment"
-        }
-        if MTLCreateSystemDefaultDevice() == nil {
-            return "no Metal device is available on this headless verifier"
-        }
-        return nil
     }
 }
 

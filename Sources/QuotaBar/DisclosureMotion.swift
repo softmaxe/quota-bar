@@ -22,9 +22,6 @@ struct PopoverDisclosureStyle: DisclosureGroupStyle {
                 .contentShape(Rectangle())
             }
             .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
-#if DEBUG
-            .background { QuotaLayoutProbe(identifier: "pace-disclosure") }
-#endif
             .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(configuration.isExpanded ? "Collapse details" : "Expand details")
 

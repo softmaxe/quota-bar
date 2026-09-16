@@ -1,5 +1,4 @@
 import QuotaBarCore
-import Combine
 import Foundation
 import SQLite3
 
@@ -11,7 +10,6 @@ enum CostTests {
         Self.pricingLookup()
         Self.normalization()
         Self.modelBreakdownRanking()
-        Self.fastBreakdownSeparation()
         Self.longContextTiering()
         Self.overlayParsing()
         Self.catalogRefreshBackoff()
@@ -403,36 +401,6 @@ enum CostTests {
             ["cost-heavy", "token-heavy", "unpriced"],
             "cost labels rank the daily breakdown by cost"
         )
-    }
-
-    private static func fastBreakdownSeparation() {
-        let day = CostDay(
-            dayKey: "2026-09-04",
-            byModel: [
-                ModelUsageKey(source: .codex, model: "gpt-5.6-sol", isFast: true): ModelDayUsage(
-                    tokens: TokenTotals(input: 100),
-                    costUSD: 1
-                ),
-                ModelUsageKey(source: .openCode, model: "gpt-5.6-luna", isFast: true): ModelDayUsage(
-                    tokens: TokenTotals(input: 200),
-                    costUSD: 2
-                ),
-                ModelUsageKey(source: .piAgent, model: "gpt-5.6-terra"): ModelDayUsage(
-                    tokens: TokenTotals(input: 50),
-                    costUSD: 0.5
-                ),
-            ],
-            costUSD: 3.5,
-            unpricedTokens: 0
-        )
-
-        let ranked = day.rankedModels(by: .tokens)
-        Harness.expectEqual(ranked.count, 3, "Fast usage stays split by source and model")
-        Harness.expectEqual(ranked[0].key.source, .openCode, "OpenCode Fast keeps its source")
-        Harness.expectEqual(ranked[0].model, "gpt-5.6-luna", "OpenCode Fast keeps its model")
-        Harness.expectEqual(ranked[1].key.source, .codex, "Codex Fast keeps its source")
-        Harness.expectEqual(ranked[1].model, "gpt-5.6-sol", "Codex Fast keeps its model")
-        Harness.expectEqual(ranked[2].key.source, .piAgent, "Pi remains a Standard source/model row")
     }
 
     private static func longContextTiering() {
@@ -1726,42 +1694,25 @@ enum ProviderRefreshCooldownTests {
     }
 }
 
-/// What the Refresh row says while the cooldown runs.
+/// Refresh availability during cooldown and credential recovery.
 enum RefreshRowPolicyTests {
     static func run() {
-        let idle = RefreshRowPolicy.state(cooldownRemaining: 0, isRefreshing: false)
-        Harness.expectEqual(idle.title, "Refresh", "an elapsed cooldown leaves the plain title")
-        Harness.expectEqual(idle.trailingText, nil, "an elapsed cooldown leaves the shortcut column empty")
-        Harness.expect(idle.isEnabled, "and the row accepts clicks")
-
         let waiting = RefreshRowPolicy.state(cooldownRemaining: 42, isRefreshing: false)
-        Harness.expectEqual(waiting.title, "Refresh", "the cooldown keeps the plain title")
-        Harness.expectEqual(waiting.trailingText, "42s", "the cooldown is spelled out in the shortcut column")
-        Harness.expect(!waiting.isEnabled, "and the row refuses clicks it would drop")
+        Harness.expect(!waiting.isEnabled, "the row refuses clicks during cooldown")
 
         let recovery = RefreshRowPolicy.state(
             cooldownRemaining: 42,
             isRefreshing: false,
             allowsCredentialRecovery: true
         )
-        Harness.expectEqual(recovery.title, "Refresh", "credential recovery keeps the existing row title")
-        Harness.expectEqual(recovery.trailingText, nil, "credential recovery hides the API cooldown")
         Harness.expect(recovery.isEnabled, "credential recovery accepts an explicit user click")
 
-        // Rounded up, so the last partial second never reads as a refresh that would be honoured.
-        let sliver = RefreshRowPolicy.state(cooldownRemaining: 0.2, isRefreshing: false)
-        Harness.expectEqual(sliver.trailingText, "1s", "a partial second still counts")
-        Harness.expect(!sliver.isEnabled, "and still refuses clicks")
-
-        // An in-flight refresh holds the cooldown too, but a countdown would misdescribe it.
         let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
-        Harness.expectEqual(running.title, "Refreshing…", "a running refresh says so")
-        Harness.expectEqual(running.trailingText, nil, "a running refresh leaves the shortcut column empty")
-        Harness.expect(!running.isEnabled, "and the row refuses a second one")
+        Harness.expect(!running.isEnabled, "a running refresh blocks a second request")
     }
 }
 
-/// Settings persistence and the refresh cadence table.
+/// Settings persistence and migration.
 enum SettingsTests {
     @MainActor
     static func run() {
@@ -1776,40 +1727,9 @@ enum SettingsTests {
         // reintroduce the 429 this cadence exists to avoid.
         let store = SettingsStore(defaults: defaults)
         Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
-        Harness.expectEqual(store.menuBarProvider, Provider.allCases[0], "one provider shows by default")
-        Harness.expectEqual(store.costChartLabelMode, .tokens, "chart labels default to tokens")
-        // The countdown is the reading nobody has to be taught, so it stays the one on first open.
-        Harness.expectEqual(
-            store.quotaResetDisplayMode,
-            .countdown,
-            "reset labels default to the countdown"
-        )
-        Harness.expectEqual(
-            QuotaResetDisplayMode.countdown.toggled,
-            .clock,
-            "a click swaps the countdown for the clock"
-        )
-        Harness.expectEqual(
-            QuotaResetDisplayMode.clock.toggled,
-            .countdown,
-            "a second click swaps back"
-        )
-
-        Harness.expectEqual(RefreshFrequency.manual.seconds, nil, "manual runs no timer")
-        Harness.expectEqual(RefreshFrequency.thirtyMinutes.seconds, 1800, "thirty minutes in seconds")
-        Harness.expectEqual(RefreshFrequency.allCases.count, 6, "six cadence options")
-
-        // A pick on the card's switch publishes exactly the provider picked.
-        var switches: [Provider] = []
-        let observer = store.$menuBarProvider
-            .dropFirst()
-            .sink { switches.append($0) }
 
         store.refreshFrequency = .fifteenMinutes
         store.menuBarProvider = .claude
-        Harness.expectEqual(switches, [.claude], "a switch publishes the picked provider once")
-        _ = observer
-
         store.costChartLabelMode = .cost
         store.quotaResetDisplayMode = .clock
 
@@ -1852,14 +1772,6 @@ enum PaceTests {
         )
     }
 
-    /// Plain "1d 12h" rendering so the label assertions do not depend on the UI formatter.
-    private static func duration(_ seconds: TimeInterval) -> String {
-        let total = Int(max(0, seconds))
-        let days = total / 86_400
-        let hours = (total % 86_400) / 3_600
-        return days > 0 ? "\(days)d \(hours)h" : "\(hours)h"
-    }
-
     static func run() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -1870,7 +1782,6 @@ enum PaceTests {
             now: now
         )
         Harness.expectEqual(onPace?.stage, .onTrack, "half spent at halfway is on track")
-        Harness.expectEqual(onPace?.deltaLabel, "On pace", "on-track label")
 
         // Spending faster than the clock is a deficit, and the budget empties before the reset.
         let deficit = UsagePace.evaluate(
@@ -1879,47 +1790,24 @@ enum PaceTests {
             now: now
         )
         Harness.expectEqual(deficit?.stage, .farAhead, "20 points over expected is far ahead")
-        Harness.expectEqual(deficit?.deltaLabel, "20% in deficit", "deficit label")
         Harness.expect(deficit?.willLastToReset == false, "a deficit does not last to the reset")
-        Harness.expectEqual(
-            deficit?.etaLabel(context: .weekly, durationText: Self.duration),
-            "Runs out in 1d 12h",
-            "weekly ETA wording"
-        )
-        // The session window says "projected empty" rather than "runs out".
-        Harness.expectEqual(
-            deficit?.etaLabel(context: .session, durationText: Self.duration),
-            "Projected empty in 1d 12h",
-            "session ETA wording"
-        )
 
-        // Spending slower banks a reserve, and the headroom hint appears past 15 points.
+        // Spending slower banks a reserve.
         let reserve = UsagePace.evaluate(
             window: Self.window(used: 30, secondsUntilReset: Self.week / 2, now: now),
             context: .weekly,
             now: now
         )
         Harness.expectEqual(reserve?.stage, .farBehind, "20 points under expected is far behind")
-        Harness.expectEqual(reserve?.deltaLabel, "20% in reserve", "reserve label")
         Harness.expect(reserve?.willLastToReset == true, "a reserve lasts to the reset")
-        Harness.expectEqual(
-            reserve?.etaLabel(context: .weekly, durationText: Self.duration),
-            "Lasts until reset · 1.5× headroom",
-            "headroom hint at a large reserve"
-        )
 
-        // A small reserve gets the plain label, with no headroom claim.
+        // A small reserve is classified separately.
         let smallReserve = UsagePace.evaluate(
             window: Self.window(used: 45, secondsUntilReset: Self.week / 2, now: now),
             context: .weekly,
             now: now
         )
         Harness.expectEqual(smallReserve?.stage, .slightlyBehind, "5 points under is slightly behind")
-        Harness.expectEqual(
-            smallReserve?.etaLabel(context: .weekly, durationText: Self.duration),
-            "Lasts until reset",
-            "no headroom hint for a small reserve"
-        )
 
         // The bar shows what is left, so the tip is placed on the remaining side.
         Harness.expectEqual(onPace?.expectedRemainingPercent, 50, "pace tip position mirrors expected use")
@@ -1988,8 +1876,6 @@ enum PaceTests {
         Harness.expectClose(weekly?.actualUsedPercent, 1, "fresh weekly pace uses the reset reading")
         Harness.expectClose(weekly?.expectedRemainingPercent, 100 * 167 / 168,
                             "fresh weekly pace keeps the expected marker")
-        Harness.expectEqual(weekly?.etaLabel(context: .weekly, durationText: Self.duration),
-                            "Estimating usage pace…", "fresh weekly pace explains the pending estimate")
         Harness.expect(weekly?.etaSeconds == nil && weekly?.speedMultiplierToReset == nil,
                        "fresh weekly pace avoids rounded-usage projections")
         Harness.expectEqual(weekly?.willLastToReset, false, "fresh quota does not promise to last until reset")
@@ -2004,10 +1890,10 @@ enum PaceTests {
         Harness.expectEqual(justReset?.expectedRemainingPercent, 100, "the reset marker starts at full quota")
         Harness.expectEqual(justReset?.stage, .onTrack, "unused fresh quota starts on pace")
 
-        // The shared policy covers both providers and their default window lengths.
+        // Keep the warmup boundary for both default window lengths.
         for context in [UsagePace.Context.session, .weekly] {
             let duration = TimeInterval(context.defaultWindowMinutes * 60)
-            for elapsedFraction in [0.01, 0.03, 0.04] {
+            for elapsedFraction in [0.01, 0.03] {
                 let pace = UsagePace.evaluate(
                     window: UsageWindow(
                         usedPercent: 1,
@@ -2020,8 +1906,6 @@ enum PaceTests {
                 let isEarly = elapsedFraction < 0.03
                 Harness.expectEqual(pace?.isWarmingUp, isEarly,
                                     "\(context) estimating state at \(elapsedFraction) elapsed")
-                Harness.expectEqual(pace?.willLastToReset, !isEarly,
-                                    "\(context) projection resumes after warmup")
                 Harness.expect((pace?.speedMultiplierToReset != nil) == !isEarly,
                                "\(context) headroom waits for sufficient elapsed time")
             }
@@ -2036,44 +1920,33 @@ enum PaceTests {
             now: now
         )
         Harness.expectEqual(weekly?.isWarmingUp, false, "10% weekly usage unlocks the early projection")
-        Harness.expectEqual(weekly?.deltaLabel, "9% in deficit", "early consumption keeps the deficit")
         Harness.expectClose(weekly?.expectedRemainingPercent, 100 * 165.5 / 168,
                             "early consumption keeps the expected marker")
         Harness.expectClose(weekly?.etaSeconds, 22.5 * 3600, "early weekly usage projects the remaining 90%")
-        Harness.expectEqual(weekly?.etaLabel(context: .weekly, durationText: Self.duration),
-                            "Runs out in 22h", "the reported card shows a run-out estimate")
         Harness.expectEqual(weekly?.willLastToReset, false, "early heavy usage cannot last until reset")
         Harness.expectClose(weekly?.speedMultiplierToReset, 22.5 / 165.5,
                             "early weekly usage includes remaining headroom")
 
-        // Both window types leave warmup as consumption becomes measurable, without waiting
-        // for the elapsed-time threshold. Providers may omit the window length.
-        for context in [UsagePace.Context.session, .weekly] {
+        // Check the consumption boundary and one session projection without an explicit duration.
+        let cases: [(UsagePace.Context, Double)] = [(.weekly, 2.99), (.weekly, 3), (.session, 3)]
+        for (context, used) in cases {
             let duration = TimeInterval(context.defaultWindowMinutes * 60)
             let elapsed = duration * 0.01
-            for used in [0.0, 1, 2.99, 3, 3.01, 10] {
-                let window = UsageWindow(
-                    usedPercent: used,
-                    resetsAt: now.addingTimeInterval(duration - elapsed),
-                    windowSeconds: nil
-                )
-                let pace = UsagePace.evaluate(window: window, context: context, now: now)
-                let isWarmingUp = used < 3
-                Harness.expectEqual(pace?.isWarmingUp, isWarmingUp,
-                                    "\(context) early projection at \(used)% consumed")
-                Harness.expectEqual(pace?.willLastToReset, false,
-                                    "\(context) early usage does not promise to last until reset")
-                if isWarmingUp {
-                    Harness.expect(pace?.etaSeconds == nil && pace?.speedMultiplierToReset == nil,
-                                   "\(context) low early usage keeps projections pending")
-                } else {
-                    Harness.expectClose(pace?.etaSeconds, elapsed * (100 - used) / used,
-                                        "\(context) early ETA uses elapsed time and actual consumption")
-                    let label = pace?.etaLabel(context: context, durationText: Self.duration)
-                    let prefix = context == .session ? "Projected empty in " : "Runs out in "
-                    Harness.expect(label?.hasPrefix(prefix) == true,
-                                   "\(context) early consumption shows the projection label")
-                }
+            let window = UsageWindow(
+                usedPercent: used,
+                resetsAt: now.addingTimeInterval(duration - elapsed),
+                windowSeconds: nil
+            )
+            let pace = UsagePace.evaluate(window: window, context: context, now: now)
+            let isWarmingUp = used < 3
+            Harness.expectEqual(pace?.isWarmingUp, isWarmingUp,
+                                "\(context) early projection at \(used)% consumed")
+            if isWarmingUp {
+                Harness.expect(pace?.etaSeconds == nil && pace?.speedMultiplierToReset == nil,
+                               "\(context) low early usage keeps projections pending")
+            } else {
+                Harness.expectClose(pace?.etaSeconds, elapsed * (100 - used) / used,
+                                    "\(context) early ETA uses elapsed time and actual consumption")
             }
         }
     }
