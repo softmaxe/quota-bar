@@ -320,7 +320,7 @@ struct MenuCardView: View {
     private func pace(for window: UsageWindow, kind: QuotaWindowKind) -> UsagePace? {
         let context = kind.presentation.paceContext
         return (kind == .weekly
-            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history)
+            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history, now: self.now)
             : nil)
             ?? UsagePace.evaluate(window: window, context: context, now: self.now)
     }

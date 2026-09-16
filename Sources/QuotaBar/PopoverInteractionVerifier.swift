@@ -258,6 +258,47 @@ enum PopoverInteractionVerifier {
                     "dismissal cycle \(cycle): reopening did not restore dismissal monitors")
         }
 
+        // A quota reset must keep the pace disclosure available even when the weekly window
+        // has only just started and there is no limited session or history to fall back on.
+        model.maximumHeight = 700
+        model.onSizeChanged()
+        let resetNow = Date()
+        let resetSnapshot = UsageSnapshot(
+            provider: .codex,
+            session: nil,
+            weekly: UsageWindow(
+                usedPercent: 1,
+                resetsAt: resetNow.addingTimeInterval(6 * 86_400 + 23 * 3_600),
+                windowSeconds: 604_800
+            ),
+            planLabel: "Pro",
+            credits: nil,
+            fetchedAt: resetNow,
+            sessionIsUnlimited: true
+        )
+        store.debugSetDisplay(ProviderDisplay(snapshot: resetSnapshot), for: .codex)
+        require(await Self.wait(until: {
+            model.card.display.snapshot == resetSnapshot && model.contentHeight < baseline.contentHeight
+        }), "quota reset: the open popover did not replace its previous usage")
+        RunLoopDrain.run(for: 0.05)
+        let resetCollapsedHeight = model.contentHeight
+        require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                "quota reset: the weekly pace disclosure disappeared")
+        require(await Self.wait(until: { model.contentHeight > resetCollapsedHeight + 30 }),
+                "quota reset: expanding did not reveal actual pace details")
+        require(Self.clickStatusButton(statusButton, rightMouse: false),
+                "quota reset: the status button could not close the expanded card")
+        require(!popover.isShown, "quota reset: the expanded card did not close")
+        require(Self.clickStatusButton(statusButton, rightMouse: false),
+                "quota reset: the status button could not reopen the card")
+        require(await Self.wait(until: {
+            popover.isShown && abs(model.contentHeight - resetCollapsedHeight) <= 1
+        }), "quota reset: reopening did not restore the collapsed card")
+        require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                "quota reset: the pace disclosure disappeared after reopening")
+        require(await Self.wait(until: { model.contentHeight > resetCollapsedHeight + 30 }),
+                "quota reset: the reopened card could not expand its pace details")
+
         popover.performClose(nil)
         require(await Self.wait(until: { controller.debugDismissalMonitorCount == 0 }),
                 "final close retained dismissal monitors")
@@ -281,7 +322,7 @@ enum PopoverInteractionVerifier {
             VerifierReport.report(failure, label: "popover interaction verification")
             exit(1)
         }
-        print("Native Cmd-R, disclosure, unit switching, capped layout, and dismissal lifecycle checks passed")
+        print("Native Cmd-R, disclosure, quota reset, unit switching, capped layout, and dismissal lifecycle checks passed")
         exit(0)
     }
 

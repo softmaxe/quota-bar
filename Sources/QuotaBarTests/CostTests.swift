@@ -1861,7 +1861,7 @@ enum PaceTests {
     }
 
     static func run() {
-        let now = Date()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         // Halfway through the window with half the budget spent is exactly on pace.
         let onPace = UsagePace.evaluate(
@@ -1957,21 +1957,82 @@ enum PaceTests {
             ) == nil,
             "a reset further out than one window is rejected"
         )
-        // Just after a reset the expected figure is rounding noise, so nothing is shown.
+        // A nonzero reading at the exact start is inconsistent with the reset timestamp.
         Harness.expect(
             UsagePace.evaluate(
-                window: Self.window(used: 1, secondsUntilReset: Self.week * 0.99, now: now),
+                window: Self.window(used: 1, secondsUntilReset: Self.week, now: now),
                 context: .weekly,
                 now: now
             ) == nil,
-            "under 3% elapsed is too early to judge"
+            "usage at zero elapsed time is rejected"
         )
+        Self.verifyFreshWindows(now: now)
 
         // Stage boundaries, straight from CodexBar's thresholds.
         Harness.expectEqual(UsagePace.stage(for: 2), .onTrack, "2 points is still on track")
         Harness.expectEqual(UsagePace.stage(for: 6), .slightlyAhead, "6 points is slightly ahead")
         Harness.expectEqual(UsagePace.stage(for: -12), .behind, "12 points under is behind")
         Harness.expectEqual(UsagePace.stage(for: 12.1), .farAhead, "past 12 points is far ahead")
+    }
+
+    private static func verifyFreshWindows(now: Date) {
+        // The reported regression: an unlimited session and 99% weekly quota left after reset.
+        let weekly = UsagePace.evaluate(
+            window: Self.window(used: 1, secondsUntilReset: Self.week - 3600, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expect(weekly != nil, "a newly reset weekly window keeps its pace details")
+        Harness.expectEqual(weekly?.isWarmingUp, true, "first weekly hour is still estimating")
+        Harness.expectClose(weekly?.actualUsedPercent, 1, "fresh weekly pace uses the reset reading")
+        Harness.expectClose(weekly?.expectedRemainingPercent, 100 * 167 / 168,
+                            "fresh weekly pace keeps the expected marker")
+        Harness.expectEqual(weekly?.etaLabel(context: .weekly, durationText: Self.duration),
+                            "Estimating usage pace…", "fresh weekly pace explains the pending estimate")
+        Harness.expect(weekly?.etaSeconds == nil && weekly?.speedMultiplierToReset == nil,
+                       "fresh weekly pace avoids rounded-usage projections")
+        Harness.expectEqual(weekly?.willLastToReset, false, "fresh quota does not promise to last until reset")
+
+        // A reset with no consumption has a valid starting position even at zero elapsed time.
+        let justReset = UsagePace.evaluate(
+            window: Self.window(used: 0, secondsUntilReset: Self.week, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(justReset?.isWarmingUp, true, "the exact reset keeps an estimating pace")
+        Harness.expectEqual(justReset?.expectedRemainingPercent, 100, "the reset marker starts at full quota")
+        Harness.expectEqual(justReset?.stage, .onTrack, "unused fresh quota starts on pace")
+
+        // The shared policy covers both providers and their default window lengths.
+        for context in [UsagePace.Context.session, .weekly] {
+            let duration = TimeInterval(context.defaultWindowMinutes * 60)
+            for elapsedFraction in [0.01, 0.03, 0.04] {
+                let pace = UsagePace.evaluate(
+                    window: UsageWindow(
+                        usedPercent: 1,
+                        resetsAt: now.addingTimeInterval(duration * (1 - elapsedFraction)),
+                        windowSeconds: nil
+                    ),
+                    context: context,
+                    now: now
+                )
+                let isEarly = elapsedFraction < 0.03
+                Harness.expectEqual(pace?.isWarmingUp, isEarly,
+                                    "\(context) estimating state at \(elapsedFraction) elapsed")
+                Harness.expectEqual(pace?.willLastToReset, !isEarly,
+                                    "\(context) projection resumes after warmup")
+                Harness.expect((pace?.speedMultiplierToReset != nil) == !isEarly,
+                               "\(context) headroom waits for sufficient elapsed time")
+            }
+        }
+
+        let resetAt = now.addingTimeInterval(Self.week - 3600)
+        let window = UsageWindow(usedPercent: 10, resetsAt: resetAt, windowSeconds: Self.weekMinutes * 60)
+        let earlyDeficit = UsagePace.evaluate(window: window, context: .weekly, now: now)
+        let laterDeficit = UsagePace.evaluate(window: window, context: .weekly, now: now.addingTimeInterval(5 * 3600))
+        Harness.expectEqual(earlyDeficit?.isWarmingUp, true, "early heavy usage waits for a stable rate")
+        Harness.expectEqual(laterDeficit?.isWarmingUp, false, "the same window leaves warmup as time passes")
+        Harness.expect(laterDeficit?.etaSeconds != nil, "a deficit regains its run-out estimate after warmup")
     }
 }
 
@@ -2171,6 +2232,17 @@ enum HistoricalPaceTests {
         Harness.expect(pace.expectedUsedPercent < 50, "history lowers the expectation below linear")
         Harness.expect(pace.stage.isAhead, "spending at the linear rate reads as a deficit here")
         Harness.expect(pace.runOutProbability == nil, "risk needs five weeks, not four")
+
+        let freshWindow = UsageWindow(
+            usedPercent: 1,
+            resetsAt: now.addingTimeInterval(Self.weekSeconds - 3600),
+            windowSeconds: Self.weekMinutes * 60
+        )
+        let freshHistorical = HistoricalUsagePace.evaluate(window: freshWindow, dataset: four, now: now)
+        Harness.expectEqual(freshHistorical?.isWarmingUp, false,
+                            "recorded history can project a freshly reset window without linear warmup")
+        Harness.expect(freshHistorical?.willLastToReset == true || freshHistorical?.etaSeconds != nil,
+                       "fresh historical pace retains its projection")
 
         guard let five = UsageHistoryStore.buildDataset(from: (1...5).flatMap(backLoaded)),
               let withRisk = HistoricalUsagePace.evaluate(window: current, dataset: five, now: now) else {
