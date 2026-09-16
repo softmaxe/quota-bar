@@ -27,6 +27,4 @@ jobs:
           xcodebuild -version
 
       - name: Run tests
-        env:
-          QUOTA_BAR_SKIP_GPU_RENDER_CHECK: "0"
         run: make test

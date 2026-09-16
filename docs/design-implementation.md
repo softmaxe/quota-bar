@@ -18,13 +18,11 @@ The status card opens on left mouse-down with the native popover animation disab
 
 Custom buttons acknowledge a press immediately through opacity and restore it over 100 ms. Tab selection settles within 180 ms, disclosure chevrons and pricing expansion within 160 ms, and chart hover feedback uses a short critically damped response. Pricing rows appear together without stagger or scale effects. Unit changes update chart heights and labels together. These timings are project choices guided by brief feedback and uninterrupted interaction, not fixed Apple requirements.
 
-Reduce Motion removes custom transitions while preserving pressed and selected states. Native links, menus, segmented pickers, and bordered buttons retain their system feedback. The popover verifier exercises left and right mouse events, repeated opening, first-frame height, and stable content positions.
+Reduce Motion removes custom transitions while preserving pressed and selected states. Native links, menus, segmented pickers, and bordered buttons retain their system feedback.
 
 ## Validation
 
-The project uses an assertion executable and native UI verifiers rather than XCTest. Run the repository command with the installed Xcode toolchain:
-
-The implementation verification run passed 506 core assertions and all 17 UI/policy verifiers. The release app was built and its ad-hoc signature verified with `make app`.
+The project uses an assertion executable and debug launch flags for app state checks. Run the repository command with the installed Xcode toolchain:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -34,9 +32,11 @@ make test
 
 The local Command Line Tools selection lacks the `SwiftUIMacros` plugin for its selected SDK; using the installed Xcode toolchain works without changing global developer settings.
 
-Validation includes core assertions, price validation and asynchronous save failures, draft preservation, server/local cooldowns, native Cmd-R routing, a capped popover viewport with a fixed action footer, calendar slots, price availability, model disclosure, label layout, relative clocks, and motion. The obsolete custom menu-row/pointer-warp implementation and its dedicated verifier were removed after the popover replacement.
+Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, export failures, draft preservation, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
 
-Dark and light sample views, signed-out guidance, a cooldown error, and an invalid pricing field were rendered and inspected. Desktop automation could not attach to the temporary preview app, so a complete manual VoiceOver and Full Keyboard Access audit remains outstanding. Native AppKit key-equivalent and layout verification runs successfully; those checks do not claim a complete assistive-technology audit.
+Repeated disclosure clicks, popover open/close sweeps, pixel and layout snapshots, and animation-curve sampling are not part of the test suite. Do not add routine checks that pin button labels, enum counts, template structure, or animation constants. Test a specific failure when a behavior changes or a bug is reported; stable visual controls do not need repeated manual or automated clicking.
+
+Dark and light sample views, signed-out guidance, a cooldown error, and an invalid pricing field were rendered and inspected during implementation. A complete manual VoiceOver and Full Keyboard Access audit remains outstanding. The native AppKit key-equivalent check does not claim a complete assistive-technology audit.
 
 ## Preview and rendering
 
@@ -59,4 +59,4 @@ The root READMEs show current product views. The annotated before/after boards i
 
 The reset GIF now keeps the new percentage visible throughout the animation and reuses the production reset-time menu below the bar. The obsolete, unreferenced label-click unit-toggle GIF was removed. The asset script converts hosted screenshots to sRGB before compositing or GIF encoding, preserving provider colors when ffmpeg drops the source color profile.
 
-The documentation follow-up passed `make readme-assets`, the quota recovery and reset-label verifiers, shell syntax validation, and `git diff --check`. Both READMEs have matching image references and command examples; their local paths, anchors, and image alternative text were checked. Representative screenshots and GIF frames were visually inspected.
+The documentation follow-up checked both READMEs for matching image references and command examples. Representative screenshots and GIF frames were visually inspected. Run `make readme-assets` when documentation images need updating.

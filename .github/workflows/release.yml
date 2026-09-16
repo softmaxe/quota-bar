@@ -19,7 +19,6 @@ jobs:
         include:
           - os: macos-15
             arch: arm64
-            skip_gpu_render_check: "0"
     defaults:
       run:
         shell: bash
@@ -82,8 +81,6 @@ jobs:
           echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
 
       - name: Run tests
-        env:
-          QUOTA_BAR_SKIP_GPU_RENDER_CHECK: ${{ matrix.skip_gpu_render_check }}
         run: make test
 
       - name: Package app

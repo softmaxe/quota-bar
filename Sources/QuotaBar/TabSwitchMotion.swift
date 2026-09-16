@@ -23,8 +23,7 @@ enum TabSwitchMotion {
                      duration: Self.trailDuration)
     }
 
-    /// The pricing table's opening easing, as its two control points. Named rather than inlined
-    /// because the verifier has to walk the same curve the animation does.
+    /// The control points shared by both selection edges and the motion filmstrip.
     static let control1 = (x: 0.16, y: 1.0)
     static let control2 = (x: 0.3, y: 1.0)
 
@@ -51,9 +50,7 @@ enum TabSwitchMotion {
     }
 
 #if DEBUG
-    /// Where the curve has got to `time` seconds in. The animation solves this itself; this
-    /// exists so the verifier can sample the pill's shape over the whole travel rather than
-    /// trusting that two durations imply it.
+    /// Samples the animation curve for the motion filmstrip.
     static func progress(at time: TimeInterval, duration: TimeInterval) -> Double {
         guard duration > 0 else { return 1 }
         let fraction = min(max(time / duration, 0), 1)

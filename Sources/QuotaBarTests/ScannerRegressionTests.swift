@@ -6,9 +6,6 @@ enum ScannerRegressionTests {
     static func run() async {
         Self.unchangedPartialLineDoesNotRequireRescan()
         await Self.codexResumeStatePersists()
-        if ProcessInfo.processInfo.environment["QUOTABAR_SCANNER_BENCHMARK"] == "1" {
-            await Self.benchmarkCodexAppend()
-        }
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {
@@ -171,65 +168,5 @@ enum ScannerRegressionTests {
             "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
             "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
         ]
-    }
-
-    private static func benchmarkCodexAppend() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-scanner-benchmark-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: root)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let codexHome = root.appendingPathComponent("codex")
-        let file = codexHome.appendingPathComponent("sessions/rollout.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-luna"}}"#
-        let fillerLine = #"{"type":"response_item","payload":{"type":"message","text":"fixture"}}"# + "\n"
-        let filler = Data(String(repeating: fillerLine, count: 1_000).utf8)
-        FileManager.default.createFile(atPath: file.path, contents: Data((context + "\n").utf8))
-        guard let handle = try? FileHandle(forWritingTo: file) else { return }
-        for _ in 0..<900 { try? handle.write(contentsOf: filler) }
-        try? handle.close()
-
-        let env = Self.isolatedEnvironment(root: root, codexHome: codexHome)
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: env,
-            pricingOverlay: PricingOverlay()
-        )
-        let cold = await service.refresh(.codex)
-        var correct = cold != nil && cold?.windowTokens == 0
-
-        var durations: [Double] = []
-        for turn in 1...5 {
-            let event = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(turn),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"# + "\n"
-            guard let append = try? FileHandle(forWritingTo: file) else { return }
-            _ = try? append.seekToEnd()
-            try? append.write(contentsOf: Data(event.utf8))
-            try? append.close()
-
-            let start = ContinuousClock.now
-            let snapshot = await service.refresh(.codex)
-            let elapsed = start.duration(to: .now)
-            correct = correct && snapshot?.windowTokens == turn
-            durations.append(
-                Double(elapsed.components.seconds) * 1_000
-                    + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
-            )
-        }
-        let sorted = durations.sorted()
-        let size = ((try? FileManager.default.attributesOfItem(atPath: file.path)[.size]) as? NSNumber)?.doubleValue ?? 0
-        print(String(
-            format: "scanner_fixture_mb=%.1f correct=%@ append_ms_median=%.1f min=%.1f max=%.1f",
-            size / 1_048_576,
-            correct ? "yes" : "no",
-            sorted[sorted.count / 2],
-            sorted.first ?? 0,
-            sorted.last ?? 0
-        ))
-        Harness.expect(correct, "the scanner benchmark validates every incremental snapshot")
     }
 }

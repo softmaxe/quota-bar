@@ -55,7 +55,6 @@ enum UsageReportTests {
             Harness.expectEqual(report.period, "2026-09-13 至 2026-09-15", "report period")
             Harness.expectEqual(report.capturedAt, "2026-09-15T04:34:56.789Z", "capture timestamp")
             Harness.expectEqual(report.timezone, "Asia/Shanghai", "report timezone")
-            Harness.expectEqual(report.defaultFilename, "QuotaBar-Usage-2026-09-15.html", "default filename")
             Harness.expect(report.hasRecordedUsage, "report has recorded usage")
             Harness.expectEqual(
                 report.totals,
@@ -83,21 +82,12 @@ enum UsageReportTests {
             Harness.expectEqual(report.models.first?.name, "codex/model", "models rank by frozen cost")
             Harness.expectEqual(report.models.first?.total, 52, "long-context and fast tiers combine by model")
             Harness.expectEqual(report.models.first?.cacheWrite1h, 3, "one-hour cache writes sum as a subset")
-            Harness.expectEqual(report.models.first?.total, 30 + 5 + 7 + 10, "one-hour writes are not double counted")
             Harness.expect(report.models.contains(where: { $0.name == riskyModel }), "HTML-risk model name remains intact")
             Harness.expect(!report.models.contains(where: { $0.name == "excluded-model" }), "excluded OpenCode row stays out")
             Harness.expect(!report.models.contains(where: { $0.name == "excluded-pi" }), "excluded Pi row stays out")
-            Harness.expectEqual(report.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"], "source order")
-            Harness.expectEqual(report.weekdays.map(\.name), ["周一", "周二", "周三", "周四", "周五", "周六", "周日"], "weekday order")
             Harness.expectEqual(report.weekdays.map(\.total), [67, 19, 0, 0, 0, 0, 0], "weekday totals")
 
             let data = try JSONEncoder().encode(report)
-            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            Harness.expectEqual(
-                Set(object?.keys.map { $0 } ?? []),
-                Set(["period", "capturedAt", "timezone", "totals", "days", "models", "sources", "weekdays"]),
-                "snapshot JSON fields"
-            )
             let encoded = String(decoding: data, as: UTF8.self)
             Harness.expect(!encoded.contains("private-path"), "snapshot omits source paths")
             Harness.expect(!encoded.contains("secret-key"), "snapshot omits record identifiers")

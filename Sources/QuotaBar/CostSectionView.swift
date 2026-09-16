@@ -8,7 +8,6 @@ struct CostSectionView: View {
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
     static let breakdownLayout = CostBreakdownLayout(
-        summaryHeight: 61,
         rowHeight: 17,
         toggleHeight: 22,
         spacing: 5
@@ -38,7 +37,6 @@ struct CostSectionView: View {
         labelMode: CostChartLabelMode = .tokens,
         onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in },
         isBreakdownExpanded: Bool = false,
-        breakdownOpenness: Double? = nil,
         expandedBreakdownDayKey: String? = nil,
         previewToggleHovered: Bool = false,
         onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in },
@@ -66,7 +64,7 @@ struct CostSectionView: View {
         self.onLabelModeChanged = onLabelModeChanged
         self.onOpenPricing = onOpenPricing
         self.isBreakdownExpanded = isBreakdownExpanded
-        self.breakdownOpenness = breakdownOpenness ?? (isBreakdownExpanded ? 1 : 0)
+        self.breakdownOpenness = isBreakdownExpanded ? 1 : 0
         self.expandedBreakdownDayKey = expandedBreakdownDayKey
         self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
         _ = previewToggleHovered
@@ -558,10 +556,6 @@ struct CostSectionView: View {
     private func availabilityDetail(_ status: String, _ availability: CostAvailability) -> String {
         "\(status) · \(Formatters.tokens(availability.unpricedTokens)) tokens have no price"
     }
-
-#if DEBUG
-    var debugSelectedDayKey: String? { self.pinnedDayKey ?? self.hoveredDayKey }
-#endif
 }
 
 /// Codex's pay-as-you-go credit balance. Claude does not report one.

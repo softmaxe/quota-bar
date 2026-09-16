@@ -25,9 +25,6 @@ struct MenuCardView: View {
     /// menu rather than by the card, because opening the list is the one click that changes the
     /// card's height and the hosting view has to be resized around it.
     var isCostBreakdownExpanded = false
-    /// How far open the list is drawn right now. Nil follows the flag above, which is every card
-    /// that is not mid-sweep.
-    var costBreakdownOpenness: Double?
     /// The day being held open, shared with the controller's off-screen height probe.
     var expandedCostBreakdownDayKey: String?
     var onCostBreakdownExpandedChanged: (Bool, String?) -> Void = { _, _ in }
@@ -102,12 +99,6 @@ struct MenuCardView: View {
 
 #if DEBUG
     var debugStatusLine: String { self.statusLine }
-
-    func debugPaceSummary(for kind: QuotaWindowKind) -> String? {
-        let window = kind == .session ? self.display.snapshot?.session : self.display.snapshot?.weekly
-        guard let window, let pace = self.pace(for: window, kind: kind) else { return nil }
-        return Self.paceSummary(for: pace, context: kind.presentation.paceContext)
-    }
 #endif
 
     private var planLabel: String? {
@@ -225,7 +216,6 @@ struct MenuCardView: View {
                 labelMode: self.costChartLabelMode,
                 onLabelModeChanged: self.onCostChartLabelModeChanged,
                 isBreakdownExpanded: self.isCostBreakdownExpanded,
-                breakdownOpenness: self.costBreakdownOpenness,
                 expandedBreakdownDayKey: self.expandedCostBreakdownDayKey,
                 onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged,
                 onOpenPricing: self.onOpenPricing
@@ -417,11 +407,6 @@ private struct QuotaWindowRow: View {
                 tint: Theme.accent(for: self.provider),
                 frame: self.celebration.frame
             )
-#if DEBUG
-            .background {
-                QuotaLayoutProbe(identifier: "headline")
-            }
-#endif
             UsageProgressBar(
                 percent: self.window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
@@ -499,30 +484,3 @@ private struct UnlimitedWindowRow: View {
         .accessibilityLabel("\(self.title) has no limit")
     }
 }
-
-#if DEBUG
-/// A zero-drawing AppKit view that records the frame SwiftUI assigned to one card label. It is
-/// present only in debug builds so the layout verifier can inspect the real hosting hierarchy.
-final class QuotaLayoutProbeView: NSView {
-    let probeIdentifier: String
-
-    init(identifier: String) {
-        self.probeIdentifier = identifier
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-struct QuotaLayoutProbe: NSViewRepresentable {
-    let identifier: String
-
-    func makeNSView(context: Context) -> QuotaLayoutProbeView {
-        QuotaLayoutProbeView(identifier: self.identifier)
-    }
-
-    func updateNSView(_ nsView: QuotaLayoutProbeView, context: Context) {}
-}
-#endif

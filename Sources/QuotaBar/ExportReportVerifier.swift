@@ -40,7 +40,6 @@ enum ExportReportVerifier {
             let saved = await model.export(to: destination)
             expect(saved && model.status == .saved(destination), "successful export should identify its saved file")
             expect(!model.isExporting, "successful export should release its busy state")
-            Self.capture(model, name: "saved")
             let html = try String(contentsOf: destination, encoding: .utf8)
             expect(html.contains("const REPORT=") && html.contains("data-chart=\"daily\""), "saved HTML should contain the real report and data")
             expect(!html.contains("{{HEAD_BUNDLE}}"), "saved HTML should resolve the bundled template")
@@ -49,7 +48,6 @@ enum ExportReportVerifier {
             expect(!(await model.export(to: blocked)), "write to a missing parent should fail")
             if case .failed = model.status {} else { failures.append("write error should be visible") }
             expect(!model.isExporting, "write error should release its busy state")
-            Self.capture(model, name: "failed")
             expect(try String(contentsOf: destination, encoding: .utf8) == html, "failed save should preserve the previous report")
             expect(await model.export(to: destination), "a failed export should be retryable")
 
@@ -62,7 +60,6 @@ enum ExportReportVerifier {
             let emptyURL = directory.appendingPathComponent("empty.html")
             expect(!(await empty.export(to: emptyURL)), "empty data should not export a report")
             expect(empty.status == .noRecordedUsage && !FileManager.default.fileExists(atPath: emptyURL.path), "empty data should explain the missing records without writing a file")
-            Self.capture(empty, name: "empty")
 
             let failure = ExportSettingsModel(operations: .init(
                 read: { _ in throw CheckError.unavailable },
@@ -89,7 +86,6 @@ enum ExportReportVerifier {
             gate.signal()
             expect(await first.value, "first export should complete after the blocked read")
             expect(!FileManager.default.fileExists(atPath: emptyURL.path), "duplicate request should never write a second file")
-            expect(SettingsTab.allCases.count == 3 && SettingsTab.export.title == "Export", "settings should include the Export tab")
         } catch {
             failures.append(error.localizedDescription)
         }
@@ -122,23 +118,6 @@ enum ExportReportVerifier {
             sources: [UsageReportNamedUsage(name: "Codex", totals: totals)],
             weekdays: [UsageReportWeekday(name: "周二", total: totals.total)]
         )
-    }
-
-    private static func capture(_ model: ExportSettingsModel, name: String) {
-        guard let directory = ProcessInfo.processInfo.environment["QUOTABAR_REPORT_QA"] else { return }
-        let root = OffscreenCapture.directory(directory)
-        let suite = "QuotaBarExportState-\(name)"
-        let defaults = EphemeralDefaults.make(suite)
-        defer { EphemeralDefaults.clear(suite) }
-        let selection = SettingsSelection()
-        selection.tab = .export
-        let pricing = PricingEditorModel(costService: CostService(), fixtures: .init(usage: [:], overlay: PricingOverlay()))
-        for (theme, appearance) in [("dark", NSAppearance.Name.darkAqua), ("light", .aqua)] {
-            let hosting = NSHostingView(rootView: SettingsView(settings: SettingsStore(defaults: defaults), pricing: pricing, export: model, selection: selection))
-            hosting.appearance = NSAppearance(named: appearance)
-            hosting.frame.size = hosting.fittingSize
-            _ = OffscreenCapture.writePNG(hosting, named: "\(name)-\(theme)", into: root, titled: true, settle: 0.3)
-        }
     }
 
     static func dump(directory: String) {

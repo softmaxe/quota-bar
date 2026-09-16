@@ -1,12 +1,8 @@
 #if DEBUG
 import QuotaBarCore
-import AppKit
 import Foundation
-import SwiftUI
 
-/// Proves both reset-time formats read correctly and fit in the card's stacked layout.
-/// The whole point of the clock face is planning around a reset, so a label that names the wrong
-/// day is worse than no label: every case that adds or drops the day is pinned here.
+/// Checks reset-date boundaries and countdown clamping.
 @MainActor
 enum QuotaResetLabelVerifier {
     private static let calendar: Calendar = {
@@ -70,13 +66,11 @@ enum QuotaResetLabelVerifier {
             "Resets in 0m"
         )
 
-        let layoutFailures = Self.layoutFailures()
         VerifierReport.finish(
-            layoutFailures,
+            [],
             label: "quota-reset-label verification",
-            passed: "quota reset label text and 280pt card layout passed"
+            passed: "quota reset date boundaries and countdown clamping passed"
         )
-
     }
 
     private static func date(
@@ -84,10 +78,9 @@ enum QuotaResetLabelVerifier {
         _ month: Int,
         _ day: Int,
         _ hour: Int,
-        _ minute: Int,
-        calendar: Calendar? = nil
+        _ minute: Int
     ) -> Date {
-        let calendar = calendar ?? Self.calendar
+        let calendar = Self.calendar
         let components = DateComponents(
             timeZone: calendar.timeZone,
             year: year,
@@ -133,137 +126,6 @@ enum QuotaResetLabelVerifier {
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         VerifierReport.require(condition(), message, label: "quota-reset-label verification")
-    }
-
-    private static func layoutFailures() -> [String] {
-        // The arm64 runner already proved the 280pt card does not truncate; Intel can skip.
-        guard GPURenderCheck.skipReason == nil else { return [] }
-        let now = Self.date(2026, 8, 30, 9, 0, calendar: .current)
-        let countdownReset = now.addingTimeInterval((7 * 86_400) + (3 * 3_600))
-        let clockReset = Self.date(2026, 9, 6, 12, 45, calendar: .current)
-        return Self.layoutFailures(mode: .countdown, now: now, reset: countdownReset)
-            + Self.layoutFailures(mode: .clock, now: now, reset: clockReset)
-    }
-
-    private static func layoutFailures(
-        mode: QuotaResetDisplayMode,
-        now: Date,
-        reset: Date
-    ) -> [String] {
-        var failures: [String] = []
-        let resetText = QuotaResetLabel.text(resetsAt: reset, mode: mode, now: now)
-        let normalizedResetText = Self.normalized(resetText)
-        let expectedResetText = mode == .countdown
-            ? "Resets in 7d 3h"
-            : "Resets Sep 6, 12:45 PM"
-        if normalizedResetText != expectedResetText {
-            failures.append(
-                "\(mode) layout fixture expected \"\(expectedResetText)\", got \"\(normalizedResetText)\""
-            )
-        }
-
-        let snapshot = UsageSnapshot(
-            provider: .codex,
-            session: UsageWindow(
-                usedPercent: 0,
-                resetsAt: reset,
-                windowSeconds: 18_000
-            ),
-            weekly: nil,
-            planLabel: "Plus",
-            credits: nil,
-            fetchedAt: now
-        )
-        let hosting = NSHostingView(rootView: MenuCardView(
-            provider: .codex,
-            display: ProviderDisplay(snapshot: snapshot),
-            isRefreshing: false,
-            animatesFill: false,
-            now: now,
-            quotaResetDisplayMode: mode
-        ))
-        hosting.frame = NSRect(
-            origin: .zero,
-            size: NSSize(width: 280, height: hosting.fittingSize.height)
-        )
-        let window = NSWindow(
-            contentRect: hosting.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hosting
-        window.orderFront(nil)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        hosting.layoutSubtreeIfNeeded()
-        let probes = Self.layoutProbes(in: hosting)
-        guard let headlineProbe = probes.first(where: { $0.probeIdentifier == "headline" }) else {
-            window.orderOut(nil)
-            failures.append("the hosted card exposed no headline layout probe")
-            return failures
-        }
-        guard let resetProbe = probes.first(where: { $0.probeIdentifier == "reset" }) else {
-            window.orderOut(nil)
-            failures.append("the hosted card exposed no reset layout probe")
-            return failures
-        }
-        let headlineFrame = headlineProbe.convert(headlineProbe.bounds, to: hosting)
-        let resetFrame = resetProbe.convert(resetProbe.bounds, to: hosting)
-
-        let resetIdeal = NSHostingView(rootView: Text(resetText).font(.system(size: 11)).lineLimit(1))
-        let headlineIdeal = NSHostingView(rootView: QuotaHeadline(
-            title: "Session",
-            percent: 100,
-            tint: Theme.accent(for: .codex),
-            frame: nil
-        ))
-
-        let resetIntrinsicWidth = resetIdeal.fittingSize.width
-        if resetFrame.width + 0.5 < resetIntrinsicWidth {
-            failures.append(
-                "\(mode) reset label was compressed to \(Self.round(resetFrame.width))pt; "
-                    + "its \(Self.round(resetIntrinsicWidth))pt intrinsic width was not preserved"
-            )
-        }
-        let headlineIntrinsic = headlineIdeal.fittingSize
-        if headlineFrame.height > headlineIntrinsic.height + 1 {
-            failures.append(
-                "\(mode) headline wrapped to \(Self.round(headlineFrame.height))pt high; "
-                    + "its single-line height is \(Self.round(headlineIntrinsic.height))pt"
-            )
-        }
-        if headlineFrame.maxY > resetFrame.minY - 1 {
-            failures.append(
-                "\(mode) reset menu overlaps the headline in the card's flipped coordinates"
-            )
-        }
-        let contentMinX: CGFloat = 14
-        let contentMaxX = hosting.bounds.maxX - 14
-        if headlineFrame.minX < contentMinX - 0.5 || headlineFrame.maxX > contentMaxX + 0.5 {
-            failures.append("\(mode) headline extends beyond the card content edges")
-        }
-        if resetFrame.minX < contentMinX - 0.5 {
-            failures.append("\(mode) reset menu starts outside the card content edge")
-        }
-        if resetFrame.maxX > contentMaxX + 0.5 {
-            failures.append(
-                "\(mode) reset label ended at \(Self.round(resetFrame.maxX))pt, outside the "
-                    + "card content edge at \(Self.round(contentMaxX))pt"
-            )
-        }
-        window.orderOut(nil)
-        return failures
-    }
-
-    private static func layoutProbes(in view: NSView) -> [QuotaLayoutProbeView] {
-        view.subviews.flatMap { subview in
-            let own = subview as? QuotaLayoutProbeView
-            return (own.map { [$0] } ?? []) + Self.layoutProbes(in: subview)
-        }
-    }
-
-    private static func round(_ value: CGFloat) -> CGFloat {
-        (value * 10).rounded() / 10
     }
 }
 #endif

@@ -392,12 +392,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         guard let state = self.presentation?.refreshState else { return nil }
         return (state.title, state.trailingText, state.isEnabled)
     }
-    var debugPopover: NSPopover? { self.popover }
-    var debugDismissalMonitorCount: Int {
-        (self.outsideClickMonitor == nil ? 0 : 1)
-            + (self.applicationDeactivationObserver == nil ? 0 : 1)
-    }
-    var debugStatusButton: NSStatusBarButton? { self.statusItem?.button }
     func debugShowPopover() { self.statusItemClicked() }
 #endif
 }
