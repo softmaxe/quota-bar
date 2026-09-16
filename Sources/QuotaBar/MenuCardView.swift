@@ -102,6 +102,12 @@ struct MenuCardView: View {
 
 #if DEBUG
     var debugStatusLine: String { self.statusLine }
+
+    func debugPaceSummary(for kind: QuotaWindowKind) -> String? {
+        let window = kind == .session ? self.display.snapshot?.session : self.display.snapshot?.weekly
+        guard let window, let pace = self.pace(for: window, kind: kind) else { return nil }
+        return Self.paceSummary(for: pace, context: kind.presentation.paceContext)
+    }
 #endif
 
     private var planLabel: String? {

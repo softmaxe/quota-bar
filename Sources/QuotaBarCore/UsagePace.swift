@@ -38,7 +38,7 @@ public struct UsagePace: Sendable, Equatable {
     /// Share of comparable past weeks that ran the window dry. Only the historical model
     /// produces this, and only once enough weeks have been recorded.
     public let runOutProbability: Double?
-    /// The window is valid, but too little time has elapsed to project its consumption rate.
+    /// The window is valid, but elapsed time and actual usage are both too small to project a rate.
     public let isWarmingUp: Bool
 
     public init(
@@ -108,7 +108,7 @@ public struct UsagePace: Sendable, Equatable {
     }
 
     /// nil for unavailable, expired, inconsistent, or exhausted windows. Fresh windows retain
-    /// their expected usage while rate projections wait for enough elapsed time.
+    /// their expected usage while rate projections wait for enough elapsed time or consumption.
     public static func evaluate(
         window: UsageWindow,
         context: Context,
@@ -131,8 +131,9 @@ public struct UsagePace: Sendable, Equatable {
         let actual = min(max(window.usedPercent, 0), 100)
         // Usage recorded before any time elapsed is a stale reading, not a pace.
         if elapsed == 0, actual > 0 { return nil }
-        // Keep the pace visible after a reset without extrapolating rounded usage into an ETA.
-        if expected < 3 {
+        // Avoid projecting tiny, rounded readings just after reset. Meaningful consumption can
+        // establish a rate sooner than the clock alone, especially in a week-long window.
+        if expected < 3, actual < 3 {
             return UsagePace(
                 stage: Self.stage(for: actual - expected),
                 deltaPercent: actual - expected,

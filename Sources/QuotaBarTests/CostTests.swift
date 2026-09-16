@@ -1967,6 +1967,7 @@ enum PaceTests {
             "usage at zero elapsed time is rejected"
         )
         Self.verifyFreshWindows(now: now)
+        Self.verifyEarlyConsumption(now: now)
 
         // Stage boundaries, straight from CodexBar's thresholds.
         Harness.expectEqual(UsagePace.stage(for: 2), .onTrack, "2 points is still on track")
@@ -2025,14 +2026,56 @@ enum PaceTests {
                                "\(context) headroom waits for sufficient elapsed time")
             }
         }
+    }
 
-        let resetAt = now.addingTimeInterval(Self.week - 3600)
-        let window = UsageWindow(usedPercent: 10, resetsAt: resetAt, windowSeconds: Self.weekMinutes * 60)
-        let earlyDeficit = UsagePace.evaluate(window: window, context: .weekly, now: now)
-        let laterDeficit = UsagePace.evaluate(window: window, context: .weekly, now: now.addingTimeInterval(5 * 3600))
-        Harness.expectEqual(earlyDeficit?.isWarmingUp, true, "early heavy usage waits for a stable rate")
-        Harness.expectEqual(laterDeficit?.isWarmingUp, false, "the same window leaves warmup as time passes")
-        Harness.expect(laterDeficit?.etaSeconds != nil, "a deficit regains its run-out estimate after warmup")
+    private static func verifyEarlyConsumption(now: Date) {
+        // The reported card shows 90% left, a reset in 6d 21h, and 99% expected left.
+        let weekly = UsagePace.evaluate(
+            window: Self.window(used: 10, secondsUntilReset: Self.week - 2.5 * 3600, now: now),
+            context: .weekly,
+            now: now
+        )
+        Harness.expectEqual(weekly?.isWarmingUp, false, "10% weekly usage unlocks the early projection")
+        Harness.expectEqual(weekly?.deltaLabel, "9% in deficit", "early consumption keeps the deficit")
+        Harness.expectClose(weekly?.expectedRemainingPercent, 100 * 165.5 / 168,
+                            "early consumption keeps the expected marker")
+        Harness.expectClose(weekly?.etaSeconds, 22.5 * 3600, "early weekly usage projects the remaining 90%")
+        Harness.expectEqual(weekly?.etaLabel(context: .weekly, durationText: Self.duration),
+                            "Runs out in 22h", "the reported card shows a run-out estimate")
+        Harness.expectEqual(weekly?.willLastToReset, false, "early heavy usage cannot last until reset")
+        Harness.expectClose(weekly?.speedMultiplierToReset, 22.5 / 165.5,
+                            "early weekly usage includes remaining headroom")
+
+        // Both window types leave warmup as consumption becomes measurable, without waiting
+        // for the elapsed-time threshold. Providers may omit the window length.
+        for context in [UsagePace.Context.session, .weekly] {
+            let duration = TimeInterval(context.defaultWindowMinutes * 60)
+            let elapsed = duration * 0.01
+            for used in [0.0, 1, 2.99, 3, 3.01, 10] {
+                let window = UsageWindow(
+                    usedPercent: used,
+                    resetsAt: now.addingTimeInterval(duration - elapsed),
+                    windowSeconds: nil
+                )
+                let pace = UsagePace.evaluate(window: window, context: context, now: now)
+                let isWarmingUp = used < 3
+                Harness.expectEqual(pace?.isWarmingUp, isWarmingUp,
+                                    "\(context) early projection at \(used)% consumed")
+                Harness.expectEqual(pace?.willLastToReset, false,
+                                    "\(context) early usage does not promise to last until reset")
+                if isWarmingUp {
+                    Harness.expect(pace?.etaSeconds == nil && pace?.speedMultiplierToReset == nil,
+                                   "\(context) low early usage keeps projections pending")
+                } else {
+                    Harness.expectClose(pace?.etaSeconds, elapsed * (100 - used) / used,
+                                        "\(context) early ETA uses elapsed time and actual consumption")
+                    let label = pace?.etaLabel(context: context, durationText: Self.duration)
+                    let prefix = context == .session ? "Projected empty in " : "Runs out in "
+                    Harness.expect(label?.hasPrefix(prefix) == true,
+                                   "\(context) early consumption shows the projection label")
+                }
+            }
+        }
     }
 }
 

@@ -73,7 +73,8 @@ enum PopoverInteractionVerifier {
             fixtures: .init(usage: [:], overlay: PricingOverlay()),
             saveOperations: .init(freeze: {}, write: { _ in }, invalidate: {})
         )
-        let controller = StatusItemController(store: store, settings: settings, pricing: pricing)
+        let now = Date()
+        let controller = StatusItemController(store: store, settings: settings, pricing: pricing, now: { now })
         controller.installApplicationMenu()
 
         guard let menu = NSApp.mainMenu,
@@ -262,7 +263,7 @@ enum PopoverInteractionVerifier {
         // has only just started and there is no limited session or history to fall back on.
         model.maximumHeight = 700
         model.onSizeChanged()
-        let resetNow = Date()
+        let resetNow = now
         let resetSnapshot = UsageSnapshot(
             provider: .codex,
             session: nil,
@@ -298,6 +299,37 @@ enum PopoverInteractionVerifier {
                 "quota reset: the pace disclosure disappeared after reopening")
         require(await Self.wait(until: { model.contentHeight > resetCollapsedHeight + 30 }),
                 "quota reset: the reopened card could not expand its pace details")
+
+        // Meaningful consumption must replace the summary's warmup text and retain expandable
+        // details, even before 3% of the weekly window has elapsed.
+        require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                "early consumption: the pace disclosure could not collapse")
+        let earlyConsumption = UsageSnapshot(
+            provider: .codex,
+            session: nil,
+            weekly: UsageWindow(
+                usedPercent: 10,
+                resetsAt: now.addingTimeInterval(604_800 - 2.5 * 3_600),
+                windowSeconds: 604_800
+            ),
+            planLabel: "Pro",
+            credits: nil,
+            fetchedAt: now,
+            sessionIsUnlimited: true
+        )
+        store.debugSetDisplay(ProviderDisplay(snapshot: earlyConsumption), for: .codex)
+        require(await Self.wait(until: {
+            model.card.display.snapshot == earlyConsumption
+                && model.card.debugPaceSummary(for: .weekly) == "Runs out in 22h 30m"
+        }), "early consumption: the collapsed card did not show its run-out estimate")
+        RunLoopDrain.run(for: 0.05)
+        let consumptionCollapsedHeight = model.contentHeight
+        require(Self.pressProbe("pace-disclosure", in: hosting.view),
+                "early consumption: the pace disclosure could not expand")
+        require(await Self.wait(until: { model.contentHeight > consumptionCollapsedHeight + 30 }),
+                "early consumption: expanding did not reveal actual pace details")
+        require(model.card.debugPaceSummary(for: .weekly) == "Runs out in 22h 30m",
+                "early consumption: expanding replaced the run-out estimate")
 
         popover.performClose(nil)
         require(await Self.wait(until: { controller.debugDismissalMonitorCount == 0 }),
