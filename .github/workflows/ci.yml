@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Print tool versions
+        run: |
+          set -euo pipefail
+          swift --version
+          xcodebuild -version
+
+      - name: Run tests
+        env:
+          QUOTA_BAR_SKIP_GPU_RENDER_CHECK: "0"
+        run: make test
