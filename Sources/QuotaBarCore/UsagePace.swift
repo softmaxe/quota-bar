@@ -38,6 +38,8 @@ public struct UsagePace: Sendable, Equatable {
     /// Share of comparable past weeks that ran the window dry. Only the historical model
     /// produces this, and only once enough weeks have been recorded.
     public let runOutProbability: Double?
+    /// The window is valid, but too little time has elapsed to project its consumption rate.
+    public let isWarmingUp: Bool
 
     public init(
         stage: Stage,
@@ -47,7 +49,8 @@ public struct UsagePace: Sendable, Equatable {
         etaSeconds: TimeInterval?,
         willLastToReset: Bool,
         speedMultiplierToReset: Double?,
-        runOutProbability: Double? = nil
+        runOutProbability: Double? = nil,
+        isWarmingUp: Bool = false
     ) {
         self.stage = stage
         self.deltaPercent = deltaPercent
@@ -57,6 +60,7 @@ public struct UsagePace: Sendable, Equatable {
         self.willLastToReset = willLastToReset
         self.speedMultiplierToReset = speedMultiplierToReset
         self.runOutProbability = runOutProbability
+        self.isWarmingUp = isWarmingUp
     }
 
     /// Built from the historical model, where expected usage comes from past weeks rather than
@@ -103,8 +107,8 @@ public struct UsagePace: Sendable, Equatable {
         }
     }
 
-    /// nil whenever a pace reading would be meaningless: no reset time, a window that has already
-    /// reset, or so little elapsed time that the expected figure is noise.
+    /// nil for unavailable, expired, inconsistent, or exhausted windows. Fresh windows retain
+    /// their expected usage while rate projections wait for enough elapsed time.
     public static func evaluate(
         window: UsageWindow,
         context: Context,
@@ -127,8 +131,19 @@ public struct UsagePace: Sendable, Equatable {
         let actual = min(max(window.usedPercent, 0), 100)
         // Usage recorded before any time elapsed is a stale reading, not a pace.
         if elapsed == 0, actual > 0 { return nil }
-        // Just after a reset the expected figure is dominated by rounding.
-        guard expected >= 3 else { return nil }
+        // Keep the pace visible after a reset without extrapolating rounded usage into an ETA.
+        if expected < 3 {
+            return UsagePace(
+                stage: Self.stage(for: actual - expected),
+                deltaPercent: actual - expected,
+                expectedUsedPercent: expected,
+                actualUsedPercent: actual,
+                etaSeconds: nil,
+                willLastToReset: false,
+                speedMultiplierToReset: nil,
+                isWarmingUp: true
+            )
+        }
 
         let delta = actual - expected
         var etaSeconds: TimeInterval?
@@ -197,6 +212,7 @@ public struct UsagePace: Sendable, Equatable {
     /// Right half: whether the budget survives to the reset, or when it is projected to empty.
     /// `durationText` renders a seconds value the way the reset countdowns do.
     public func etaLabel(context: Context, durationText: (TimeInterval) -> String) -> String? {
+        if self.isWarmingUp { return "Estimating usage pace…" }
         let base: String?
         if self.willLastToReset {
             if self.deltaPercent < -15, let multiplier = self.speedMultiplierToReset, multiplier >= 1.5 {
