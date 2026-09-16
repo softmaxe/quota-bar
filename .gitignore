@@ -1,0 +1,24 @@
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Build output
+build/
+*.app
+
+# Local report design proposals and review evidence
+docs/report-templates/
+docs/usage-report-c-review.md
+
+# macOS
+.DS_Store
+
+# Xcode
+*.xcuserdatad
+xcuserdata/
+DerivedData/
+
+# Secrets
+.env
+.env.*

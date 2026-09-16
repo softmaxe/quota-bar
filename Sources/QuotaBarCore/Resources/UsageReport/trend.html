@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title data-i18n="pageTitle">QuotaBar Trend Overview</title>
+{{HEAD_BUNDLE}}
+<style>
+  :root{
+    --bg:var(--chart-page); --txt:var(--chart-ink);
+    --mut:var(--chart-mut); --lab:var(--chart-lab);
+    --faint:color-mix(in srgb,var(--chart-ink) 32%,transparent); --quiet:var(--chart-quiet); --grid:var(--chart-grid);
+    --data:var(--chart-cat-0); --data2:var(--chart-cat-2); --hero:var(--chart-hero); --faintdata:var(--chart-cat-3);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:'Inter','Noto Sans SC','PingFang SC','Hiragino Sans GB',Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums lining-nums;
+    display:flex;justify-content:center;padding:64px 28px}
+  .sheet{width:880px;max-width:880px;flex-shrink:0}
+
+  .state{border-top:1px solid var(--txt);padding-top:14px}
+  .state .lead{font-size:21px;font-weight:700;line-height:1.5}
+  .state .lead b{font-weight:900}
+  h1{font-size:30px;font-weight:900;line-height:1.4;margin-bottom:6px}
+
+  .head{display:grid;grid-template-columns:200px 1fr;gap:44px;align-items:end}
+  .legend{font-size:10px;font-weight:700;color:var(--mut)}
+  .legend .rule{border-top:1px solid var(--txt);margin-bottom:10px;width:64px}
+  .legend .key{margin-bottom:10px;letter-spacing:.14em}
+  .legend .row{display:flex;align-items:center;gap:8px}
+  .legend .dot{width:9px;height:9px;border-radius:50%;background:var(--data);flex:none}
+
+  .claims{display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-top:40px}
+  .claims .c .num{font-size:34px;font-weight:900;letter-spacing:-.02em;overflow-wrap:anywhere}
+  .claims .c:first-child .num{color:var(--hero)}
+  .claims .c:last-child .num{color:var(--txt)}
+  .claims .c .t{font-size:16.5px;font-weight:700;line-height:1.5;margin-top:2px}
+  .claims .c .src{font-size:9px;font-weight:600;letter-spacing:.08em;color:var(--faint);margin-top:6px}
+
+  .fig svg{width:100%;height:auto;display:block}
+  svg text{font-family:'Inter','Noto Sans SC','PingFang SC',Arial,sans-serif}
+  .fig-title{font-size:16.5px;font-weight:700;line-height:1.5}
+  .sub{font-size:10.5px;font-weight:500;line-height:1.6;color:var(--mut);margin-top:3px;overflow-wrap:anywhere}
+  .chart-frame{margin-top:12px;min-height:320px}
+  .chart-frame svg{height:320px}
+  .srcline{font-size:9px;font-weight:600;letter-spacing:.08em;color:var(--faint);margin-top:10px;line-height:1.55;overflow-wrap:anywhere}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:44px;margin-top:56px}
+  .compare .b .state{padding-top:12px}
+  .compare .b .t{font-size:16.5px;font-weight:700;line-height:1.55}
+  .compare .b .sub{min-height:34px}
+  .compare .b .fig{margin-top:10px}
+  .wrap{position:relative;width:100%;height:320px;min-height:320px}
+  .wrap canvas{display:block;width:100% !important;height:320px !important}
+  #composition{height:320px}
+
+  .bridge{margin-top:34px;border-top:1px dotted var(--faint);padding-top:12px;
+    text-align:right;font-size:14px;font-weight:700;line-height:1.7}
+  .bridge b{font-weight:900}
+
+  .foot{margin-top:56px;padding-top:12px;border-top:1px solid var(--txt);
+    display:flex;justify-content:space-between;gap:36px;font-size:9px;font-weight:600;
+    letter-spacing:.08em;color:var(--mut);line-height:1.7}
+  .foot span{overflow-wrap:anywhere}
+  .foot>span:first-child{max-width:56%}
+  .foot>span:last-child{text-align:right;max-width:40%}
+
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.7,.3,1.3) both}
+  @keyframes pop{from{transform:scale(0)}to{transform:none}}
+  .fade{animation:fade .9s ease both}
+  @keyframes fade{from{opacity:0}}
+  @media(max-width:640px){body{padding:24px 10px}}
+  @media print{body{padding:20px}.pop,.fade{animation:none}}
+  @media (prefers-reduced-motion:reduce){.pop,.fade{animation:none}}
+</style>
+{{COMMON_STYLE}}
+</head>
+<body class="trend-report">
+{{TOOLBAR}}
+<div class="sheet">
+  <div class="head">
+    <div class="legend">
+      <div class="rule"></div>
+      <div class="key" data-i18n="versionLabel">C · TREND</div>
+      <div class="row"><span class="dot"></span><span data-i18n="localSnapshot">Local saved usage</span></div>
+    </div>
+    <div class="state">
+      <h1><span data-i18n="headline">Usage recorded during</span><br><b data-bind="period">—</b></h1>
+    </div>
+  </div>
+
+  <div class="claims">
+    <div class="c state">
+      <div class="num" data-bind="totalTokens">—</div>
+      <div class="t" data-i18n="totalLabel">Total tokens</div>
+      <div class="src"><span data-i18n="periodLabel">Period</span> · <span data-bind="period">—</span></div>
+    </div>
+    <div class="c state">
+      <div class="num" data-bind="cost">—</div>
+      <div class="t" data-i18n="costLabel">Stored API cost</div>
+      <div class="src"><span data-i18n="pricingCoverageLabel">Pricing coverage</span> · <span data-bind="pricingCoverage">—</span></div>
+    </div>
+  </div>
+
+  <div class="fig state" style="margin-top:44px">
+    <h2 class="fig-title" data-i18n="dailyTitle">Daily usage</h2>
+    <div class="sub" data-i18n="dailyNote">Recorded daily totals across the selected period.</div>
+    <p class="sub" data-scroll-hint data-i18n="scrollHint" hidden></p>
+    <div class="chart-frame" data-scroll-region role="region"><svg id="daily" data-chart="daily" viewBox="0 0 880 320"></svg></div>
+    <div class="srcline" data-summary="daily-peak"><span data-i18n="peakLabel">Peak</span> · <span data-bind="peakDay">—</span> · <span data-bind="peakTokens">—</span> <span data-i18n="tokenUnit">tokens</span></div>
+  </div>
+
+  <div class="compare">
+    <div class="b">
+      <div class="state">
+        <h2 class="t" data-i18n="modelsTitle">Model cost</h2>
+        <div class="sub" data-i18n="modelsNote">Stored cost by model.</div>
+      </div>
+      <div class="fig"><div class="wrap"><canvas id="models" data-chart="models"></canvas></div></div>
+      <div class="srcline" data-summary="model-cost"><span data-i18n="topModelLabel">Highest stored cost</span> · <span data-bind="topModel">—</span> · <span data-bind="topModelCost">—</span></div>
+    </div>
+    <div class="b">
+      <div class="state">
+        <h2 class="t" data-i18n="compositionTitle">Token composition</h2>
+        <div class="sub" data-i18n="compositionNote">Share of input, output, cache read, and cache write tokens.</div>
+      </div>
+      <div class="fig"><svg id="composition" data-chart="composition" viewBox="0 0 400 320"></svg></div>
+      <div class="srcline"><span data-i18n="cacheReadLabel">Cache read</span> · <span data-bind="cacheRead">—</span> <span data-i18n="tokenUnit">tokens</span> · <span data-i18n="cacheShareLabel">Cache share</span> <span data-bind="cacheShare">—</span></div>
+    </div>
+  </div>
+
+  <div class="bridge"><span data-i18n="bridgeRecorded">Saved records cover</span> <b data-bind="activeDays">—</b><span data-i18n="bridgeOf"> of </span><b data-bind="calendarDays">—</b><span data-i18n="bridgeDays"> calendar days.</span> <span data-i18n="dataNote">Missing dates do not mean zero usage.</span></div>
+
+  {{DATA_DETAILS}}
+<div class="foot">
+    <span><span data-i18n="costNote">* Partial API estimate, not a bill.</span><br><span data-i18n="cacheCostNote">Historical cache USD is not stored separately.</span></span>
+    <span><span data-i18n="sourceLabel">Sources</span> · <span data-bind="sourceNames">—</span><br><span data-i18n="generatedLabel">Generated</span> · <span data-bind="capturedAt">—</span><br><span data-i18n="timeZoneLabel"></span> · <span data-bind="timeZone"></span></span>
+  </div>
+</div>
+<script>
+const PAGE_COPY={
+  zh:{
+    pageTitle:'用量趋势报告',
+    versionLabel:'用量趋势报告',
+    localSnapshot:'本地已存用量',
+    headline:'本报告覆盖',
+    pricingCoverageLabel:'定价覆盖',
+    peakLabel:'单日峰值',
+    topModelLabel:'已存费用最高',
+    tokenUnit:'tokens',
+    bridgeRecorded:'已存记录覆盖',
+    bridgeOf:' / ',
+    bridgeDays:' 个日历日。'
+  },
+  en:{
+    pageTitle:'Usage trend report',
+    versionLabel:'Usage trend report',
+    localSnapshot:'Local saved usage',
+    headline:'This report covers',
+    pricingCoverageLabel:'Pricing coverage',
+    peakLabel:'Daily peak',
+    topModelLabel:'Highest stored cost',
+    tokenUnit:'tokens',
+    bridgeRecorded:'Saved records cover',
+    bridgeOf:' of ',
+    bridgeDays:' calendar days.'
+  }
+};
+</script>
+{{SCRIPT_BUNDLE}}
+</body>
+</html>

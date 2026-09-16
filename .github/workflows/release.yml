@@ -1,0 +1,371 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+            skip_gpu_render_check: "0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Validate tap publishing credentials
+        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask."
+            exit 1
+          fi
+
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          actual_arch="$(uname -m)"
+          echo "Runner architecture: ${actual_arch}"
+          echo "Expected architecture: ${EXPECTED_ARCH}"
+          if [[ "${actual_arch}" != "${EXPECTED_ARCH}" ]]; then
+            echo "::error::The runner architecture does not match the requested native architecture."
+            exit 1
+          fi
+
+      - name: Print tool versions
+        run: |
+          set -euo pipefail
+          swift --version
+          xcodebuild -version
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve version and archive name
+        id: metadata
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "push" && "${REF_TYPE}" == "tag" ]]; then
+            if [[ ! "${REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Tag must match ^v[0-9]+.[0-9]+.[0-9]+$."
+              exit 1
+            fi
+            version="${REF_NAME#v}"
+            archive_base="QuotaBar-${version}-macos-${ARCH}"
+          else
+            version="0.0.0"
+            short_sha="${COMMIT_SHA:0:7}"
+            archive_base="QuotaBar-dev-${short_sha}-macos-${ARCH}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run tests
+        env:
+          QUOTA_BAR_SKIP_GPU_RENDER_CHECK: ${{ matrix.skip_gpu_render_check }}
+        run: make test
+
+      - name: Package app
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION}" make app
+
+      - name: Verify app signature, version, and architecture
+        env:
+          EXPECTED_VERSION: ${{ steps.metadata.outputs.version }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          app="build/QuotaBar.app"
+          info_plist="${app}/Contents/Info.plist"
+          [[ -d "${app}" ]]
+          [[ -f "${info_plist}" ]]
+
+          codesign --verify --deep --strict "${app}"
+
+          short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${info_plist}")"
+          bundle_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${info_plist}")"
+          if [[ "${short_version}" != "${EXPECTED_VERSION}" || "${bundle_version}" != "${EXPECTED_VERSION}" ]]; then
+            echo "::error::Info.plist version does not match ${EXPECTED_VERSION}."
+            exit 1
+          fi
+
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${info_plist}")"
+          binary="${app}/Contents/MacOS/${executable}"
+          [[ -f "${binary}" ]]
+          architectures="$(lipo -archs "${binary}")"
+          if [[ "${architectures}" != "${EXPECTED_ARCH}" ]]; then
+            echo "::error::The app contains architectures '${architectures}', expected exactly '${EXPECTED_ARCH}'."
+            exit 1
+          fi
+
+      - name: Archive app and create checksum
+        env:
+          ARCHIVE_BASE: ${{ steps.metadata.outputs.archive_base }}
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+
+          zip_path="dist/${ARCHIVE_BASE}.zip"
+          ditto -c -k --keepParent build/QuotaBar.app "${zip_path}"
+          unzip -t "${zip_path}"
+
+          zip_name="$(basename "${zip_path}")"
+          (
+            cd dist
+            shasum -a 256 "${zip_name}" > "${zip_name}.sha256"
+          )
+
+          checksum_path="${zip_path}.sha256"
+          line_count="$(wc -l < "${checksum_path}")"
+          if [[ "${line_count}" -ne 1 ]]; then
+            echo "::error::Checksum file must contain exactly one line."
+            exit 1
+          fi
+          read -r checksum_digest checksum_reference < "${checksum_path}"
+          if [[ "${checksum_reference}" != "${zip_name}" ]]; then
+            echo "::error::Checksum must reference the archive basename only."
+            exit 1
+          fi
+          if [[ ! "${checksum_digest}" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "::error::Checksum is not a SHA-256 digest."
+            exit 1
+          fi
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-${{ matrix.arch }}
+          path: |
+            dist/${{ steps.metadata.outputs.archive_base }}.zip
+            dist/${{ steps.metadata.outputs.archive_base }}.zip.sha256
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 1 || 14 }}
+
+  release:
+    name: Release
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download architecture packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate tag and release packages
+        id: metadata
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must match ^v[0-9]+.[0-9]+.[0-9]+$."
+            exit 1
+          fi
+          version="${TAG#v}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+          shopt -s nullglob
+          zip_files=(dist/*.zip)
+          checksum_files=(dist/*.zip.sha256)
+          if [[ "${#zip_files[@]}" -ne 1 || "${#checksum_files[@]}" -ne 1 ]]; then
+            echo "::error::Expected exactly one ZIP file and one checksum file in dist/."
+            exit 1
+          fi
+
+          expected_files=(
+            "dist/QuotaBar-${version}-macos-arm64.zip"
+            "dist/QuotaBar-${version}-macos-arm64.zip.sha256"
+          )
+          for expected_file in "${expected_files[@]}"; do
+            if [[ ! -f "${expected_file}" ]]; then
+              echo "::error::Missing expected release asset: ${expected_file}"
+              exit 1
+            fi
+          done
+
+          for checksum_file in "${checksum_files[@]}"; do
+            checksum_name="$(basename "${checksum_file}")"
+            (
+              cd dist
+              sha256sum -c "${checksum_name}"
+            )
+          done
+
+      - name: Ensure tag has no existing release
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::A release already exists for $GITHUB_REF_NAME; refusing to overwrite it."
+            exit 1
+          fi
+
+          api_output="$(gh api --include "repos/${GITHUB_REPOSITORY}/releases/tags/$GITHUB_REF_NAME" 2>&1 || true)"
+          status_line="$(printf '%s\n' "${api_output}" | sed -n '1p')"
+          if [[ "${status_line}" != *404* ]]; then
+            echo "::error::Could not confirm that no release exists for $GITHUB_REF_NAME."
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/QuotaBar-${VERSION}-macos-arm64.zip" \
+            "dist/QuotaBar-${VERSION}-macos-arm64.zip.sha256" \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --title "QuotaBar ${VERSION}"
+
+      - name: Publish release
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          gh release edit "$tag" --draft=false
+
+  bump-tap:
+    name: Update Homebrew tap
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    needs: release
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Update Homebrew
+        run: brew update
+
+      - name: Update tap cask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_DEVELOPER: "1"
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
+            echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
+            exit 1
+          fi
+
+          version="${TAG#v}"
+          echo "Bump tap to $version ($TAG)"
+
+          tmp_tap="$(mktemp -d)"
+          tmp_dist="$(mktemp -d)"
+          trap 'rm -rf "$tmp_tap" "$tmp_dist"' EXIT
+
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git" "$tmp_tap"
+
+          gh release download "$TAG" --repo softmaxe/quota-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
+          cat "$tmp_dist"/*.sha256
+
+          get_sha() {
+            local name="$1"
+            awk -v n="$name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256
+          }
+
+          sha_arm="$(get_sha "QuotaBar-${version}-macos-arm64.zip")"
+
+          for v in sha_arm; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "Missing SHA for $v" >&2
+              exit 1
+            fi
+          done
+
+          cask="$tmp_tap/Casks/quota-bar.rb"
+
+          python3 - "$cask" "$version" "$sha_arm" <<'PY'
+          import pathlib, sys, re
+          path = pathlib.Path(sys.argv[1])
+          version, sha_arm = sys.argv[2:4]
+          text = path.read_text()
+          text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
+          text = re.sub(r'  arch arm: "arm64", intel: "x86_64"\n\n', '', text)
+          text = re.sub(
+              r'  sha256 arm:\s*"[^"]+",\n         intel: "[^"]+"|  sha256 "[^"]+"',
+              f'  sha256 "{sha_arm}"',
+              text,
+              count=1,
+          )
+          text = text.replace('-macos-#{arch}.zip', '-macos-arm64.zip')
+          text = re.sub(r',\s*verified:\s*"[^"]+"', '', text)
+          if 'depends_on arch: :arm64' not in text:
+              text = text.replace(
+                  '  depends_on macos:',
+                  '  depends_on arch: :arm64\n  depends_on macos:',
+                  1,
+              )
+          path.write_text(text)
+          print(path.read_text())
+          PY
+
+          echo "--- updated cask ---"
+          cat "$cask"
+
+          # Developer mode turns deprecated cask DSL calls into errors.
+          brew info --cask "$cask"
+          brew fetch --cask "$cask"
+
+          git -C "$tmp_tap" config user.name "github-actions[bot]"
+          git -C "$tmp_tap" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$tmp_tap" add Casks/quota-bar.rb
+          if git -C "$tmp_tap" diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git -C "$tmp_tap" commit -m "chore: bump quota-bar to ${version}"
+          # Handle concurrent pushes to the tap (e.g., other formula bumps) by rebasing and retrying.
+          for attempt in 1 2 3; do
+            if git -C "$tmp_tap" push origin main; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "::error::Failed to push tap after 3 attempts."
+              exit 1
+            fi
+            echo "Push rejected, rebasing tap and retrying (attempt $attempt)..."
+            sleep $((attempt * 2))
+            git -C "$tmp_tap" fetch origin main
+            git -C "$tmp_tap" rebase origin/main
+          done
