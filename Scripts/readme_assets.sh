@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 command -v ffmpeg >/dev/null || { echo "ffmpeg is required: brew install ffmpeg" >&2; exit 1; }
 
-swift build -c debug --product QuotaBar
+Scripts/swift.sh build -c debug --product QuotaBar
 mkdir -p "$OUT"
 
 echo "==> rendering frames"

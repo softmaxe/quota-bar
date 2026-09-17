@@ -22,15 +22,13 @@ Reduce Motion removes custom transitions while preserving pressed and selected s
 
 ## Validation
 
-The project uses an assertion executable and debug launch flags for app state checks. Run the repository command with the installed Xcode toolchain:
+The project uses an assertion executable and debug launch flags for app state checks. The build commands select full Xcode through `Scripts/swift.sh`:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-PATH=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:$PATH \
 make test
 ```
 
-The local Command Line Tools selection lacks the `SwiftUIMacros` plugin for its selected SDK; using the installed Xcode toolchain works without changing global developer settings.
+The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to another full Xcode installation's `Contents/Developer` directory if needed. The project does not change global developer settings.
 
 Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, export failures, draft preservation, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
 

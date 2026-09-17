@@ -18,8 +18,8 @@ APP="$BUILD_DIR/$APP_NAME.app"
 cd "$ROOT"
 
 echo "==> Building release binary"
-swift build -c release --product "$PRODUCT_NAME"
-BINARY_DIR="$(swift build -c release --product "$PRODUCT_NAME" --show-bin-path)"
+"$ROOT/Scripts/swift.sh" build -c release --product "$PRODUCT_NAME"
+BINARY_DIR="$("$ROOT/Scripts/swift.sh" build -c release --product "$PRODUCT_NAME" --show-bin-path)"
 BINARY="$BINARY_DIR/$PRODUCT_NAME"
 
 echo "==> Assembling $APP"
