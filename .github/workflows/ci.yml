@@ -11,8 +11,12 @@ permissions:
 
 jobs:
   check:
-    name: Check
-    runs-on: macos-15
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, xcode-27]
     defaults:
       run:
         shell: bash

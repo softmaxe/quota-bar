@@ -17,8 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          - os: xcode-27
             arch: arm64
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     defaults:
       run:
         shell: bash
@@ -54,6 +56,15 @@ jobs:
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Require the native menu bar SDK
+        run: |
+          set -euo pipefail
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          if [[ "${sdk_version%%.*}" -lt 27 ]]; then
+            echo "::error::Release builds require the macOS 27 SDK for native menu bar sessions."
+            exit 1
+          fi
 
       - name: Resolve version and archive name
         id: metadata
