@@ -281,7 +281,7 @@ Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if
 
 ## Build and develop
 
-Building requires the Swift 6 toolchain from Xcode or the Command Line Tools. The project uses Swift Package Manager and has no Xcode project.
+Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager and has no Xcode project. Build commands use `Scripts/swift.sh`, which defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
 
 ```bash
 git clone https://github.com/softmaxe/quota-bar.git
@@ -290,18 +290,12 @@ make app
 open build/QuotaBar.app
 ```
 
-<details>
-<summary>If Command Line Tools reports a missing SwiftUIMacros plugin</summary>
-
-Use the installed Xcode toolchain for that command:
+To use another full Xcode installation, set `DEVELOPER_DIR` to its `Contents/Developer` directory:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-PATH=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:$PATH \
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
 make app
 ```
-
-</details>
 
 <details>
 <summary>Development commands</summary>

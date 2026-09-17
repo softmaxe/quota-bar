@@ -281,7 +281,7 @@ Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`�
 
 ## 构建与开发
 
-构建需要 Xcode 或 Command Line Tools 提供的 Swift 6 工具链。项目使用 Swift Package Manager，没有 Xcode 工程。
+Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager and has no Xcode project. Build commands use `Scripts/swift.sh`, which defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
 
 ```bash
 git clone https://github.com/softmaxe/quota-bar.git
@@ -290,18 +290,12 @@ make app
 open build/QuotaBar.app
 ```
 
-<details>
-<summary>Command Line Tools 提示缺少 SwiftUIMacros 插件时</summary>
-
-为该命令指定已安装的 Xcode 工具链：
+To use another full Xcode installation, set `DEVELOPER_DIR` to its `Contents/Developer` directory:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-PATH=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:$PATH \
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
 make app
 ```
-
-</details>
 
 <details>
 <summary>开发命令</summary>

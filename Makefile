@@ -2,6 +2,7 @@ APP_NAME := QuotaBar
 BUILD_DIR := .build
 CONFIG ?= debug
 PROVIDER ?= codex
+SWIFT := Scripts/swift.sh
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
@@ -25,7 +26,7 @@ VERIFIERS := \
 .PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
 
 build:
-	swift build -c $(CONFIG) --product $(APP_NAME)
+	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)
 
 ## Build and launch in the foreground. Logs land in this terminal; Ctrl-C stops the app.
 run: kill build
@@ -33,22 +34,22 @@ run: kill build
 
 ## Headless check that both providers still return usable data.
 probe:
-	swift build -c $(CONFIG) --product $(APP_NAME)Probe
+	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe
 
 ## Rescan local logs and print cost totals. May refresh model prices; no quota requests.
 probe-cost:
-	swift build -c $(CONFIG) --product $(APP_NAME)Probe
+	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe --cost-only
 
 ## Benchmark empty-database and incremental scans of live logs with fixed offline pricing.
 benchmark-cost:
-	swift build -c release --product $(APP_NAME)Probe
+	$(SWIFT) build -c release --product $(APP_NAME)Probe
 	$(BUILD_DIR)/release/$(APP_NAME)Probe --benchmark-cost --provider $(PROVIDER)
 
 ## Measure status-item construction without credentials, network requests, or log scans.
 benchmark-startup:
-	swift build -c debug --product $(APP_NAME)
+	$(SWIFT) build -c debug --product $(APP_NAME)
 	$(DEBUG_BIN) --benchmark-menu-startup
 
 ## Stream os.Logger output. Use this when the app was not started from a terminal.
@@ -67,16 +68,16 @@ readme-assets:
 app:
 	Scripts/package_app.sh
 
-## No XCTest without Xcode, so the suite is a plain executable of assertions.
+## Core regressions use a plain executable of assertions.
 test:
-	swift build -c $(CONFIG) --product $(APP_NAME)Tests
+	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Tests
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Tests
-	swift build -c debug --product $(APP_NAME)
+	$(SWIFT) build -c debug --product $(APP_NAME)
 	@for check in $(VERIFIERS); do \
 		echo "$(DEBUG_BIN) --verify-$$check"; \
 		$(DEBUG_BIN) --verify-$$check || exit 1; \
 	done
 
 clean:
-	swift package clean
+	$(SWIFT) package clean
 	rm -rf $(BUILD_DIR) build

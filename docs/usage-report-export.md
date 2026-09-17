@@ -50,19 +50,13 @@ The release workflow gets the app version from a `vMAJOR.MINOR.PATCH` Git tag. T
 
 ## Verification
 
-Run the project checks:
+Run the project checks with the full Xcode toolchain selected by `Scripts/swift.sh`:
 
 ```sh
 make test
 ```
 
-If Command Line Tools cannot load `SwiftUIMacros`, run the same command with the installed Xcode toolchain. This changes the environment for one command and does not change the global `xcode-select` setting.
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-PATH=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:$PATH \
-make test
-```
+The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to another full Xcode installation's `Contents/Developer` directory if needed. The project does not change the global `xcode-select` setting.
 
 The Swift checks cover the calendar windows, supported sources, WAL-visible records, missing and zero dates, frozen and unpriced costs, numeric bounds, safe JSON insertion, resource bundling, file writes, empty periods, failures, and duplicate-export suppression.
 

@@ -29,7 +29,7 @@ let package = Package(
             dependencies: ["QuotaBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // Command Line Tools ship no XCTest, so the suite is a plain executable.
+        // Core regression checks use a plain assertion executable.
         .executableTarget(
             name: "QuotaBarTests",
             dependencies: ["QuotaBarCore"],
