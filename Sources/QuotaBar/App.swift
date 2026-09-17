@@ -59,6 +59,7 @@ enum QuotaBarApp {
             ("--verify-provider-state", ProviderStateVerifier.run),
             ("--verify-pricing-validation", PricingValidationVerifier.run),
             ("--verify-menu-lifecycle", MenuLifecycleVerifier.run),
+            ("--verify-menu-interaction", MenuLifecycleVerifier.verifyInteraction),
             ("--verify-pricing-refresh", PricingRefreshVerifier.run),
             ("--benchmark-menu-startup", MenuLifecycleVerifier.benchmark),
             ("--verify-cost-chart-highlighting", CostChartHighlightVerifier.run),
