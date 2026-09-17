@@ -159,7 +159,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     @objc private func statusItemClicked() {
         if self.popover?.isShown == true {
-            self.popover?.performClose(nil)
+            // The toggle owns status-button clicks, bypassing the automatic-close veto.
+            self.popover?.close()
             return
         }
         guard let button = self.statusItem?.button else { return }
@@ -332,6 +333,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.popover?.performClose(nil) }
         }
+    }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        guard let event = NSApp.currentEvent,
+              [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp].contains(event.type),
+              let button = self.statusItem?.button,
+              let window = button.window else { return true }
+        let point = button.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        // AppKit can dismiss a transient popover before delivering the button's action.
+        // Keep it open for that action so the same click closes it instead of reopening it.
+        return !button.bounds.contains(point)
     }
 
     func popoverDidClose(_ notification: Notification) { self.endPresentation() }
