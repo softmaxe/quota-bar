@@ -3,7 +3,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// A transient popover gives the compact card normal keyboard and button behavior.
+/// A native popover gives the compact card normal keyboard and button behavior.
 @MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidation {
     private let store: UsageStore
@@ -12,6 +12,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private let now: () -> Date
     private let openMenuClockInterval: TimeInterval
     private let refreshRowClockInterval: TimeInterval
+    private let useSystemStatusItemSession: Bool
+    private var systemManagesStatusItem = false
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var presentation: MenuPopoverModel?
@@ -19,8 +21,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var isMenuOpen = false
     private var openMenuClock: Timer?
     private var refreshRowClock: Timer?
+    private var statusItemMouseMonitor: Any?
+    private var capturedStatusMouseButton: Int?
     private var outsideClickMonitor: Any?
-    private var applicationDeactivationObserver: Any?
+    private var localClickMonitor: Any?
+    private var workspaceDismissalObservers: [NSObjectProtocol] = []
     private var recoveries: [Provider: [QuotaWindowKind: QuotaRecoveryEvent]] = [:]
     private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
     private var isCostBreakdownExpanded = false
@@ -29,13 +34,15 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel,
          now: @escaping () -> Date = { Date() },
-         openMenuClockInterval: TimeInterval = 15, refreshRowClockInterval: TimeInterval = 1) {
+         openMenuClockInterval: TimeInterval = 15, refreshRowClockInterval: TimeInterval = 1,
+         useSystemStatusItemSession: Bool = true) {
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
         self.now = now
         self.openMenuClockInterval = openMenuClockInterval
         self.refreshRowClockInterval = refreshRowClockInterval
+        self.useSystemStatusItemSession = useSystemStatusItemSession
         super.init()
         pricing.onSaved = { [weak store] in store?.refreshCostsAfterPricingChange() }
         self.settings.$menuBarProvider.removeDuplicates().sink { [weak self] provider in
@@ -50,9 +57,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     }
 
     deinit {
+        if let statusItemMouseMonitor { NSEvent.removeMonitor(statusItemMouseMonitor) }
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
-        if let applicationDeactivationObserver {
-            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+        for observer in self.workspaceDismissalObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
     }
 
@@ -126,12 +135,75 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         if let item = self.statusItem { return item }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.autosaveName = "quotabar"
-        item.button?.target = self
-        item.button?.action = #selector(self.statusItemClicked)
-        // Left clicks open on the press; right clicks keep AppKit's mouse-up behavior.
-        item.button?.sendAction(on: [.leftMouseDown, .rightMouseUp])
         self.statusItem = item
+        // AppKit 2775 is the macOS 27 SDK. Older SDKs keep the legacy event path.
+#if canImport(AppKit, _version: 2775)
+        if #available(macOS 27, *), self.useSystemStatusItemSession {
+            self.systemManagesStatusItem = true
+            item.expandedInterfaceDelegate = self
+        }
+#endif
+        if !self.systemManagesStatusItem {
+            item.button?.target = self
+            item.button?.action = #selector(self.statusItemClicked)
+            // Keep the selection visible for the whole presentation. Mouse tracking must not
+            // clear and redraw the status background when the press ends.
+            if let cell = item.button?.cell as? NSButtonCell {
+                cell.highlightsBy = []
+                cell.showsStateBy = [.changeBackgroundCellMask]
+            }
+        }
+        // Consume pointer input before NSButton starts its tracking loop. That loop can
+        // redraw the pressed background after our action has already closed the popover.
+        // Keep target/action above for accessibility and keyboard activation.
+        self.statusItemMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged,
+                       .rightMouseDown, .rightMouseUp, .rightMouseDragged]
+        ) { [weak self] event in
+            guard let self else { return event }
+            return self.handleStatusItemMouseEvent(event)
+        }
         return item
+    }
+
+    private func handleStatusItemMouseEvent(_ event: NSEvent) -> NSEvent? {
+        guard let button = self.statusItem?.button else { return event }
+        let isInside = event.window === button.window
+            && button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown:
+            self.capturedStatusMouseButton = nil
+            // Preserve the system's Command-drag gesture for rearranging menu bar items.
+            guard isInside, !event.modifierFlags.contains(.command) else { return event }
+            if self.systemManagesStatusItem {
+                // AppKit opens and highlights the system session. A repeated press only
+                // closes it; swallowing the release prevents the same click reopening it.
+                guard self.popover?.isShown == true else { return event }
+                self.capturedStatusMouseButton = event.buttonNumber
+                if event.type == .leftMouseDown {
+                    self.popover?.performClose(nil)
+                }
+                return nil
+            }
+            self.capturedStatusMouseButton = event.buttonNumber
+            if event.type == .leftMouseDown { self.statusItemClicked() }
+            return nil
+        case .leftMouseUp, .rightMouseUp:
+            guard self.capturedStatusMouseButton == event.buttonNumber else { return event }
+            self.capturedStatusMouseButton = nil
+            if event.type == .rightMouseUp, isInside {
+                if self.systemManagesStatusItem {
+                    self.popover?.performClose(nil)
+                } else {
+                    self.statusItemClicked()
+                }
+            }
+            return nil
+        case .leftMouseDragged, .rightMouseDragged:
+            return self.capturedStatusMouseButton == event.buttonNumber ? nil : event
+        default:
+            return event
+        }
     }
 
     private func toolTip(for provider: Provider, display: ProviderDisplay) -> String {
@@ -162,13 +234,26 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             self.popover?.performClose(nil)
             return
         }
+        self.showPopover()
+    }
+
+    private func showPopover() {
+        guard self.popover?.isShown != true else { return }
         guard let button = self.statusItem?.button else { return }
         let popover = self.materializedPopover()
         self.presentation?.maximumHeight = max(160, (button.window?.screen?.visibleFrame.height ?? 800) - 120)
         self.beginPresentation()
-        NSApp.activate(ignoringOtherApps: true)
+        // The popover can take keyboard focus without activating the entire app, which
+        // would redraw the menu bar and deactivate the user's foreground window.
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
+        guard popover.isShown else {
+            self.endPresentation()
+            return
+        }
+        if let content = popover.contentViewController?.view, let window = content.window {
+            window.makeKey()
+            window.makeFirstResponder(content)
+        }
     }
 
     private func materializedPopover() -> NSPopover {
@@ -184,12 +269,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         model.onClose = { [weak self] in self?.popover?.performClose(nil) }
         model.onSizeChanged = { [weak self] in self?.updatePopoverSize() }
         let popover = NSPopover()
-        popover.behavior = .transient
-        // The native popover keeps anchoring and dismissal behavior. Its default opening
+        // Own dismissal so AppKit cannot close the popover before the status-button
+        // action and turn the same click into another open.
+        popover.behavior = .applicationDefined
+        // The native popover keeps anchoring. Its default opening
         // animation adds a wait to this frequent glance; local controls provide feedback.
         popover.animates = false
         popover.delegate = self
-        popover.contentViewController = NSHostingController(rootView: MenuPopoverView(model: model))
+        popover.contentViewController = MenuPopoverHostingController(rootView: MenuPopoverView(model: model))
         self.presentation = model
         self.popover = popover
         return popover
@@ -320,18 +407,66 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     func popoverDidShow(_ notification: Notification) {
         self.stopDismissalMonitoring()
-        // A nested reset-time menu can leave AppKit's transient dismissal inactive.
-        // Global mouse events exclude this app's menus and status-button toggle.
+        self.localClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.dismissForLocalClick(event)
+            return event
+        }
+        // A system session owns the highlight. Pointer dismissal still needs to cancel
+        // it explicitly when the popover takes keyboard focus without app activation.
+        if !self.systemManagesStatusItem { self.statusItem?.button?.state = .on }
+        // The remote menu bar can report its own clicks globally. The legacy path
+        // excludes the icon; a system session needs that click to cancel its interface.
         self.outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] _ in
-            self?.popover?.performClose(nil)
+        ) { [weak self] event in
+            guard let self else { return }
+            let location: NSPoint
+            if let point = event.cgEvent?.location, let primaryScreen = NSScreen.screens.first {
+                location = NSPoint(x: point.x, y: primaryScreen.frame.maxY - point.y)
+            } else {
+                location = NSEvent.mouseLocation
+            }
+            self.dismissForGlobalClick(at: location)
         }
-        self.applicationDeactivationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.popover?.performClose(nil) }
+        // A nonactivating popover also needs dismissal when the foreground app or Space
+        // changes without a mouse click.
+        self.workspaceDismissalObservers = [
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.activeSpaceDidChangeNotification
+        ].map { name in
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] notification in
+                if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                   app.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
+                MainActor.assumeIsolated { self?.popover?.performClose(nil) }
+            }
         }
+    }
+
+    private func dismissForLocalClick(_ event: NSEvent) {
+        guard let window = event.window,
+              window !== self.popover?.contentViewController?.view.window,
+              window !== self.statusItem?.button?.window,
+              window.level.rawValue < NSWindow.Level.popUpMenu.rawValue else { return }
+        // Nested menus own their tracking events. Other app windows dismiss the card.
+        self.popover?.performClose(nil)
+    }
+
+    private func dismissForGlobalClick(at screenLocation: NSPoint) {
+        if self.systemManagesStatusItem {
+            self.popover?.performClose(nil)
+            return
+        }
+        if let button = self.statusItem?.button, let window = button.window {
+            let bounds = window.convertToScreen(button.convert(button.bounds, to: nil))
+            if bounds.contains(screenLocation) {
+                return
+            }
+        }
+        self.popover?.performClose(nil)
     }
 
     func popoverDidClose(_ notification: Notification) { self.endPresentation() }
@@ -339,17 +474,25 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private func stopDismissalMonitoring() {
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
         self.outsideClickMonitor = nil
-        if let applicationDeactivationObserver {
-            NotificationCenter.default.removeObserver(applicationDeactivationObserver)
+        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+        self.localClickMonitor = nil
+        for observer in self.workspaceDismissalObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
-        self.applicationDeactivationObserver = nil
+        self.workspaceDismissalObservers = []
     }
 
     private func endPresentation() {
         self.isMenuOpen = false
+        if !self.systemManagesStatusItem { self.statusItem?.button?.state = .off }
         self.stopDismissalMonitoring()
         self.stopOpenMenuClock()
         self.stopRefreshRowClock()
+#if canImport(AppKit, _version: 2775)
+        if #available(macOS 27, *), self.systemManagesStatusItem {
+            self.statusItem?.expandedInterfaceSession?.cancel()
+        }
+#endif
     }
 
     private func startOpenMenuClock() {
@@ -378,6 +521,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     }
 
 #if DEBUG
+    var debugIsPopoverShown: Bool { self.popover?.isShown == true }
+    var debugIsStatusItemSelected: Bool { self.statusItem?.button?.state == .on }
+    var debugPopoverWindow: NSWindow? { self.popover?.contentViewController?.view.window }
+    var debugStatusItemButton: NSStatusBarButton? { self.statusItem?.button }
+    func debugDismissForLocalClick(_ event: NSEvent) { self.dismissForLocalClick(event) }
+    func debugDismissForGlobalClick(at location: NSPoint) { self.dismissForGlobalClick(at: location) }
     var debugHasMenu: Bool { self.popover != nil }
     private(set) var debugCardUpdateCount = 0
     func debugBeginPresentation() { self.beginPresentation() }
@@ -392,6 +541,28 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         guard let state = self.presentation?.refreshState else { return nil }
         return (state.title, state.trailingText, state.isEnabled)
     }
-    func debugShowPopover() { self.statusItemClicked() }
+    func debugShowPopover() { self.showPopover() }
 #endif
+
+}
+
+#if canImport(AppKit, _version: 2775)
+@available(macOS 27, *)
+extension StatusItemController: @MainActor NSStatusItemExpandedInterfaceDelegate {
+    func statusItem(_ statusItem: NSStatusItem, didBegin session: NSStatusItemExpandedInterfaceSession) {
+        self.showPopover()
+    }
+
+    func statusItemDidEndExpandedInterfaceSession(_ statusItem: NSStatusItem, animated: Bool) {
+        if self.popover?.isShown == true { self.popover?.performClose(nil) }
+    }
+}
+#endif
+
+/// Handles Escape even before a SwiftUI control has keyboard focus.
+@MainActor
+private final class MenuPopoverHostingController: NSHostingController<MenuPopoverView> {
+    override func cancelOperation(_ sender: Any?) {
+        self.rootView.model.onClose()
+    }
 }
