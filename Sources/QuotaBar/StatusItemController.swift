@@ -25,6 +25,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var capturedStatusMouseButton: Int?
     private var outsideClickMonitor: Any?
     private var localClickMonitor: Any?
+    private let popoverInputActivation = PopoverInputActivation()
     private var workspaceDismissalObservers: [NSObjectProtocol] = []
     private var recoveries: [Provider: [QuotaWindowKind: QuotaRecoveryEvent]] = [:]
     private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
@@ -408,9 +409,15 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     func popoverDidShow(_ notification: Notification) {
         self.stopDismissalMonitoring()
         self.localClickMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            matching: PopoverInputActivation.eventMask
         ) { [weak self] event in
-            self?.dismissForLocalClick(event)
+            guard let self else { return event }
+            if let window = event.window, window === self.popover?.contentViewController?.view.window {
+                return self.popoverInputActivation.handle(event)
+            }
+            if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
+                self.dismissForLocalClick(event)
+            }
             return event
         }
         // A system session owns the highlight. Pointer dismissal still needs to cancel
@@ -472,6 +479,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     func popoverDidClose(_ notification: Notification) { self.endPresentation() }
 
     private func stopDismissalMonitoring() {
+        self.popoverInputActivation.cancel()
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
         self.outsideClickMonitor = nil
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
