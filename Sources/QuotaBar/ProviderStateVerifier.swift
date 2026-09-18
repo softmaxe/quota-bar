@@ -2,6 +2,7 @@
 import QuotaBarCore
 import AppKit
 import Foundation
+import SwiftUI
 
 /// Exercises quota and local-scan state without reading credentials, logs, or the network.
 @MainActor
@@ -51,6 +52,7 @@ enum ProviderStateVerifier {
         }
 
         NSApplication.shared.setActivationPolicy(.accessory)
+        if let failure = Self.verifySignedOutCards() { finish(failure) }
         var uptime: TimeInterval = 1_000
         let origin = Date(timeIntervalSince1970: 1_800_000_000)
         let settings = SettingsStore(defaults: defaults)
@@ -122,8 +124,10 @@ enum ProviderStateVerifier {
             finish("local usage retry did not report completion")
         }
         guard fetches.quotaCalls == 1,
+              store.displays[.codex]?.isSignedOut == true,
+              store.displays[.codex]?.snapshot == nil,
               store.displays[.codex]?.cost == Fetches.snapshot(at: origin) else {
-            finish("local usage retry changed quota or lost its result")
+            finish("local usage retry changed sign-in state or lost its result")
         }
 
         uptime = 1_059
@@ -201,8 +205,79 @@ enum ProviderStateVerifier {
         }
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
+        guard await Self.wait(until: {
+            if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
+            return false
+        }) else {
+            finish("post-limit local scan did not finish")
+        }
+
+        let savedCost = store.displays[.codex]?.cost
+        uptime = 1_477
+        store.refresh()
+        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+            finish("sign-out refresh did not start")
+        }
+        fetches.quota?.resume(returning: .signedOut("Run codex login to sign in."))
+        fetches.quota = nil
+        guard await Self.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
+            finish("sign-out after a successful login did not apply")
+        }
+        guard savedCost != nil,
+              store.displays[.codex]?.snapshot == nil,
+              store.displays[.codex]?.cost == savedCost,
+              store.displays[.codex]?.localScanStatus == .scanning else {
+            finish("sign-out did not clear quota independently of saved local usage")
+        }
+        fetches.cost?.resume(returning: nil)
+        fetches.cost = nil
+        guard await Self.wait(until: {
+            if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
+            return false
+        }), store.displays[.codex]?.cost == savedCost else {
+            finish("a failed signed-out scan discarded saved local usage")
+        }
         store.stop()
         finish()
+    }
+
+    /// Compare actual hosted content rather than a policy flag: the regression kept the data
+    /// in the store but omitted its entire view whenever credentials were missing.
+    private static func verifySignedOutCards() -> String? {
+        for provider in Provider.allCases {
+            let cost = CardDump.busyCost(provider)
+            for mode in [CostChartLabelMode.tokens, .cost] {
+                func height(_ display: ProviderDisplay, expanded: Bool = false) -> CGFloat {
+                    NSHostingView(rootView: MenuCardView(
+                        provider: provider, display: display, isRefreshing: false,
+                        animatesFill: false, costChartLabelMode: mode,
+                        isCostBreakdownExpanded: expanded,
+                        expandedCostBreakdownDayKey: cost.days.last?.dayKey
+                    )).fittingSize.height
+                }
+                var display = ProviderDisplay(isSignedOut: true)
+                let signInHeight = height(display)
+                display.cost = cost
+                let usageHeight = height(display)
+                guard usageHeight > signInHeight else {
+                    return "\(provider) signed-out card hides saved \(mode) usage"
+                }
+                guard height(display, expanded: true) > usageHeight else {
+                    return "\(provider) signed-out card hides the expanded model breakdown"
+                }
+                for status in [LocalScanStatus.scanning, .failed("Local scan failed.")] {
+                    display.localScanStatus = status
+                    let savedUsageHeight = height(display)
+                    display.cost = nil
+                    let statusOnlyHeight = height(display)
+                    guard statusOnlyHeight > signInHeight, savedUsageHeight > statusOnlyHeight else {
+                        return "\(provider) signed-out card hides local scan status or saved usage"
+                    }
+                    display.cost = cost
+                }
+            }
+        }
+        return nil
     }
 
     private static func wait(until ready: () -> Bool) async -> Bool {

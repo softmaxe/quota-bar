@@ -254,8 +254,7 @@ struct MenuCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             if self.display.isSignedOut {
                 self.signInGuide
-            } else {
-                if let snapshot = self.display.snapshot {
+            } else if let snapshot = self.display.snapshot {
                 if let session = snapshot.session {
                     self.window(window: session, kind: .session)
                 } else if snapshot.sessionIsUnlimited {
@@ -277,15 +276,18 @@ struct MenuCardView: View {
                 if snapshot.session != nil || snapshot.weekly != nil {
                     self.paceDetails(for: snapshot)
                 }
-                }
-                if self.display.cost != nil || self.display.localScanStatus != .idle {
-                    if self.display.snapshot != nil { Divider().padding(.top, 2) }
-                    self.localUsage
-                }
-                if let credits = self.display.snapshot?.credits, credits.hasSpendableBalance {
+            }
+            // Local logs remain readable without the credentials required for quota and credits.
+            if self.display.cost != nil || self.display.localScanStatus != .idle {
+                if self.display.isSignedOut || self.display.snapshot != nil {
                     Divider().padding(.top, 2)
-                    CreditsSectionView(credits: credits)
                 }
+                self.localUsage
+            }
+            if !self.display.isSignedOut,
+               let credits = self.display.snapshot?.credits, credits.hasSpendableBalance {
+                Divider().padding(.top, 2)
+                CreditsSectionView(credits: credits)
             }
         }
         .padding(.bottom, 6)

@@ -20,7 +20,11 @@ enum CardDump {
                 appearance: NSAppearance(named: appearance)
             )
         }
-        let signedOut = ProviderDisplay(signedOutReason: "Sign in with the CLI, then check again.", isSignedOut: true)
+        let signedOut = ProviderDisplay(
+            cost: Self.sampleCost(.codex),
+            signedOutReason: "Sign in with the CLI to check quota. Local usage is available below.",
+            isSignedOut: true
+        )
         Self.capture(
             MenuCardView(provider: .codex, display: signedOut, isRefreshing: false, animatesFill: false),
             named: "sign-in", into: root
