@@ -27,12 +27,14 @@ enum MenuLifecycleVerifier {
         let settings = SettingsStore(defaults: defaults)
         let service = CostService(pricingOverlay: PricingOverlay())
         let store = UsageStore(settings: settings, costService: service, clock: { 1_000 }, recoveryDefaults: defaults)
+        var reduceMotion = false
         let started = ContinuousClock.now
         let controller = StatusItemController(
             store: store, settings: settings,
             pricing: PricingEditorModel(costService: service),
             // The fallback accepts in-process events; native sessions require real menu bar input.
-            useSystemStatusItemSession: !verifyInteraction
+            useSystemStatusItemSession: !verifyInteraction,
+            reduceMotion: { reduceMotion }
         )
         let elapsed = started.duration(to: .now)
         print(String(format: "status_item_init_ms=%.3f menu_created=%@",
@@ -95,9 +97,17 @@ enum MenuLifecycleVerifier {
         let closeObserver = NotificationCenter.default.addObserver(
             forName: NSPopover.didCloseNotification, object: nil, queue: .main
         ) { _ in closes += 1 }
-        func clickStatusButton(rightClick: Bool = false) {
+        func waitForDismissal(line: UInt = #line) {
+            let deadline = Date().addingTimeInterval(2)
+            while controller.debugIsPopoverShown, Date() < deadline {
+                RunLoopDrain.run(for: 0.01)
+            }
+            require(!controller.debugIsPopoverShown,
+                    "dismissal did not finish at line \(line): shows=\(shows) closes=\(closes)")
+        }
+        func clickStatusButton(rightClick: Bool = false, timestamp: TimeInterval? = nil, expectsToggle: Bool = true) {
             let location = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
-            let timestamp = ProcessInfo.processInfo.systemUptime
+            let timestamp = timestamp ?? ProcessInfo.processInfo.systemUptime
             let wasShown = controller.debugIsPopoverShown
             let downType: NSEvent.EventType = rightClick ? .rightMouseDown : .leftMouseDown
             let upType: NSEvent.EventType = rightClick ? .rightMouseUp : .leftMouseUp
@@ -126,8 +136,9 @@ enum MenuLifecycleVerifier {
                 return
             }
             NSApp.sendEvent(press)
+            if wasShown && !rightClick && expectsToggle { waitForDismissal() }
             let shownAfterPress = controller.debugIsPopoverShown
-            require(shownAfterPress == (rightClick ? wasShown : !wasShown),
+            require(shownAfterPress == (rightClick || !expectsToggle ? wasShown : !wasShown),
                     "the status-button press toggled at the wrong phase")
             require(controller.debugIsStatusItemSelected == shownAfterPress,
                     "the pressed status background disagreed with the popover")
@@ -138,12 +149,16 @@ enum MenuLifecycleVerifier {
                 return
             }
             NSApp.sendEvent(release)
-            require(controller.debugIsPopoverShown == !wasShown,
-                    "one mouse click did not toggle the popover exactly once")
-            require(controller.debugIsStatusItemSelected == !wasShown,
+            if wasShown && rightClick && expectsToggle { waitForDismissal() }
+            let expectedShown = expectsToggle ? !wasShown : wasShown
+            require(controller.debugIsPopoverShown == expectedShown,
+                    "the mouse click was not handled exactly once")
+            require(controller.debugIsStatusItemSelected == expectedShown,
                     "mouse release overwrote the popover's status background")
         }
         clickStatusButton()
+        require(!controller.debugPopoverAnimates, "opening used the native popover zoom")
+        require(controller.debugIsMonitoringDismissal, "opening did not immediately accept dismissal")
         RunLoopDrain.run(for: 0.1)
         require(controller.debugIsPopoverShown, "a status-button click did not keep the popover open")
         require(controller.debugIsStatusItemSelected, "mouse release cleared the open status background")
@@ -182,6 +197,7 @@ enum MenuLifecycleVerifier {
 
         clickStatusButton()
         controller.debugDismissForGlobalClick(at: NSPoint(x: statusBounds.maxX + 20, y: statusBounds.midY))
+        waitForDismissal()
         require(!controller.debugIsPopoverShown && !controller.debugIsStatusItemSelected,
                 "a global click outside the status item did not dismiss the card")
 
@@ -206,6 +222,7 @@ enum MenuLifecycleVerifier {
         require(controller.debugIsPopoverShown, "a nested menu click dismissed the card")
         let otherWindow = NSWindow(contentRect: .zero, styleMask: .titled, backing: .buffered, defer: false)
         click(in: otherWindow)
+        waitForDismissal()
         require(!controller.debugIsPopoverShown && !controller.debugIsStatusItemSelected,
                 "a different window in this app left the popover or status background open")
         // Accessibility activation still uses the button's target/action path.
@@ -220,10 +237,65 @@ enum MenuLifecycleVerifier {
             require(false, "the Escape fixture was unavailable")
             finish(1)
         }
+        // A preference change while the card is open also applies to its dismissal.
+        reduceMotion = true
         NSApp.sendEvent(escape)
-        RunLoopDrain.run()
+        waitForDismissal()
+        require(!controller.debugIsPopoverClosing, "dismissal ignored Reduce Motion")
         require(!controller.debugIsPopoverShown && !controller.debugIsStatusItemSelected,
                 "Escape did not close the card and clear its status background")
+        clickStatusButton()
+        require(!controller.debugPopoverAnimates, "reopening used the native popover zoom")
+        clickStatusButton()
+        reduceMotion = false
+        clickStatusButton()
+        let fadingWindow = controller.debugPopoverWindow
+        controller.debugDismissForGlobalClick(at: NSPoint(x: statusBounds.maxX + 20, y: statusBounds.midY))
+        require(controller.debugIsPopoverClosing, "dismissal kept a stale Reduce Motion preference")
+        require(!controller.debugIsStatusItemSelected, "dismissal delayed clearing the status selection")
+        require(!controller.debugIsMonitoringDismissal, "dismissal delayed removing its input monitors")
+        require(fadingWindow?.ignoresMouseEvents == true, "the fading card still accepted mouse input")
+        let providerBeforeFade = settings.menuBarProvider
+        if let fadingWindow, let providerKey = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: fadingWindow.windowNumber, context: nil, characters: "2",
+            charactersIgnoringModifiers: "2", isARepeat: false, keyCode: 19
+        ) {
+            NSApp.sendEvent(providerKey)
+        } else {
+            require(false, "the fading card keyboard fixture was unavailable")
+        }
+        require(settings.menuBarProvider == providerBeforeFade, "the fading card still accepted keyboard input")
+        require(NSApp.keyWindow == nil || NSApp.keyWindow?.isKeyWindow == true,
+                "dismissal left inconsistent key-window ownership")
+        RunLoopDrain.run(for: 0.05)
+        button.performClick(nil)
+        require(controller.debugIsPopoverShown && !controller.debugIsPopoverClosing,
+                "a click during dismissal did not reopen the card")
+        require(controller.debugPopoverWindow === fadingWindow, "reopening replaced the fading card's window")
+        require(fadingWindow?.ignoresMouseEvents == false, "reopening left the card unresponsive")
+        RunLoopDrain.run(for: 0.3)
+        require(controller.debugIsPopoverShown && controller.debugIsStatusItemSelected,
+                "an obsolete dismissal completion closed the reopened card")
+        require(fadingWindow?.alphaValue == 1, "an obsolete fade dimmed the reopened card")
+        // A remote status click can arrive globally before its local mouse events.
+        controller.debugDismissForGlobalClick(at: NSPoint(x: statusBounds.maxX + 20, y: statusBounds.midY))
+        let reopenTimestamp = ProcessInfo.processInfo.systemUptime
+        controller.debugDismissForGlobalClick(
+            at: NSPoint(x: statusBounds.midX, y: statusBounds.midY), timestamp: reopenTimestamp
+        )
+        require(controller.debugIsPopoverShown && !controller.debugIsPopoverClosing,
+                "the remote status click did not reverse dismissal")
+        clickStatusButton(timestamp: reopenTimestamp, expectsToggle: false)
+        RunLoopDrain.run(for: 0.3)
+        require(controller.debugIsPopoverShown && fadingWindow?.alphaValue == 1,
+                "the forwarded remote click or stale fade closed the reopened card")
+        reduceMotion = true
+        controller.debugDismissForGlobalClick(at: NSPoint(x: statusBounds.maxX + 20, y: statusBounds.midY))
+        require(!controller.debugIsPopoverShown && !controller.debugIsPopoverClosing,
+                "Reduce Motion did not dismiss the card immediately")
+        require(NSApp.keyWindow !== fadingWindow && fadingWindow?.isKeyWindow == false,
+                "closing did not release the key window")
         NotificationCenter.default.removeObserver(showObserver)
         NotificationCenter.default.removeObserver(closeObserver)
         print("Menu lifecycle, status-button toggling, dismissal, and foreground preservation checks passed")
