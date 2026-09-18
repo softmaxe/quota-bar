@@ -40,6 +40,7 @@ enum MenuLifecycleVerifier {
                 + Double(elapsed.components.attoseconds) / 1e15,
             controller.debugHasMenu ? "yes" : "no"))
         if benchmarkOnly { finish(0) }
+        PopoverInputActivationVerifier.run()
         require(!controller.debugHasMenu, "startup eagerly built the hidden menu")
 
         // No observers are started on the store, and both cooldowns are pinned, so even
