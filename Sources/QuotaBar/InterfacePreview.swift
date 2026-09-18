@@ -55,6 +55,9 @@ enum InterfacePreview {
                 settings: settings,
                 costService: service,
                 fetchState: { provider, _ in
+                    if state == "signed-out", provider == .claude {
+                        return .signedOut("No Claude CLI login is available for this preview.")
+                    }
                     let snapshot = CardDump.loadedSnapshot(provider)
                     return .loaded(snapshot)
                 },
@@ -75,7 +78,7 @@ enum InterfacePreview {
                 store.debugRecordRefresh(at: ProcessInfo.processInfo.systemUptime, provider: provider)
             }
             if state == "signed-out" {
-                var display = ProviderDisplay()
+                var display = ProviderDisplay(cost: CardDump.busyCost(.claude))
                 display.isSignedOut = true
                 display.signedOutReason = "No Claude CLI login is available for this preview."
                 store.debugSetDisplay(display, for: .claude)

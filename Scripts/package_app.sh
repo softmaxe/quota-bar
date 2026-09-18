@@ -10,7 +10,7 @@ set -euo pipefail
 PRODUCT_NAME="QuotaBar"
 APP_NAME="${APP_NAME:-$PRODUCT_NAME}"
 BUNDLE_ID="${BUNDLE_ID:-com.quotabar.app}"
-VERSION="${VERSION:-1.0.3}"
+VERSION="${VERSION:-1.0.4}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
