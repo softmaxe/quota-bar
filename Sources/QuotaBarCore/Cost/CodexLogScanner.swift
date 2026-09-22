@@ -100,20 +100,23 @@ enum CodexLogScanner {
     }
 
     private static func uniqueRollouts(_ files: [URL]) -> [URL] {
-        var byID: [UUID: URL] = [:]
-        var others: [URL] = []
-        for url in files.sorted(by: { $0.path < $1.path }) {
-            guard let id = Self.sessionID(url) else { others.append(url); continue }
+        // Sort on paths computed once; `URL.path` builds a new string on every call, and a
+        // comparison sort would otherwise build two per comparison.
+        let sorted = files.map { (url: $0, path: $0.path) }.sorted { $0.path < $1.path }
+        var byID: [UUID: (url: URL, path: String)] = [:]
+        var others: [(url: URL, path: String)] = []
+        for entry in sorted {
+            guard let id = Self.sessionID(entry.url) else { others.append(entry); continue }
             if let previous = byID[id] {
                 // A live copy may have more turns than the archived one.
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                let previousSize = (try? previous.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                if size > previousSize { byID[id] = url }
+                let size = (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                let previousSize = (try? previous.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if size > previousSize { byID[id] = entry }
             } else {
-                byID[id] = url
+                byID[id] = entry
             }
         }
-        return (others + byID.values).sorted { $0.path < $1.path }
+        return (others + byID.values).sorted { $0.path < $1.path }.map(\.url)
     }
 
     private static func retainedPaths(cache: CostCache) throws -> [UUID: String] {
