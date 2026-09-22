@@ -5,7 +5,41 @@ import SQLite3
 enum ScannerRegressionTests {
     static func run() async {
         Self.unchangedPartialLineDoesNotRequireRescan()
+        Self.sameSizeRewriteRequiresReparse()
         await Self.codexResumeStatePersists()
+    }
+
+    /// Prefix digests are reused while a file is untouched. An in-place rewrite that keeps the
+    /// size and inode must still be recognised as a rewrite.
+    private static func sameSizeRewriteRequiresReparse() {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-rewrite-plan-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let file = root.appendingPathComponent("rewrite.jsonl")
+        try? "first\n".write(to: file, atomically: false, encoding: .utf8)
+        guard let initial = try? LogFileScanner.plan(for: file, previous: nil) else {
+            Harness.expect(false, "a new log produces a scan plan")
+            return
+        }
+        let previous = FileCursor(
+            inode: initial.cursor.inode,
+            size: initial.cursor.size,
+            offset: initial.cursor.size,
+            prefixDigest: initial.cursor.prefixDigest
+        )
+        let unchanged = try? LogFileScanner.plan(for: file, previous: previous)
+        Harness.expectEqual(unchanged?.requiresScan, false, "an untouched log is not rescanned")
+
+        if let handle = try? FileHandle(forWritingTo: file) {
+            try? handle.write(contentsOf: Data("other\n".utf8))
+            try? handle.close()
+        }
+        let rewritten = try? LogFileScanner.plan(for: file, previous: previous)
+        Harness.expectEqual(rewritten?.cursor.inode, initial.cursor.inode, "the rewrite keeps the inode")
+        Harness.expectEqual(rewritten?.requiresFullReparse, true, "a same-size rewrite forces a reparse")
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {
