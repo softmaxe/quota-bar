@@ -1,9 +1,31 @@
+import Darwin
 import Foundation
 
 enum PiAgentLogScanner {
     struct Result {
         let touched: Int
         let status: PiAgentScanStatus
+        /// The session files this result was read from, when every row was stored. Passing it to
+        /// the next scan lets an unchanged session directory skip the full re-read.
+        var sessions: SessionSnapshot? = nil
+    }
+
+    /// Identity of every session file at the moment it was read. Rows are upserted by their
+    /// message key and an identical row is left untouched, so re-reading unchanged files cannot
+    /// change the store. The time zone is included because it decides each row's day.
+    struct SessionSnapshot: Equatable {
+        fileprivate let directory: String
+        fileprivate let timeZone: String
+        fileprivate let files: [SessionFile]
+    }
+
+    fileprivate struct SessionFile: Equatable {
+        let path: String
+        let device: Int32
+        let inode: UInt64
+        let size: Int64
+        let modified: Double
+        let changed: Double
     }
 
     private struct PiAuth: Decodable {
@@ -19,7 +41,12 @@ enum PiAgentLogScanner {
         let totals: TokenTotals
     }
 
-    static func scan(cache: CostCache, overlay: PricingOverlay?, env: [String: String]) -> Result {
+    static func scan(
+        cache: CostCache,
+        overlay: PricingOverlay?,
+        env: [String: String],
+        previous: SessionSnapshot? = nil
+    ) -> Result {
         let agentDirectory = self.agentDirectory(env: env)
         let sessionsDirectory = self.sessionsDirectory(agentDirectory: agentDirectory, env: env)
         guard FileManager.default.fileExists(atPath: sessionsDirectory.path) else {
@@ -32,7 +59,8 @@ enum PiAgentLogScanner {
                 sessionsDirectory,
                 eligibility: eligibility,
                 cache: cache,
-                overlay: overlay
+                overlay: overlay,
+                previous: previous
             )
         }
         return Result(touched: 0, status: .error("auth"))
@@ -42,13 +70,19 @@ enum PiAgentLogScanner {
         _ directory: URL,
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
-        overlay: PricingOverlay?
+        overlay: PricingOverlay?,
+        previous: SessionSnapshot?
     ) -> Result {
         do {
-            let rows = try self.readRows(in: directory)
+            let files = try self.sessionFiles(in: directory)
+            let snapshot = self.snapshot(of: files, in: directory)
             guard let (included, status) = eligibility.resolved else {
                 return Result(touched: 0, status: .error("auth"))
             }
+            if let snapshot, snapshot == previous {
+                return Result(touched: 0, status: status, sessions: snapshot)
+            }
+            let rows = try self.readRows(from: files)
 
             try cache.beginTransaction()
             do {
@@ -76,13 +110,13 @@ enum PiAgentLogScanner {
                 cache.rollback()
                 throw error
             }
-            return Result(touched: rows.count, status: status)
+            return Result(touched: rows.count, status: status, sessions: snapshot)
         } catch {
             return Result(touched: 0, status: .error("sessions"))
         }
     }
 
-    private static func readRows(in directory: URL) throws -> [Row] {
+    private static func sessionFiles(in directory: URL) throws -> [URL] {
         var enumerationFailed = false
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -91,16 +125,59 @@ enum PiAgentLogScanner {
             errorHandler: { _, _ in enumerationFailed = true; return false }
         ) else { throw ScanError.read }
 
-        var rows: [Row] = []
+        var files: [URL] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            files.append(url)
+        }
+        if enumerationFailed { throw ScanError.read }
+        return files
+    }
+
+    /// Nil when any file cannot be examined, so the scan reads everything and reports the error.
+    private static func snapshot(of files: [URL], in directory: URL) -> SessionSnapshot? {
+        var entries: [SessionFile] = []
+        entries.reserveCapacity(files.count)
+        for url in files {
+            var info = Darwin.stat()
+            guard fstatat(AT_FDCWD, url.path, &info, 0) == 0 else { return nil }
+            entries.append(SessionFile(
+                path: url.path,
+                device: info.st_dev,
+                inode: info.st_ino,
+                size: info.st_size,
+                modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
+                changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
+            ))
+        }
+        return SessionSnapshot(
+            directory: directory.path,
+            timeZone: TimeZone.current.identifier,
+            files: entries
+        )
+    }
+
+    private static func readRows(from files: [URL]) throws -> [Row] {
+        var rows: [Row] = []
+        for url in files {
             _ = try LogFileScanner.readLines(of: url, from: 0) { line in
-                guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                // Only assistant messages from the openai-codex provider become rows. Most lines
+                // are prompts and tool output, so check for the provider name before parsing.
+                guard self.mentionsCodexProvider(line),
+                      let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                       let row = self.row(from: object) else { return }
                 rows.append(row)
             }
         }
-        if enumerationFailed { throw ScanError.read }
         return rows
+    }
+
+    private static let codexProvider = Array("openai-codex".utf8)
+
+    private static func mentionsCodexProvider(_ line: UnsafeRawBufferPointer) -> Bool {
+        guard let base = line.baseAddress else { return false }
+        return self.codexProvider.withUnsafeBytes { needle in
+            memmem(base, line.count, needle.baseAddress, needle.count) != nil
+        }
     }
 
     private static func row(from object: [String: Any]) -> Row? {
