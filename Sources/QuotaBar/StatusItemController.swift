@@ -133,12 +133,16 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let provider = provider ?? self.settings.menuBarProvider
         let display = self.store.displays[provider] ?? ProviderDisplay()
         let item = self.materializedStatusItem()
-        item.button?.image = IconRenderer.makeIcon(
+        let icon = IconRenderer.makeIcon(
             hasReading: display.snapshot?.session != nil || display.snapshot?.weekly != nil,
             stale: display.isStale,
             runningLow: display.snapshot.map { MenuBarProviderPolicy.runningLow($0, now: self.now()) } ?? false
         )
-        item.button?.toolTip = self.toolTip(for: provider, display: display)
+        // Icons are cached per state, so an unchanged state is the same instance. Assigning it
+        // again would still invalidate and redraw the status button.
+        if item.button?.image !== icon { item.button?.image = icon }
+        let toolTip = self.toolTip(for: provider, display: display)
+        if item.button?.toolTip != toolTip { item.button?.toolTip = toolTip }
         item.button?.setAccessibilityLabel("QuotaBar, \(provider.displayName)")
         self.updateCard(provider: provider, display: display)
     }
@@ -617,6 +621,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let timer = Timer(timeInterval: self.openMenuClockInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshOpenCard() }
         }
+        // Relative times read in minutes, so a slightly late tick is invisible.
+        timer.tolerance = self.openMenuClockInterval / 10
         RunLoop.main.add(timer, forMode: .common)
         self.openMenuClock = timer
     }

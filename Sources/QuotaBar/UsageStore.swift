@@ -81,6 +81,8 @@ final class UsageStore: ObservableObject {
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        // Lets the system batch this wakeup with others. Polling has no exact deadline.
+        timer.tolerance = interval / 10
         // Common modes, so polling keeps running while a menu is open; the default mode alone
         // stops during menu tracking.
         RunLoop.main.add(timer, forMode: .common)
