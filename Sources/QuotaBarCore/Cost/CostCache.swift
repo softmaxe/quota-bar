@@ -37,6 +37,9 @@ package struct FileCursor {
 
 final class CostCache {
     private var db: OpaquePointer?
+    /// Per-row and per-file statements, compiled once per connection. Scans run them hundreds of
+    /// thousands of times, and compiling the upserts cost more than executing them.
+    private var statements: [String: OpaquePointer] = [:]
 
     /// `readOnly` opens a second connection alongside the writer's. WAL lets it read while a
     /// scan is running, which is how a query can skip the queue behind `CostService`'s actor.
@@ -63,6 +66,7 @@ final class CostCache {
     }
 
     deinit {
+        for stmt in self.statements.values { sqlite3_finalize(stmt) }
         if let db = self.db { sqlite3_close(db) }
     }
 
@@ -234,10 +238,10 @@ final class CostCache {
     }
 
     func cursor(forPath path: String) -> FileCursor? {
-        let stmt = try? self.prepared(
+        let stmt = try? self.reusable(
             "SELECT inode, size, offset, prefix_digest, resume_state FROM file_cursor WHERE path = ?"
         )
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         guard stmt != nil else { return nil }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
@@ -253,12 +257,12 @@ final class CostCache {
     }
 
     func setCursor(_ cursor: FileCursor, forPath path: String, provider: Provider) throws {
-        let stmt = try self.prepared("""
+        let stmt = try self.reusable("""
             INSERT OR REPLACE INTO file_cursor
                 (path, provider, inode, size, offset, prefix_digest, resume_state)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """)
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, provider.rawValue, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 3, Int64(cursor.inode))
@@ -280,8 +284,8 @@ final class CostCache {
             "DELETE FROM claude_message WHERE path = ?",
             "DELETE FROM file_cursor WHERE path = ?",
         ] {
-            let stmt = try self.prepared(sql)
-            defer { sqlite3_finalize(stmt) }
+            let stmt = try self.reusable(sql)
+            defer { sqlite3_reset(stmt) }
             sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
             try self.step(stmt)
         }
@@ -302,7 +306,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        let stmt = try self.prepared("""
+        let stmt = try self.reusable("""
             INSERT INTO codex_day
                 (path, day, model, long_context, is_fast, input, output, cache_write,
                  cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -316,7 +320,7 @@ final class CostCache {
                 cost_usd = COALESCE(cost_usd, 0) + excluded.cost_usd,
                 unpriced_tokens = COALESCE(unpriced_tokens, 0) + excluded.unpriced_tokens
             """)
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 3, model, -1, sqliteTransient)
@@ -335,7 +339,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        let stmt = try self.prepared("""
+        let stmt = try self.reusable("""
             INSERT INTO claude_message
                 (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
                  cache_read, cost_usd, unpriced_tokens)
@@ -357,7 +361,7 @@ final class CostCache {
             -- of a message this cache already has, and must not overwrite the finished figure.
             WHERE excluded.output > claude_message.output
             """)
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 2, path, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
@@ -388,7 +392,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        let stmt = try self.prepared("""
+        let stmt = try self.reusable("""
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
                  output, cache_write, cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -414,7 +418,7 @@ final class CostCache {
                OR excluded.cache_write_1h IS NOT opencode_part.cache_write_1h
                OR excluded.cache_read IS NOT opencode_part.cache_read
             """)
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
         sqlite3_bind_int64(stmt, 3, legacyInferred ? 1 : 0)
@@ -435,7 +439,7 @@ final class CostCache {
         totals: TokenTotals,
         costUSD: Double?
     ) throws {
-        let stmt = try self.prepared("""
+        let stmt = try self.reusable("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
                  cache_write_1h, cache_read, cost_usd, unpriced_tokens)
@@ -454,7 +458,7 @@ final class CostCache {
                OR excluded.cache_write_1h IS NOT pi_message.cache_write_1h
                OR excluded.cache_read IS NOT pi_message.cache_read
             """)
-        defer { sqlite3_finalize(stmt) }
+        defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
@@ -652,6 +656,24 @@ final class CostCache {
     }
 
     // MARK: - Helpers
+
+    /// A statement kept for the life of the connection, bound fresh. The caller resets it after
+    /// stepping, which releases its read of the database, and never finalizes it.
+    private func reusable(_ sql: String) throws -> OpaquePointer? {
+        if let stmt = self.statements[sql] {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            return stmt
+        }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v3(self.db, sql, -1, UInt32(SQLITE_PREPARE_PERSISTENT), &stmt, nil) == SQLITE_OK,
+              let stmt else {
+            sqlite3_finalize(stmt)
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        self.statements[sql] = stmt
+        return stmt
+    }
 
     /// Prepares one statement or throws with SQLite's own message. The caller finalizes it.
     private func prepared(_ sql: String) throws -> OpaquePointer? {
