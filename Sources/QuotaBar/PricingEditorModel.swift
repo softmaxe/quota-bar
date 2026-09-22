@@ -14,8 +14,8 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
         switch provider {
         case .codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
         case .claude: [
-                "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-sonnet-5",
-                "claude-haiku-4-5", "claude-3-5-haiku",
+                "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
+                "claude-sonnet-5", "claude-haiku-4-5", "claude-3-5-haiku",
             ]
         }
     }

@@ -324,6 +324,18 @@ enum CostTests {
             "claude-fable-5 keeps the standard 0.1x cache-read rate"
         )
 
+        // Opus 5.5 is the other break from 0.1x: its cache read is 0.05x input.
+        let opus55 = CostPricing.pricing(for: "claude-opus-5-5-20260923", provider: .claude)
+        Harness.expectClose(opus55?.input, 4, "claude-opus-5-5 input rate")
+        Harness.expectClose(opus55?.output, 20, "claude-opus-5-5 output rate")
+        Harness.expectClose(opus55?.cacheWrite, 5, "claude-opus-5-5 five-minute cache-write rate")
+        Harness.expectClose(opus55?.cacheRead, 0.2, "claude-opus-5-5 cache-read rate is 0.05x input")
+        Harness.expectClose(
+            opus55?.cacheWrite1hRate(longContext: false),
+            8,
+            "claude-opus-5-5 one-hour cache-write rate is derived"
+        )
+
         // An unknown model must return nil rather than silently costing zero.
         Harness.expect(
             CostPricing.cost(
