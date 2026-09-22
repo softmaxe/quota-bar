@@ -242,9 +242,37 @@ public struct CostAvailability: Sendable, Equatable {
 package enum DayKey {
     /// Days bucket by the local calendar, so "today" matches what the user's clock says.
     package static func make(from date: Date, calendar: Calendar = .current) -> String {
+        // Log lines arrive roughly in time order, so consecutive calls nearly always fall on the
+        // same day. Reuse that day's key while the date stays inside its interval.
+        let timeZone = calendar.timeZone
+        let identifier = calendar.identifier
+        self.lock.lock()
+        if let last = self.last, last.identifier == identifier, last.timeZone == timeZone,
+           last.interval.start <= date, date < last.interval.end {
+            self.lock.unlock()
+            return last.key
+        }
+        self.lock.unlock()
+
         let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        let key = String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        if let interval = calendar.dateInterval(of: .day, for: date) {
+            self.lock.lock()
+            self.last = LastDay(identifier: identifier, timeZone: timeZone, interval: interval, key: key)
+            self.lock.unlock()
+        }
+        return key
     }
+
+    private struct LastDay {
+        let identifier: Calendar.Identifier
+        let timeZone: TimeZone
+        let interval: DateInterval
+        let key: String
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var last: LastDay?
 
     package static func today(calendar: Calendar = .current, now: Date = Date()) -> String {
         self.make(from: now, calendar: calendar)

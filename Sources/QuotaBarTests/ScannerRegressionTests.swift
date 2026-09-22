@@ -7,6 +7,7 @@ enum ScannerRegressionTests {
         Self.unchangedPartialLineDoesNotRequireRescan()
         Self.sameSizeRewriteRequiresReparse()
         await Self.codexResumeStatePersists()
+        await Self.claudeFieldTypesMatchLooseCasts()
     }
 
     /// Prefix digests are reused while a file is untouched. An in-place rewrite that keeps the
@@ -40,6 +41,52 @@ enum ScannerRegressionTests {
         let rewritten = try? LogFileScanner.plan(for: file, previous: previous)
         Harness.expectEqual(rewritten?.cursor.inode, initial.cursor.inode, "the rewrite keeps the inode")
         Harness.expectEqual(rewritten?.requiresFullReparse, true, "a same-size rewrite forces a reparse")
+    }
+
+    /// Claude lines are decoded into typed fields. A field of an unexpected type must read as it
+    /// did through `JSONSerialization`: numeric strings count, other types are absent, and the
+    /// rest of the line still counts.
+    private static func claudeFieldTypesMatchLooseCasts() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-claude-fields-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let claudeHome = root.appendingPathComponent("claude")
+        let file = claudeHome.appendingPathComponent("projects/app/session.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let lines = [
+            // Numeric strings and doubles count; a non-object cache_creation reads as absent; a
+            // numeric message id reads as empty, so the request id alone identifies the message.
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-1","message":{"id":7,"model":" claude-opus-5-20260101 ","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":"10","output_tokens":20.9,"cache_creation_input_tokens":30,"cache_read_input_tokens":true,"cache_creation":5}}}"#,
+            // A replay of the same request with no more output does not add a second message.
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-1","message":{"id":"","model":"claude-opus-5","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":30,"cache_read_input_tokens":1}}}"#,
+            // A non-string type or model skips the line.
+            #"{"type":1,"timestamp":"\#(timestamp)","requestId":"req-2","message":{"model":"claude-opus-5","usage":{"input_tokens":1000}}}"#,
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-3","message":{"model":5,"usage":{"input_tokens":1000}}}"#,
+            // A usage that is not an object skips the line.
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-4","message":{"model":"claude-opus-5","usage":[1]}}"#,
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
+            pricingOverlay: PricingOverlay()
+        )
+        let snapshot = await service.refresh(.claude)
+        let tokens = snapshot?.days.first?.tokens
+        Harness.expectEqual(tokens?.input, 10, "a numeric-string input count is read")
+        Harness.expectEqual(tokens?.output, 20, "a fractional output count truncates")
+        Harness.expectEqual(tokens?.cacheWrite, 30, "cache writes are read")
+        Harness.expectEqual(tokens?.cacheWrite1h, 0, "a non-object cache_creation reads as absent")
+        Harness.expectEqual(tokens?.cacheRead, 1, "a boolean count reads as its number")
+        Harness.expectEqual(snapshot?.windowTokens, 61, "mistyped lines are skipped and replays deduped")
+        Harness.expectEqual(snapshot?.topModel, "claude-opus-5", "the model is trimmed and normalized")
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {

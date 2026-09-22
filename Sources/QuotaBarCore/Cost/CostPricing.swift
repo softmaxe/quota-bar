@@ -260,6 +260,10 @@ public enum CostPricing {
     /// `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`. Bare `gpt-5.6` is OpenAI's own alias for
     /// `gpt-5.6-sol`, which is how the model catalog lists it.
     public static func normalizeCodexModel(_ raw: String) -> String {
+        NormalizedModelNames.codex.value(for: raw, compute: Self.computeNormalizedCodexModel)
+    }
+
+    private static func computeNormalizedCodexModel(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let slash = name.lastIndex(of: "/") { name = String(name[name.index(after: slash)...]) }
         name = Self.strippingDateSuffix(name)
@@ -269,6 +273,10 @@ public enum CostPricing {
 
     /// `anthropic.claude-opus-5-v1:0` -> `claude-opus-5`, `claude-opus-5-20260101` -> `claude-opus-5`.
     public static func normalizeClaudeModel(_ raw: String) -> String {
+        NormalizedModelNames.claude.value(for: raw, compute: Self.computeNormalizedClaudeModel)
+    }
+
+    private static func computeNormalizedClaudeModel(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         for prefix in ["anthropic.", "anthropic/"] where name.hasPrefix(prefix) {
             name = String(name.dropFirst(prefix.count))
@@ -389,5 +397,30 @@ public enum CostPricing {
             return nil
         }
         return pricing.cost(for: totals, longContext: longContext)
+    }
+}
+
+/// Scanners normalize the model of every usage line, and a log names only a handful of models.
+/// Normalization is pure, so each raw name is worked out once instead of through several regexes
+/// per line.
+private final class NormalizedModelNames: @unchecked Sendable {
+    static let codex = NormalizedModelNames()
+    static let claude = NormalizedModelNames()
+
+    /// Unbounded input would make this a leak; past the cap names are computed without caching.
+    private static let capacity = 4096
+    private let lock = NSLock()
+    private var names: [String: String] = [:]
+
+    func value(for raw: String, compute: (String) -> String) -> String {
+        self.lock.lock()
+        let cached = self.names[raw]
+        self.lock.unlock()
+        if let cached { return cached }
+        let name = compute(raw)
+        self.lock.lock()
+        if self.names.count < Self.capacity { self.names[raw] = name }
+        self.lock.unlock()
+        return name
     }
 }

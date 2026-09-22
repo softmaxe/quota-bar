@@ -30,6 +30,7 @@ enum ClaudeLogScanner {
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = LogFileScanner.jsonlFiles(under: self.projectRoots(env: env))
+        let decoder = JSONDecoder()
 
         var touched = 0
         for url in files {
@@ -50,7 +51,13 @@ enum ClaudeLogScanner {
                     let type = JSONLogClassifier.topLevelType(in: buffer)
                     guard type == .assistant || type == .indeterminate else { return }
                     do {
-                        try Self.ingest(line: buffer, path: url.path, cache: cache, overlay: overlay)
+                        try Self.ingest(
+                            line: buffer,
+                            path: url.path,
+                            cache: cache,
+                            overlay: overlay,
+                            decoder: decoder
+                        )
                     } catch {
                         parseError = error
                     }
@@ -76,19 +83,46 @@ enum ClaudeLogScanner {
         return touched
     }
 
+    /// The fields of a transcript line the scanner reads. Everything else is skipped unparsed.
+    private struct Line: Decodable {
+        let type: LooseValue<String>?
+        let timestamp: LooseValue<String>?
+        let requestId: LooseValue<String>?
+        let uuid: LooseValue<String>?
+        let message: LooseValue<Message>?
+
+        struct Message: Decodable {
+            let id: LooseValue<String>?
+            let model: LooseValue<String>?
+            let usage: LooseValue<Usage>?
+        }
+
+        struct Usage: Decodable {
+            let input_tokens: LooseScalar?
+            let output_tokens: LooseScalar?
+            let cache_creation_input_tokens: LooseScalar?
+            let cache_read_input_tokens: LooseScalar?
+            let cache_creation: LooseValue<CacheCreation>?
+        }
+
+        struct CacheCreation: Decodable {
+            let ephemeral_1h_input_tokens: LooseScalar?
+        }
+    }
+
     private static func ingest(
         line: UnsafeRawBufferPointer,
         path: String,
         cache: CostCache,
-        overlay: PricingOverlay?
+        overlay: PricingOverlay?,
+        decoder: JSONDecoder
     ) throws {
-        let data = Data(line)
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              root["type"] as? String == "assistant",
-              let message = root["message"] as? [String: Any],
-              let usage = message["usage"] as? [String: Any] else { return }
+        guard let root = decoder.decodeLine(Line.self, from: line),
+              root.type.loose() == "assistant",
+              let message = root.message.loose(),
+              let usage = message.usage.loose() else { return }
 
-        let rawModel = (message["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawModel = message.model.loose()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !rawModel.isEmpty, rawModel != "<synthetic>" else { return }
         // Normalize before storing so `claude-opus-5` and `claude-opus-5-20260101` aggregate as
         // one model rather than competing for the top-model slot.
@@ -96,29 +130,29 @@ enum ClaudeLogScanner {
 
         // Anthropic reports input_tokens already net of both cache buckets, so unlike Codex
         // nothing has to be peeled out of it here.
-        let cacheWrite = JSONNumber.int(usage["cache_creation_input_tokens"])
-        let cacheCreation = usage["cache_creation"] as? [String: Any]
+        let cacheWrite = usage.cache_creation_input_tokens.intValue
+        let cacheCreation = usage.cache_creation.loose()
         let totals = TokenTotals(
-            input: JSONNumber.int(usage["input_tokens"]),
-            output: JSONNumber.int(usage["output_tokens"]),
+            input: usage.input_tokens.intValue,
+            output: usage.output_tokens.intValue,
             cacheWrite: cacheWrite,
             // The two TTLs are billed differently, and the 1h bucket dominates on long sessions.
-            cacheWrite1h: min(JSONNumber.int(cacheCreation?["ephemeral_1h_input_tokens"]), cacheWrite),
-            cacheRead: JSONNumber.int(usage["cache_read_input_tokens"])
+            cacheWrite1h: min(cacheCreation?.ephemeral_1h_input_tokens.intValue ?? 0, cacheWrite),
+            cacheRead: usage.cache_read_input_tokens.intValue
         )
         guard totals.total > 0 else { return }
 
-        guard let timestamp = root["timestamp"] as? String,
+        guard let timestamp = root.timestamp.loose(),
               let date = ISO8601.parse(timestamp) else { return }
 
         // The same assistant message is replayed into resumed and forked transcripts, so identity
         // comes from the message id paired with the request that produced it.
-        let messageId = message["id"] as? String ?? ""
-        let requestId = root["requestId"] as? String ?? ""
+        let messageId = message.id.loose() ?? ""
+        let requestId = root.requestId.loose() ?? ""
         let key: String
         if messageId.isEmpty, requestId.isEmpty {
             // Nothing stable to dedupe on; fall back to the line's own uuid.
-            key = "uuid:\(root["uuid"] as? String ?? UUID().uuidString)"
+            key = "uuid:\(root.uuid.loose() ?? UUID().uuidString)"
         } else {
             key = "\(messageId)|\(requestId)"
         }
