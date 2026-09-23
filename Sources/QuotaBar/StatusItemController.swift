@@ -325,8 +325,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         }
         NSAnimationContext.runAnimationGroup { context in
             // Match the brief, stationary fade of macOS menu bar menus, without a zoom or slide.
+            // Front-loaded like every other curve in the app, so the card visibly lets go on the
+            // first frame after the click instead of lingering at full opacity.
             context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
             window.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
