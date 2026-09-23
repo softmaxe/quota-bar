@@ -11,15 +11,10 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: xcode-27
-            arch: arm64
+    name: Build arm64
+    runs-on: xcode-27
     env:
+      ARCH: arm64
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
     defaults:
       run:
@@ -36,14 +31,12 @@ jobs:
           fi
 
       - name: Verify native runner architecture
-        env:
-          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           actual_arch="$(uname -m)"
           echo "Runner architecture: ${actual_arch}"
-          echo "Expected architecture: ${EXPECTED_ARCH}"
-          if [[ "${actual_arch}" != "${EXPECTED_ARCH}" ]]; then
+          echo "Expected architecture: ${ARCH}"
+          if [[ "${actual_arch}" != "${ARCH}" ]]; then
             echo "::error::The runner architecture does not match the requested native architecture."
             exit 1
           fi
@@ -73,7 +66,6 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
-          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "push" && "${REF_TYPE}" == "tag" ]]; then
@@ -104,7 +96,6 @@ jobs:
       - name: Verify app signature, version, and architecture
         env:
           EXPECTED_VERSION: ${{ steps.metadata.outputs.version }}
-          EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
           app="build/QuotaBar.app"
@@ -125,8 +116,8 @@ jobs:
           binary="${app}/Contents/MacOS/${executable}"
           [[ -f "${binary}" ]]
           architectures="$(lipo -archs "${binary}")"
-          if [[ "${architectures}" != "${EXPECTED_ARCH}" ]]; then
-            echo "::error::The app contains architectures '${architectures}', expected exactly '${EXPECTED_ARCH}'."
+          if [[ "${architectures}" != "${ARCH}" ]]; then
+            echo "::error::The app contains architectures '${architectures}', expected exactly '${ARCH}'."
             exit 1
           fi
 
@@ -167,7 +158,7 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: package-${{ matrix.arch }}
+          name: package
           path: |
             dist/${{ steps.metadata.outputs.archive_base }}.zip
             dist/${{ steps.metadata.outputs.archive_base }}.zip.sha256
@@ -188,12 +179,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Download architecture packages
+      - name: Download package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: package-*
+          name: package
           path: dist
-          merge-multiple: true
 
       - name: Validate tag and release packages
         id: metadata
@@ -208,32 +198,17 @@ jobs:
           version="${TAG#v}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-          shopt -s nullglob
-          zip_files=(dist/*.zip)
-          checksum_files=(dist/*.zip.sha256)
-          if [[ "${#zip_files[@]}" -ne 1 || "${#checksum_files[@]}" -ne 1 ]]; then
-            echo "::error::Expected exactly one ZIP file and one checksum file in dist/."
-            exit 1
-          fi
-
-          expected_files=(
-            "dist/QuotaBar-${version}-macos-arm64.zip"
-            "dist/QuotaBar-${version}-macos-arm64.zip.sha256"
-          )
-          for expected_file in "${expected_files[@]}"; do
+          zip_name="QuotaBar-${version}-macos-arm64.zip"
+          for expected_file in "dist/${zip_name}" "dist/${zip_name}.sha256"; do
             if [[ ! -f "${expected_file}" ]]; then
               echo "::error::Missing expected release asset: ${expected_file}"
               exit 1
             fi
           done
-
-          for checksum_file in "${checksum_files[@]}"; do
-            checksum_name="$(basename "${checksum_file}")"
-            (
-              cd dist
-              sha256sum -c "${checksum_name}"
-            )
-          done
+          (
+            cd dist
+            sha256sum -c "${zip_name}.sha256"
+          )
 
       - name: Ensure tag has no existing release
         run: |
@@ -250,7 +225,8 @@ jobs:
             exit 1
           fi
 
-      - name: Create draft release
+      # gh uploads assets to a draft and publishes it only after every upload succeeds.
+      - name: Publish release
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
         run: |
@@ -258,16 +234,9 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             "dist/QuotaBar-${VERSION}-macos-arm64.zip" \
             "dist/QuotaBar-${VERSION}-macos-arm64.zip.sha256" \
-            --draft \
             --verify-tag \
             --generate-notes \
             --title "QuotaBar ${VERSION}"
-
-      - name: Publish release
-        run: |
-          set -euo pipefail
-          tag="$GITHUB_REF_NAME"
-          gh release edit "$tag" --draft=false
 
   bump-tap:
     name: Update Homebrew tap
@@ -291,7 +260,7 @@ jobs:
           set -euo pipefail
           if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
             echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
-            echo "Create a PAT with repo scope and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
+            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
             exit 1
           fi
 
@@ -307,45 +276,28 @@ jobs:
           gh release download "$TAG" --repo softmaxe/quota-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
           cat "$tmp_dist"/*.sha256
 
-          get_sha() {
-            local name="$1"
-            awk -v n="$name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256
-          }
-
-          sha_arm="$(get_sha "QuotaBar-${version}-macos-arm64.zip")"
-
-          for v in sha_arm; do
-            if [[ -z "${!v:-}" ]]; then
-              echo "Missing SHA for $v" >&2
-              exit 1
-            fi
-          done
+          zip_name="QuotaBar-${version}-macos-arm64.zip"
+          sha="$(awk -v n="$zip_name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256)"
+          if [[ -z "$sha" ]]; then
+            echo "::error::Missing SHA-256 for $zip_name" >&2
+            exit 1
+          fi
 
           cask="$tmp_tap/Casks/quota-bar.rb"
 
-          python3 - "$cask" "$version" "$sha_arm" <<'PY'
+          python3 - "$cask" "$version" "$sha" <<'PY'
           import pathlib, sys, re
           path = pathlib.Path(sys.argv[1])
-          version, sha_arm = sys.argv[2:4]
+          version, sha = sys.argv[2:4]
           text = path.read_text()
-          text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
-          text = re.sub(r'  arch arm: "arm64", intel: "x86_64"\n\n', '', text)
-          text = re.sub(
-              r'  sha256 arm:\s*"[^"]+",\n         intel: "[^"]+"|  sha256 "[^"]+"',
-              f'  sha256 "{sha_arm}"',
-              text,
-              count=1,
-          )
-          text = text.replace('-macos-#{arch}.zip', '-macos-arm64.zip')
-          text = re.sub(r',\s*verified:\s*"[^"]+"', '', text)
-          if 'depends_on arch: :arm64' not in text:
-              text = text.replace(
-                  '  depends_on macos:',
-                  '  depends_on arch: :arm64\n  depends_on macos:',
-                  1,
-              )
+          for pattern, replacement in (
+              (r'^  version "[^"]+"$', f'  version "{version}"'),
+              (r'^  sha256 "[^"]+"$', f'  sha256 "{sha}"'),
+          ):
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.M)
+              if count != 1:
+                  sys.exit(f"Cask line not found: {pattern}")
           path.write_text(text)
-          print(path.read_text())
           PY
 
           echo "--- updated cask ---"
