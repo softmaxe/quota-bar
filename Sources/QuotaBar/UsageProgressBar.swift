@@ -310,7 +310,10 @@ struct UsageProgressBar: View {
                 withAnimation(.easeOut(duration: duration)) { self.displayedPercent = self.clamped }
             }
         case let .glide(duration):
-            withAnimation(.easeOut(duration: duration)) { self.displayedPercent = self.clamped }
+            // The app's shared curve: the bar moves most of the way at once, then settles.
+            withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: duration)) {
+                self.displayedPercent = self.clamped
+            }
         }
     }
 
