@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import SwiftUI
 
 /// How the settings window's tab selection travels. The pill is one shape whose two edges run the
@@ -47,6 +47,21 @@ enum TabSwitchMotion {
             minX: durations.minX == Self.leadDuration ? Self.lead : Self.trail,
             maxX: durations.maxX == Self.leadDuration ? Self.lead : Self.trail
         )
+    }
+
+    /// Whether the selection change being handled came from the keyboard: a ⌘-number shortcut,
+    /// or Space on a focused segment. Those switches cut. The person already knows where they are
+    /// going, and a pill still travelling after a shortcut reads as lag, not as feedback.
+    static var isKeyboardInitiated: Bool {
+        NSApp.currentEvent?.type == .keyDown
+    }
+
+    /// Applies a selection change with every implicit animation it would trigger turned off —
+    /// the pill, the label weights, and anything else keyed to the selection.
+    static func cut(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
     }
 
 #if DEBUG

@@ -16,7 +16,7 @@ struct ProviderTabBar: View {
     @State private var pillMinX: CGFloat
     @State private var pillMaxX: CGFloat
     /// The provider this bar was just clicked over to. Only that change animates: a provider
-    /// switched while the menu was closed lands on the next open without a pill sweeping past.
+    /// switched while the menu was closed, or with ⌘1 / ⌘2, lands without a pill sweeping past.
     @State private var clickedProvider: Provider?
 
     private static let providers = Provider.allCases
@@ -144,6 +144,11 @@ struct ProviderTabBar: View {
 
     private func select(_ provider: Provider) {
         guard provider != self.selection else { return }
+        guard !TabSwitchMotion.isKeyboardInitiated else {
+            self.clickedProvider = nil
+            TabSwitchMotion.cut { self.onSelect(provider) }
+            return
+        }
         self.clickedProvider = provider
         self.onSelect(provider)
     }

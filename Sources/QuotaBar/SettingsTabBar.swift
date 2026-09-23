@@ -142,6 +142,13 @@ struct SettingsTabBar: View {
 
     private func select(_ tab: SettingsTab) {
         guard tab != self.selection, let rect = self.bounds[tab] else { return }
+        guard !TabSwitchMotion.isKeyboardInitiated else {
+            TabSwitchMotion.cut {
+                self.selection = tab
+                self.snapPill(to: rect)
+            }
+            return
+        }
         self.selection = tab
         self.movePill(to: rect)
     }
