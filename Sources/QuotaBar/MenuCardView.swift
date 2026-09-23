@@ -418,7 +418,7 @@ private struct QuotaWindowRow: View {
                 allowsCelebrationReplay: true,
                 celebrationRelay: self.celebration
             )
-            if self.paceSummary != nil || self.window.resetsAt != nil {
+            if self.paceSummary != nil || self.isExhausted || self.window.resetsAt != nil {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         self.paceSummaryLabel
@@ -434,9 +434,21 @@ private struct QuotaWindowRow: View {
         }
     }
 
+    /// No pace is derived for an empty window, so the status takes the pace line's place instead
+    /// of leaving it blank beside the reset label.
+    private var isExhausted: Bool {
+        self.window.remainingPercent <= 0
+    }
+
     @ViewBuilder
     private var paceSummaryLabel: some View {
-        if let paceSummary = self.paceSummary {
+        if self.isExhausted {
+            Text("Limit reached")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.red)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        } else if let paceSummary = self.paceSummary {
             Text(paceSummary)
                 .font(.system(size: 11))
                 .foregroundStyle(self.paceIsDeficit ? Color.orange : Color.secondary)

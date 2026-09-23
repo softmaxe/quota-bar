@@ -399,6 +399,15 @@ enum CardDump {
                 fetchedAt: now,
                 sessionIsUnlimited: true
             )),
+            // An empty session has no pace, so its status fills the line beside the reset label.
+            ("claude-session-exhausted", .claude, UsageSnapshot(
+                provider: .claude,
+                session: UsageWindow(usedPercent: 100, resetsAt: Date().addingTimeInterval(3 * 3600 + 43 * 60), windowSeconds: 18_000),
+                weekly: UsageWindow(usedPercent: 35, resetsAt: Date().addingTimeInterval(6 * 86_400 + 7 * 3600), windowSeconds: 604_800),
+                planLabel: "Pro",
+                credits: nil,
+                fetchedAt: now
+            )),
             // A rate-limited refresh keeps the numbers on screen and appends the error.
             ("claude-rate-limited", .claude, (UsageSnapshot(
                 provider: .claude,
