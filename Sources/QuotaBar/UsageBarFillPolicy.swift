@@ -17,7 +17,7 @@ enum UsageBarFillPolicy {
     static let rolloverJumpPoints: Double = 5
 
     static let rolloverDuration: TimeInterval = 0.95
-    static let glideDuration: TimeInterval = 0.35
+    static let glideDuration: TimeInterval = 0.25
 
     /// The value changed while the card was already on screen.
     static func onValueChange(from oldPercent: Double, to newPercent: Double) -> Fill {
