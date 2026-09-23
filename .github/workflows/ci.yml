@@ -2,12 +2,23 @@ name: CI
 
 on:
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
   push:
     branches:
       - main
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
 
 permissions:
   contents: read
+
+# A newer push to the same PR supersedes the running check; every main commit keeps its own run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
