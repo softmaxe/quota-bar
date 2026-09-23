@@ -167,9 +167,9 @@ Missing information has a separate display from zero usage:
 
 | Display | Meaning |
 | --- | --- |
-| **0** or **$0.00** | The scanned value is zero at the displayed precision. Missing prices have a separate status. |
-| **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage yet. |
-| **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. |
+| **0** or **$0.00** | The scanned value is zero at the displayed precision. The chart shows a solid gray stub for the date. Missing prices have a separate status. |
+| **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage yet. The chart shows a dashed stub for the date. |
+| **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. In Cost view, the chart shows a dashed stub for the date. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
 Add missing rates in **Settings → Pricing**. Costs are recalculated for all recorded usage of that model.

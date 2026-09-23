@@ -11,5 +11,8 @@ enum Theme {
         }
     }
 
+    /// The chart stub for a day with no bar. It takes the bars' resting and selected opacity.
+    static let chartEmptyStub = Color(nsColor: .secondaryLabelColor).opacity(0.5)
+
     static let progressTrack = Color(nsColor: .tertiaryLabelColor).opacity(0.22)
 }
