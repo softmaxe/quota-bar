@@ -305,7 +305,6 @@ struct CostSectionView: View {
         .accessibilityValue(self.accessibleDayValue(day))
         .accessibilityHint("Select day. Use Left and Right Arrow to change day.")
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .help("\(self.fullDate(day.dayKey)): \(self.accessibleDayValue(day))")
     }
 
     private func zeroMark(for day: CostDay) -> String {
