@@ -4,6 +4,8 @@ import SwiftUI
 
 /// The one line a quota window devotes to its reset, in whichever of its two faces the reader
 /// last asked for. Kept out of the view so the wording can be checked without a running menu.
+/// The word "Resets" is left to the view's symbol and accessibility label, which keeps the longest
+/// clock face on one line beside the pace summary in a 280pt card.
 enum QuotaResetLabel {
     static func text(
         resetsAt: Date,
@@ -15,9 +17,9 @@ enum QuotaResetLabel {
         switch mode {
         case .countdown:
             // "in" only reads right in front of a duration, which is why the clock face drops it.
-            "Resets in \(Formatters.compactDuration(resetsAt.timeIntervalSince(now)))"
+            "in \(Formatters.compactDuration(resetsAt.timeIntervalSince(now)))"
         case .clock:
-            "Resets \(Formatters.resetClock(resetsAt, now: now, calendar: calendar, locale: locale))"
+            Formatters.resetClock(resetsAt, now: now, calendar: calendar, locale: locale)
         }
     }
 }
@@ -35,23 +37,25 @@ struct ResetLabel: View {
                 self.onModeChanged(self.mode.toggled)
             }
         } label: {
-            Text("\(self.text)  ▾")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
-                }
-                .fixedSize(horizontal: true, vertical: false)
+            // One concatenated Text: the borderless menu flattens its label, and inline images
+            // are what survive it, where padding, borders and stacked views do not.
+            (
+                Text(Image(systemName: "arrow.clockwise"))
+                    .font(.system(size: 9, weight: .semibold))
+                    + Text(" \(self.text) ")
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    + Text(Image(systemName: "chevron.down"))
+                    .font(.system(size: 7, weight: .bold))
+            )
+            .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .controlSize(.small)
         .font(.system(size: 11))
         .fixedSize(horizontal: true, vertical: false)
-        .accessibilityLabel("Reset time display, \(self.text)")
+        .accessibilityLabel("Reset time display, resets \(self.text)")
     }
 }

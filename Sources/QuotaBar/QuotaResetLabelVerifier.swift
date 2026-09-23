@@ -22,13 +22,13 @@ enum QuotaResetLabelVerifier {
             resetsAt: now.addingTimeInterval(86 * 60),
             mode: .countdown,
             now: now,
-            "Resets in 1h 26m"
+            "in 1h 26m"
         )
         Self.expect(
             resetsAt: now.addingTimeInterval(5 * 86_400),
             mode: .countdown,
             now: now,
-            "Resets in 5d 0h"
+            "in 5d 0h"
         )
 
         // Later today: the time alone cannot be read as any other day.
@@ -36,34 +36,34 @@ enum QuotaResetLabelVerifier {
             resetsAt: Self.date(2026, 8, 28, 15, 30),
             mode: .clock,
             now: now,
-            "Resets 3:30 PM"
+            "3:30 PM"
         )
         // Half an hour away but across midnight — short countdown, different day.
         Self.expect(
             resetsAt: Self.date(2026, 8, 29, 0, 30),
             mode: .clock,
             now: Self.date(2026, 8, 28, 23, 59),
-            "Resets Sat 12:30 AM"
+            "Sat 12:30 AM"
         )
         Self.expect(
             resetsAt: Self.date(2026, 9, 3, 9, 0),
             mode: .clock,
             now: now,
-            "Resets Thu 9:00 AM"
+            "Thu 9:00 AM"
         )
         // A week out, where a weekday would name the day the reader is standing on.
         Self.expect(
             resetsAt: Self.date(2026, 9, 7, 9, 0),
             mode: .clock,
             now: now,
-            "Resets Sep 7, 9:00 AM"
+            "Sep 7, 9:00 AM"
         )
         // Already past: the countdown floors at zero rather than counting up.
         Self.expect(
             resetsAt: now.addingTimeInterval(-600),
             mode: .countdown,
             now: now,
-            "Resets in 0m"
+            "in 0m"
         )
 
         VerifierReport.finish(

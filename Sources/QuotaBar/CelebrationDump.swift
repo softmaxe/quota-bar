@@ -70,7 +70,7 @@ private struct CelebrationCardFrame: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                ResetLabel(text: "Resets in 5h 00m", mode: .countdown, onModeChanged: { _ in })
+                ResetLabel(text: "in 5h 00m", mode: .countdown, onModeChanged: { _ in })
             }
         }
         .padding(.horizontal, 14)
