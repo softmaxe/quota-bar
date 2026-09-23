@@ -153,7 +153,7 @@ final class CostCache {
         try self.dropStoredCostColumns()
     }
 
-    /// Versions up to 1.0.6 froze each row's cost at scan time. Cost is now derived from the
+    /// Versions up to 1.0.7 froze each row's cost at scan time. Cost is now derived from the
     /// tokens and the dated price book whenever it is read, so the stored figures, and the
     /// partial indexes that found rows still waiting for one, are dropped. Tokens are untouched.
     private func dropStoredCostColumns() throws {
