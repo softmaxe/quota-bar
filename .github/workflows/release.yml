@@ -251,7 +251,6 @@ jobs:
 
       - name: Update tap cask
         env:
-          GH_TOKEN: ${{ github.token }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -273,10 +272,14 @@ jobs:
 
           git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git" "$tmp_tap"
 
-          gh release download "$TAG" --repo softmaxe/quota-bar --pattern "*.zip.sha256" --dir "$tmp_dist"
+          # Fetch from the same public download URL the cask uses. The API's by-tag release lookup
+          # can serve a cached copy without assets right after publishing.
+          zip_name="QuotaBar-${version}-macos-arm64.zip"
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 10 \
+            --output "$tmp_dist/${zip_name}.sha256" \
+            "https://github.com/softmaxe/quota-bar/releases/download/${TAG}/${zip_name}.sha256"
           cat "$tmp_dist"/*.sha256
 
-          zip_name="QuotaBar-${version}-macos-arm64.zip"
           sha="$(awk -v n="$zip_name" '$2 == n { print $1 }' "$tmp_dist"/*.sha256)"
           if [[ -z "$sha" ]]; then
             echo "::error::Missing SHA-256 for $zip_name" >&2
