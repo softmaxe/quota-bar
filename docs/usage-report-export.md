@@ -15,16 +15,16 @@ The settings tabs remain separate. While Settings is active, ⌘1 opens **Genera
 
 ## What the report shows
 
-The report has a daily usage line, stored cost by model, and a token-composition chart for input, output, cache read, and cache write. It also shows the saved source names, capture time, timezone, pricing coverage, and the number of calendar days with records. Missing dates remain distinct from recorded zero usage.
+The report has a daily usage line, estimated cost by model, and a token-composition chart for input, output, cache read, and cache write. It also shows the saved source names, capture time, timezone, pricing coverage, and the number of calendar days with records. Missing dates remain distinct from recorded zero usage.
 
 Use the language control in the report to switch between Simplified Chinese and English. The choice is stored for that file path. The layout reflows for narrow windows, and the 30-day plot can scroll horizontally when it needs more room.
 
-The expandable data section gives exact daily token totals, cache-read tokens, cache-write tokens, model token totals, token-composition values, and costs rounded to cents. The HTML also embeds the complete snapshot used to render the page, including the stored cost values before display rounding. Anyone with the file can inspect these fields:
+The expandable data section gives exact daily token totals, cache-read tokens, cache-write tokens, model token totals, token-composition values, and costs rounded to cents. The HTML also embeds the complete snapshot used to render the page, including the estimated cost values before display rounding. Anyone with the file can inspect these fields:
 
 - selected period, capture timestamp, and timezone
 - aggregate input, output, cache-read, cache-write, and one-hour cache-write token counts
 - daily, model, and source aggregates
-- unpriced-token counts and stored cost totals
+- unpriced-token counts and estimated cost totals
 
 The export does not contain prompts, responses, reasoning text, credentials, account IDs, session paths, or stable record IDs.
 
@@ -36,7 +36,7 @@ The reader includes every eligible row already stored for Codex and Claude. It a
 
 The export prices each saved row the same way the menu does: at the price book's rates for that row's day, under any manual overrides. Changing a manual rate therefore changes the cost of every recorded day of that model. The result remains an estimate and may differ from the provider's bill.
 
-Rows without a usable price contribute tokens but no cost. The report labels a fully unpriced total as **Unpriced** and a mixed total as a partial estimate. Historical cache-read and cache-write costs are not stored as separate USD values, so the report shows cache token counts and does not infer cache cost from current rates.
+Rows without a usable price contribute tokens but no cost. The report labels a fully unpriced total as **Unpriced** and a mixed total as a partial estimate. Cache-read and cache-write costs are part of each cost total, but the report does not break them out as separate USD values. It shows cache token counts instead.
 
 Export only reads SQLite and writes the selected HTML file. It does not refresh quota, scan logs, fetch pricing, invoke a CLI, contact a model, or make any network request.
 

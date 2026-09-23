@@ -230,7 +230,7 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 
 The report is a single offline HTML file with a Chinese/English switch. It includes all eligible Codex, Claude, OpenCode, and Pi Agent usage already saved in SQLite, with daily usage, cost by model, token and cache composition, and expandable data tables.
 
-Export reads saved data without refreshing quota, rescanning logs, or making network requests. It prices saved tokens with the same rates as the menu; unpriced tokens are excluded from costs and pricing gaps are marked. Cache tokens are shown without inferring a separate cache cost.
+Export reads saved data without refreshing quota, rescanning logs, or making network requests. It prices saved tokens with the same rates as the menu; unpriced tokens are excluded from costs and pricing gaps are marked. Cache costs are part of the totals; the report shows cache token counts rather than a separate cache cost.
 
 The file includes the period, capture time, timezone, sources, models, token counts, unpriced-token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the data contract and developer checks.
 
