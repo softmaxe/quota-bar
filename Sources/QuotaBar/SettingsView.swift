@@ -14,7 +14,7 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var selection: SettingsSelection = SettingsSelection()
-    /// The pricing pane scans the cost database and refreshes the catalog when it first appears.
+    /// The pricing pane reads the cost database when it first appears.
     /// All panes live in the hierarchy so the switch can cross-fade, so that work is gated on
     /// the tab having actually been opened rather than on the view existing.
     @State private var pricingWasOpened = false

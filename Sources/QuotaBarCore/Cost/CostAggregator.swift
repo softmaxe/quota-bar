@@ -1,10 +1,13 @@
 import Foundation
 
-/// Turns the cache's day/model/tier rows into the numbers the popover shows.
+/// Turns the cache's day/model/tier rows into the numbers the popover shows, pricing each one
+/// at the rates the book gives its day.
 enum CostAggregator {
     static func snapshot(
         provider: Provider,
         cache: CostCache,
+        overlay: PricingOverlay?,
+        book: PriceBook = .bundled,
         windowDays: Int = 30,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -27,22 +30,28 @@ enum CostAggregator {
             var dayPriced = false
             var dayUnpricedTokens = 0
 
-            for (key, stored) in buckets {
-                let totals = stored.tokens
+            for (key, totals) in buckets {
                 let usageKey = ModelUsageKey(source: key.source, model: key.model, isFast: key.isFast)
                 dayTokens[usageKey, default: TokenTotals()] += totals
                 modelTokens[key.model, default: 0] += totals.total
+                guard totals.total > 0 else { continue }
 
-                let pricedTokens = totals.total - stored.unpricedTokens
-                if pricedTokens > 0 {
-                    dayCost += stored.costUSD
+                let pricing = CostPricing.pricing(
+                    forNormalizedModel: key.model,
+                    provider: provider,
+                    day: dayKey,
+                    overlay: overlay,
+                    codexServiceTier: key.isFast ? .fast : .standard,
+                    book: book
+                )
+                if let cost = pricing?.cost(for: totals, longContext: key.longContext) {
+                    dayCost += cost
                     dayPriced = true
-                    dayCostByModel[usageKey, default: 0] += stored.costUSD
-                    modelCost[key.model, default: 0] += stored.costUSD
-                }
-                if stored.unpricedTokens > 0 {
+                    dayCostByModel[usageKey, default: 0] += cost
+                    modelCost[key.model, default: 0] += cost
+                } else {
                     hasUnpriced = true
-                    dayUnpricedTokens += stored.unpricedTokens
+                    dayUnpricedTokens += totals.total
                 }
             }
 

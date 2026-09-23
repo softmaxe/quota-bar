@@ -29,7 +29,12 @@ enum OpenCodeLogScanner {
         let isFast: Bool
     }
 
-    static func scan(cache: CostCache, overlay: PricingOverlay?, env: [String: String]) -> Result {
+    static func scan(
+        cache: CostCache,
+        overlay: PricingOverlay?,
+        book: PriceBook = .bundled,
+        env: [String: String]
+    ) -> Result {
         let dataDirectory = self.dataDirectory(env: env)
         let databaseURL = dataDirectory.appendingPathComponent("opencode.db")
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
@@ -42,7 +47,8 @@ enum OpenCodeLogScanner {
                 databaseURL,
                 eligibility: eligibility,
                 cache: cache,
-                overlay: overlay
+                overlay: overlay,
+                book: book
             )
         }
         return Result(touched: 0, status: .error("auth"))
@@ -52,7 +58,8 @@ enum OpenCodeLogScanner {
         _ url: URL,
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
-        overlay: PricingOverlay?
+        overlay: PricingOverlay?,
+        book: PriceBook
     ) -> Result {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
@@ -81,21 +88,20 @@ enum OpenCodeLogScanner {
                     let pricing = CostPricing.pricing(
                         forNormalizedModel: model,
                         provider: .codex,
+                        day: row.day,
                         overlay: overlay,
-                        codexServiceTier: serviceTier
+                        codexServiceTier: serviceTier,
+                        book: book
                     )
-                    let longContext = CostPricing.isLongContext(totals: row.totals, pricing: pricing)
-                    let cost = pricing?.cost(for: row.totals, longContext: longContext)
                     try cache.addOpenCodePart(
                         key: row.key,
                         included: included,
                         legacyInferred: legacy,
                         day: row.day,
                         model: model,
-                        longContext: longContext,
+                        longContext: CostPricing.isLongContext(totals: row.totals, pricing: pricing),
                         isFast: row.isFast,
-                        totals: row.totals,
-                        costUSD: cost
+                        totals: row.totals
                     )
                 }
                 if legacy { try cache.markOpenCodeBackfillComplete() }

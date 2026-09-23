@@ -42,7 +42,7 @@ enum CardDump {
         let pricing = PricingEditorModel(
             costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
             fixtures: Self.pricingFixtures,
-            saveOperations: .init(freeze: {}, write: { _ in }, invalidate: {})
+            saveOperations: .init(write: { _ in }, invalidate: {})
         )
         Task {
             await pricing.load()

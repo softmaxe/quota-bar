@@ -84,10 +84,8 @@ final class CostCache {
         """)
         try self.addColumnIfMissing(table: "file_cursor", name: "resume_state", definition: "TEXT")
         try self.createCodexDayTable()
-        // Version 6 added these columns without rebuilding the table. Add them first so the
-        // primary-key migration below can copy every historical value with one fixed statement.
-        try self.addColumnIfMissing(table: "codex_day", name: "cost_usd", definition: "REAL")
-        try self.addColumnIfMissing(table: "codex_day", name: "unpriced_tokens", definition: "INTEGER")
+        // Added without rebuilding the table. Add it first so the primary-key migration below can
+        // copy every historical value with one fixed statement.
         try self.addColumnIfMissing(table: "codex_day", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
         try self.migrateLegacyCodexDayIfNeeded()
         // Claude replays the same assistant message into several transcripts, so rows are keyed
@@ -121,9 +119,7 @@ final class CostCache {
             output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL,
             cache_write_1h INTEGER NOT NULL DEFAULT 0,
-            cache_read INTEGER NOT NULL,
-            cost_usd REAL NOT NULL,
-            unpriced_tokens INTEGER NOT NULL
+            cache_read INTEGER NOT NULL
         )
         """)
         try self.addColumnIfMissing(table: "opencode_part", name: "is_fast", definition: "INTEGER NOT NULL DEFAULT 0")
@@ -139,9 +135,7 @@ final class CostCache {
             output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL,
             cache_write_1h INTEGER NOT NULL DEFAULT 0,
-            cache_read INTEGER NOT NULL,
-            cost_usd REAL NOT NULL,
-            unpriced_tokens INTEGER NOT NULL
+            cache_read INTEGER NOT NULL
         )
         """)
         try self.exec("CREATE INDEX IF NOT EXISTS pi_message_day ON pi_message(day)")
@@ -152,25 +146,34 @@ final class CostCache {
         )
         """)
 
-        // Older caches stored only token buckets, so every refresh re-priced history with the
-        // newest override. Nullable columns let the service identify and freeze those legacy rows
-        // once, without dropping or rebuilding the scan cache.
-        try self.addColumnIfMissing(table: "claude_message", name: "cost_usd", definition: "REAL")
-        try self.addColumnIfMissing(table: "claude_message", name: "unpriced_tokens", definition: "INTEGER")
-
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
         try self.addColumnIfMissing(table: "claude_message", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
 
-        // `freezeLegacyPrices` runs on every refresh and, in steady state, matches nothing: rows
-        // written by the current scanners always carry both columns. A partial index keeps that
-        // query from reading tables that only ever grow, in exchange for indexing the handful of
-        // pre-migration rows still waiting to be priced.
-        for table in ["claude_message", "codex_day", "opencode_part", "pi_message"] {
-            try self.exec("""
-            CREATE INDEX IF NOT EXISTS \(table)_unpriced ON \(table)(cost_usd)
-            WHERE cost_usd IS NULL OR unpriced_tokens IS NULL
-            """)
+        try self.dropStoredCostColumns()
+    }
+
+    /// Versions up to 1.0.6 froze each row's cost at scan time. Cost is now derived from the
+    /// tokens and the dated price book whenever it is read, so the stored figures, and the
+    /// partial indexes that found rows still waiting for one, are dropped. Tokens are untouched.
+    private func dropStoredCostColumns() throws {
+        let tables = ["claude_message", "codex_day", "opencode_part", "pi_message"]
+        var pending: [(table: String, column: String)] = []
+        for table in tables {
+            for column in ["cost_usd", "unpriced_tokens"] where try self.columnExists(table: table, name: column) {
+                pending.append((table, column))
+            }
+        }
+        guard !pending.isEmpty else { return }
+
+        try self.exec("BEGIN IMMEDIATE")
+        do {
+            for table in tables { try self.exec("DROP INDEX IF EXISTS \(table)_unpriced") }
+            for item in pending { try self.exec("ALTER TABLE \(item.table) DROP COLUMN \(item.column)") }
+            try self.exec("COMMIT")
+        } catch {
+            try? self.exec("ROLLBACK")
+            throw error
         }
     }
 
@@ -189,8 +192,6 @@ final class CostCache {
             cache_write INTEGER NOT NULL,
             cache_write_1h INTEGER NOT NULL DEFAULT 0,
             cache_read INTEGER NOT NULL,
-            cost_usd REAL,
-            unpriced_tokens INTEGER,
             PRIMARY KEY (path, day, model, long_context, is_fast)
         )
         """)
@@ -206,9 +207,9 @@ final class CostCache {
             try self.exec("""
             INSERT INTO codex_day
                 (path, day, model, long_context, is_fast, input, output, cache_write,
-                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
+                 cache_write_1h, cache_read)
             SELECT path, day, model, long_context, 0, input, output, cache_write,
-                   cache_write_1h, cache_read, cost_usd, unpriced_tokens
+                   cache_write_1h, cache_read
             FROM codex_day_legacy
             """)
             try self.exec("DROP TABLE codex_day_legacy")
@@ -303,22 +304,19 @@ final class CostCache {
         model: String,
         longContext: Bool,
         isFast: Bool,
-        totals: TokenTotals,
-        costUSD: Double?
+        totals: TokenTotals
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO codex_day
                 (path, day, model, long_context, is_fast, input, output, cache_write,
-                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_write_1h, cache_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path, day, model, long_context, is_fast) DO UPDATE SET
                 input = input + excluded.input,
                 output = output + excluded.output,
                 cache_write = cache_write + excluded.cache_write,
                 cache_write_1h = cache_write_1h + excluded.cache_write_1h,
-                cache_read = cache_read + excluded.cache_read,
-                cost_usd = COALESCE(cost_usd, 0) + excluded.cost_usd,
-                unpriced_tokens = COALESCE(unpriced_tokens, 0) + excluded.unpriced_tokens
+                cache_read = cache_read + excluded.cache_read
             """)
         defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
@@ -326,7 +324,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 4, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 5, isFast ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        self.bindUsage(stmt, from: 6, totals: totals)
         try self.step(stmt)
     }
 
@@ -336,14 +334,13 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
-        totals: TokenTotals,
-        costUSD: Double?
+        totals: TokenTotals
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO claude_message
                 (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
-                 cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 path = excluded.path,
                 day = excluded.day,
@@ -353,9 +350,7 @@ final class CostCache {
                 output = excluded.output,
                 cache_write = excluded.cache_write,
                 cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read,
-                cost_usd = excluded.cost_usd,
-                unpriced_tokens = excluded.unpriced_tokens
+                cache_read = excluded.cache_read
             -- Streaming writes the same message several times as it completes; only the chunk
             -- that grew the reply supersedes what is already stored. Everything else is a replay
             -- of a message this cache already has, and must not overwrite the finished figure.
@@ -367,7 +362,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        self.bindUsage(stmt, from: 6, totals: totals)
         try self.step(stmt)
     }
 
@@ -389,14 +384,13 @@ final class CostCache {
         model: String,
         longContext: Bool,
         isFast: Bool,
-        totals: TokenTotals,
-        costUSD: Double?
+        totals: TokenTotals
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
-                 output, cache_write, cache_write_1h, cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 output, cache_write, cache_write_1h, cache_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 day = excluded.day,
                 model = excluded.model,
@@ -406,9 +400,7 @@ final class CostCache {
                 output = excluded.output,
                 cache_write = excluded.cache_write,
                 cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read,
-                cost_usd = excluded.cost_usd,
-                unpriced_tokens = excluded.unpriced_tokens
+                cache_read = excluded.cache_read
             WHERE excluded.day IS NOT opencode_part.day
                OR excluded.model IS NOT opencode_part.model
                OR excluded.is_fast IS NOT opencode_part.is_fast
@@ -426,7 +418,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 5, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 6, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 7, isFast ? 1 : 0)
-        self.bindUsage(stmt, from: 8, totals: totals, costUSD: costUSD)
+        self.bindUsage(stmt, from: 8, totals: totals)
         try self.step(stmt)
     }
 
@@ -436,20 +428,18 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
-        totals: TokenTotals,
-        costUSD: Double?
+        totals: TokenTotals
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
-                 cache_write_1h, cache_read, cost_usd, unpriced_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_write_1h, cache_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 day = excluded.day, model = excluded.model, long_context = excluded.long_context,
                 input = excluded.input, output = excluded.output,
                 cache_write = excluded.cache_write, cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read, cost_usd = excluded.cost_usd,
-                unpriced_tokens = excluded.unpriced_tokens
+                cache_read = excluded.cache_read
             WHERE excluded.day IS NOT pi_message.day
                OR excluded.model IS NOT pi_message.model
                OR excluded.input IS NOT pi_message.input
@@ -464,7 +454,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals, costUSD: costUSD)
+        self.bindUsage(stmt, from: 6, totals: totals)
         try self.step(stmt)
     }
 
@@ -478,12 +468,6 @@ final class CostCache {
         let isFast: Bool
     }
 
-    struct StoredUsage {
-        var tokens: TokenTotals
-        var costUSD: Double
-        var unpricedTokens: Int
-    }
-
     /// The per-provider table. A `switch` rather than a ternary, so a third provider fails to
     /// compile instead of being filed silently under Claude's.
     private static func table(for provider: Provider) -> String {
@@ -493,56 +477,10 @@ final class CostCache {
         }
     }
 
-    /// Locks pre-migration rows to the rates currently in force. New scanner writes always carry
-    /// their own cost, so later override edits cannot flow backward into these rows.
-    func freezeLegacyPrices(provider: Provider, overlay: PricingOverlay?) throws {
-        let table = Self.table(for: provider)
-        let select = try self.prepared("""
-            SELECT rowid, model, long_context, input, output, cache_write, cache_write_1h, cache_read
-            FROM \(table)
-            WHERE cost_usd IS NULL OR unpriced_tokens IS NULL
-            """)
-        defer { sqlite3_finalize(select) }
-
-        var legacy: [(rowID: Int64, costUSD: Double, unpricedTokens: Int)] = []
-        while sqlite3_step(select) == SQLITE_ROW {
-            let rowID = sqlite3_column_int64(select, 0)
-            let model = String(cString: sqlite3_column_text(select, 1))
-            let longContext = sqlite3_column_int64(select, 2) != 0
-            let totals = TokenTotals(
-                input: Int(sqlite3_column_int64(select, 3)),
-                output: Int(sqlite3_column_int64(select, 4)),
-                cacheWrite: Int(sqlite3_column_int64(select, 5)),
-                cacheWrite1h: Int(sqlite3_column_int64(select, 6)),
-                cacheRead: Int(sqlite3_column_int64(select, 7))
-            )
-            let cost = CostPricing.cost(
-                totals: totals,
-                model: model,
-                provider: provider,
-                longContext: longContext,
-                overlay: overlay
-            )
-            legacy.append((rowID, cost ?? 0, cost == nil ? totals.total : 0))
-        }
-
-        // One statement reused across the backlog rather than one prepare per row.
-        let update = try self.prepared(
-            "UPDATE \(table) SET cost_usd = ?, unpriced_tokens = ? WHERE rowid = ?"
-        )
-        defer { sqlite3_finalize(update) }
-        for row in legacy {
-            sqlite3_reset(update)
-            sqlite3_bind_double(update, 1, row.costUSD)
-            sqlite3_bind_int64(update, 2, Int64(row.unpricedTokens))
-            sqlite3_bind_int64(update, 3, row.rowID)
-            try self.step(update)
-        }
-    }
-
-    /// Day -> (model, tier) -> frozen usage, for days at or after `fromDay`.
-    func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: StoredUsage]] {
-        var result: [String: [ModelTier: StoredUsage]] = [:]
+    /// Day -> (model, tier) -> tokens, for days at or after `fromDay`. Pricing them is the
+    /// reader's job, so the stored rows never go stale when a rate changes.
+    func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: TokenTotals]] {
+        var result: [String: [ModelTier: TokenTotals]] = [:]
         try self.readUsage(
             table: Self.table(for: provider),
             source: provider == .codex ? .codex : .claude,
@@ -578,13 +516,12 @@ final class CostCache {
         supportsFast: Bool,
         includedOnly: Bool,
         fromDay: String,
-        into result: inout [String: [ModelTier: StoredUsage]]
+        into result: inout [String: [ModelTier: TokenTotals]]
     ) throws {
         let fastExpression = supportsFast ? "is_fast" : "FALSE"
         let stmt = try self.prepared("""
             SELECT day, model, long_context, \(fastExpression),
-                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read),
-                   SUM(COALESCE(cost_usd, 0)), SUM(COALESCE(unpriced_tokens, 0))
+                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read)
             FROM \(table)
             WHERE \(includedOnly ? "included = 1 AND " : "")day >= ?
             GROUP BY day, model, long_context, \(fastExpression)
@@ -599,27 +536,15 @@ final class CostCache {
                 longContext: sqlite3_column_int64(stmt, 2) != 0,
                 isFast: sqlite3_column_int64(stmt, 3) != 0
             )
-            let usage = StoredUsage(
-                tokens: TokenTotals(
-                    input: Int(sqlite3_column_int64(stmt, 4)),
-                    output: Int(sqlite3_column_int64(stmt, 5)),
-                    cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
-                    cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
-                    cacheRead: Int(sqlite3_column_int64(stmt, 8))
-                ),
-                costUSD: sqlite3_column_double(stmt, 9),
-                unpricedTokens: Int(sqlite3_column_int64(stmt, 10))
+            let tokens = TokenTotals(
+                input: Int(sqlite3_column_int64(stmt, 4)),
+                output: Int(sqlite3_column_int64(stmt, 5)),
+                cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
+                cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
+                cacheRead: Int(sqlite3_column_int64(stmt, 8))
             )
             // One tier can land in more than one table, so the day's figure is their sum.
-            if let existing = result[day]?[tier] {
-                result[day]?[tier] = StoredUsage(
-                    tokens: existing.tokens + usage.tokens,
-                    costUSD: existing.costUSD + usage.costUSD,
-                    unpricedTokens: existing.unpricedTokens + usage.unpricedTokens
-                )
-            } else {
-                result[day, default: [:]][tier] = usage
-            }
+            result[day, default: [:]][tier, default: TokenTotals()] += tokens
         }
     }
 
@@ -685,22 +610,13 @@ final class CostCache {
         return stmt
     }
 
-    /// The five token columns and the cost pair every usage row ends with, bound from `index`.
-    /// A row priced at scan time carries its cost; an unpriced one carries its tokens instead, so
-    /// a later override edit can still find and reprice it.
-    private func bindUsage(
-        _ stmt: OpaquePointer?,
-        from index: Int32,
-        totals: TokenTotals,
-        costUSD: Double?
-    ) {
+    /// The five token columns every usage row ends with, bound from `index`.
+    private func bindUsage(_ stmt: OpaquePointer?, from index: Int32, totals: TokenTotals) {
         sqlite3_bind_int64(stmt, index, Int64(totals.input))
         sqlite3_bind_int64(stmt, index + 1, Int64(totals.output))
         sqlite3_bind_int64(stmt, index + 2, Int64(totals.cacheWrite))
         sqlite3_bind_int64(stmt, index + 3, Int64(totals.cacheWrite1h))
         sqlite3_bind_int64(stmt, index + 4, Int64(totals.cacheRead))
-        sqlite3_bind_double(stmt, index + 5, costUSD ?? 0)
-        sqlite3_bind_int64(stmt, index + 6, Int64(costUSD == nil ? totals.total : 0))
     }
 
     /// Runs a statement expected to produce no rows.

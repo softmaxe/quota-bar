@@ -12,7 +12,6 @@ enum CostTests {
         Self.modelBreakdownRanking()
         Self.longContextTiering()
         Self.overlayParsing()
-        Self.catalogRefreshBackoff()
         Self.legacyReadOnlyCache()
         Self.logFileScanning()
         do {
@@ -27,7 +26,7 @@ enum CostTests {
         await Self.openCodeScanning()
         await Self.openCodeFastUsageIsSeparate()
         await Self.piAgentScanning()
-        await Self.pricingEditsApplyForward()
+        await Self.pricingEditsRepriceHistory()
     }
 
     // MARK: - Pricing
@@ -88,17 +87,17 @@ enum CostTests {
             let changedPrices = PricingOverlay(userOverrides: ["retention-model": ModelPricing(input: 100, output: 200)])
             let moved = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
             Harness.expectEqual(moved?.windowTokens, 120, "archiving a Codex session does not double count")
-            Harness.expectClose(moved?.windowCostUSD, 0.00014, "archiving retains the original price")
+            Harness.expectClose(moved?.windowCostUSD, 0.014, "archived usage is priced at the current rates")
             try FileManager.default.copyItem(at: archive, to: file)
             let copied = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
             Harness.expectEqual(copied?.windowTokens, 120, "simultaneous archive copies are counted once")
-            Harness.expectClose(copied?.windowCostUSD, 0.00014, "a copied session retains the original price")
+            Harness.expectClose(copied?.windowCostUSD, 0.014, "a copied session is priced once")
             try FileManager.default.removeItem(at: home.appendingPathComponent("sessions"))
             try FileManager.default.removeItem(at: home.appendingPathComponent("archived_sessions"))
             let restarted = CostService(databaseURL: database, env: env, pricingOverlay: changedPrices)
             let retained = await restarted.refresh(.codex)
             Harness.expectEqual(retained?.windowTokens, 120, "deleted sessions retain tokens after restart")
-            Harness.expectClose(retained?.windowCostUSD, 0.00014, "deleted sessions retain their frozen cost")
+            Harness.expectClose(retained?.windowCostUSD, 0.014, "deleted sessions stay priced from their tokens")
             Harness.expectEqual(await restarted.knownModelUsage(provider: .codex),
                                 [ModelUsageTotal(model: "retention-model", tokens: 120)],
                                 "deleted sessions remain in model usage")
@@ -111,7 +110,7 @@ enum CostTests {
             try lines.write(to: file, atomically: true, encoding: .utf8)
             let restored = await restarted.refresh(.codex)
             Harness.expectEqual(restored?.windowTokens, 120, "restoring a deleted session does not duplicate usage")
-            Harness.expectClose(restored?.windowCostUSD, 0.00014, "restoring a session keeps its frozen price")
+            Harness.expectClose(restored?.windowCostUSD, 0.014, "restoring a session does not duplicate its cost")
             if let handle = try? FileHandle(forWritingTo: file) {
                 try handle.seekToEnd()
                 let turn = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"output_tokens":20}}}}"#
@@ -120,13 +119,13 @@ enum CostTests {
             }
             let appended = await restarted.refresh(.codex)
             Harness.expectEqual(appended?.windowTokens, 240, "restored sessions continue incremental scanning")
-            Harness.expectClose(appended?.windowCostUSD, 0.01414, "only appended usage receives the new price")
+            Harness.expectClose(appended?.windowCostUSD, 0.028, "appended usage is priced alongside the retained usage")
             try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
             try lines.write(to: archive, atomically: true, encoding: .utf8)
             try FileManager.default.removeItem(at: file)
             let olderArchive = await restarted.refresh(.codex)
             Harness.expectEqual(olderArchive?.windowTokens, 240, "deleting a live session preserves usage beyond an older archive copy")
-            Harness.expectClose(olderArchive?.windowCostUSD, 0.01414, "an older archive cannot replace recorded costs")
+            Harness.expectClose(olderArchive?.windowCostUSD, 0.028, "an older archive cannot replace recorded usage")
 
             let claudeHome = root.appendingPathComponent("claude")
             let claudeFile = claudeHome.appendingPathComponent("projects/demo/session.jsonl")
@@ -139,7 +138,7 @@ enum CostTests {
             try FileManager.default.removeItem(at: claudeHome)
             let claudeRetained = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
             Harness.expectEqual(claudeRetained?.windowTokens, 120, "Claude usage survives deleting its session directory and restart")
-            Harness.expectClose(claudeRetained?.windowCostUSD, 0.00014, "deleted Claude usage keeps its price")
+            Harness.expectClose(claudeRetained?.windowCostUSD, 0.014, "deleted Claude usage stays priced")
             Harness.expectEqual(claudeRetained?.days.first?.rankedModels.first?.key.source, .claude,
                                 "deleted Claude usage keeps its harness")
             for suffix in ["", "-wal"] {
@@ -157,7 +156,7 @@ enum CostTests {
             sqlite3_close(db)
             let upgraded = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
             Harness.expectEqual(upgraded?.windowTokens, 120, "scanner version changes preserve deleted-source history")
-            Harness.expectClose(upgraded?.windowCostUSD, 0.00014, "scanner version changes preserve frozen prices")
+            Harness.expectClose(upgraded?.windowCostUSD, 0.014, "scanner version changes preserve priced history")
         } catch {
             Harness.expect(false, "session retention fixture failed: \(error)")
         }
@@ -467,67 +466,12 @@ enum CostTests {
         """.utf8))
         Harness.expectEqual(overrides["my-model"]?.input, 1, "user override input rate")
 
-        // models.dev publishes USD per million, keyed provider -> models.
-        let catalog = PricingOverlayStore.parseCatalog(Data("""
-        {
-          "providers": {
-            "anthropic": {
-              "models": {
-                "claude-test-1": {
-                  "cost": { "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75 }
-                }
-              }
-            },
-            "openai": {
-              "models": { "gpt-test-1": { "cost": { "input": 1, "output": 4 } } }
-            }
-          }
-        }
-        """.utf8))
-        Harness.expectEqual(catalog?["claude-test-1"]?.output, 15, "models.dev output rate")
-        Harness.expectEqual(catalog?["gpt-test-1"]?.input, 1, "models.dev second provider parsed")
-
-        // A user override must win over the catalog for the same model.
-        let overlay = PricingOverlay(
-            userOverrides: ["claude-opus-5": ModelPricing(input: 99, output: 99)],
-            modelsDev: ["claude-opus-5": ModelPricing(input: 1, output: 1)]
-        )
+        // A user override must win over the price book for the same model.
+        let overlay = PricingOverlay(userOverrides: ["claude-opus-5": ModelPricing(input: 99, output: 99)])
         Harness.expectEqual(
             CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
             99,
-            "user override beats the models.dev catalog"
-        )
-    }
-
-    // MARK: - models.dev refresh
-
-    /// The pricing pane used to wait on this refresh, and a host that cannot reach models.dev
-    /// paid the request timeout on every open because a failure writes no cache and so never
-    /// stops looking stale. The backoff is what turns that into one attempt an hour.
-    private static func catalogRefreshBackoff() {
-        let hour: TimeInterval = 60 * 60
-
-        Harness.expect(
-            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: nil),
-            "a catalog that was never fetched is worth fetching"
-        )
-        Harness.expect(
-            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 12 * hour, lastAttemptAge: nil),
-            "a catalog inside its TTL is left alone"
-        )
-        Harness.expect(
-            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 25 * hour, lastAttemptAge: 2 * hour),
-            "a catalog past its TTL refreshes once the backoff has run out"
-        )
-        Harness.expect(
-            PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: nil, lastAttemptAge: 2 * hour),
-            "a failure an hour old is retried"
-        )
-        // A stale catalog still in backoff keeps serving its prices rather than blocking on a
-        // fetch; that is the whole point of keeping the old cache on failure.
-        Harness.expect(
-            !PricingCatalogRefreshPolicy.shouldRefresh(catalogAge: 30 * hour, lastAttemptAge: 5 * 60),
-            "a stale catalog waits out the backoff instead of retrying on every call"
+            "user override beats the price book"
         )
     }
 
@@ -744,8 +688,7 @@ enum CostTests {
             nil
         )
         let completed = await service.refresh(.codex)
-        Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its frozen usage")
-        let completedCost = completed?.windowCostUSD
+        Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its stored usage")
         await service.usePricingOverlay(PricingOverlay(userOverrides: [
             "gpt-5.6-luna": ModelPricing(
                 input: 100,
@@ -758,7 +701,9 @@ enum CostTests {
             ),
         ]))
         let repriced = await service.refresh(.codex)
-        Harness.expectClose(repriced?.windowCostUSD, completedCost ?? -1, "an overlay change does not reprice unchanged OpenCode usage")
+        // The tier was decided at scan time against the book's 272K threshold, so the override's
+        // threshold of 1 cannot move stored rows into its long-context rates.
+        Harness.expectClose(repriced?.windowCostUSD, 0.025, "an overlay change reprices recorded OpenCode usage")
 
         try? #"{"openai":{"type":"api","accountId":"account-a"}}"#.write(
             to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
@@ -959,16 +904,16 @@ enum CostTests {
         Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "missing Pi sessions are idle")
     }
 
-    /// A price edit must not rewrite history: what has already been scanned keeps the cost it was
-    /// billed at, and the new rate reaches only the turns logged afterwards.
-    private static func pricingEditsApplyForward() async {
+    /// Cost is derived when usage is read, so a price edit reaches every recorded day, including
+    /// usage that had no price when it was scanned.
+    private static func pricingEditsRepriceHistory() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-forwardprices-\(ProcessInfo.processInfo.processIdentifier)")
+            .appendingPathComponent("quotabar-repricing-\(ProcessInfo.processInfo.processIdentifier)")
         try? FileManager.default.removeItem(at: root)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let codexHome = root.appendingPathComponent("codex")
-        let logFile = codexHome.appendingPathComponent("sessions/rollout-forward.jsonl")
+        let logFile = codexHome.appendingPathComponent("sessions/rollout-reprice.jsonl")
         try? FileManager.default.createDirectory(
             at: logFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -979,12 +924,14 @@ enum CostTests {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let now = formatter.string(from: Date())
         // 200k input stays under luna's 272k long-context threshold, so the base rate applies.
-        let turn = """
-        {"type":"turn_context","timestamp":"\(now)","payload":{"model":"gpt-5.6-luna"}}
-        {"type":"event_msg","timestamp":"\(now)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}
+        func turn(_ model: String) -> String {
+            """
+            {"type":"turn_context","timestamp":"\(now)","payload":{"model":"\(model)"}}
+            {"type":"event_msg","timestamp":"\(now)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}
 
-        """
-        try? turn.write(to: logFile, atomically: true, encoding: .utf8)
+            """
+        }
+        try? (turn("gpt-5.6-luna") + turn("gpt-new-unlisted")).write(to: logFile, atomically: true, encoding: .utf8)
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
@@ -992,40 +939,26 @@ enum CostTests {
             pricingOverlay: PricingOverlay()
         )
 
-        let append = {
-            guard let handle = try? FileHandle(forWritingTo: logFile) else { return }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(turn.utf8))
-            try? handle.close()
-        }
-
         let before = await service.refresh(.codex)
-        Harness.expectClose(before?.windowCostUSD, 0.04, "200k luna tokens at the built-in rate")
+        Harness.expectClose(before?.windowCostUSD, 0.04, "200k luna tokens at the book's rate")
+        Harness.expect(before?.hasUnpricedTokens == true, "a model the book does not list is unpriced")
+        Harness.expectEqual(
+            before?.windowCostAvailability.state,
+            .partial,
+            "priced and unpriced usage together make a partial estimate"
+        )
 
-        // A turn logged before the edit but not yet scanned still belongs to the old rate.
-        append()
-
-        // What the settings pane does on Save: seal what is on disk, then move the rates.
-        do {
-            try await service.freezeCurrentPrices()
-        } catch {
-            Harness.expect(false, "freezing prices threw: \(error)")
-            return
-        }
-        await service.usePricingOverlay(PricingOverlay(
-            userOverrides: ["gpt-5.6-luna": ModelPricing(input: 5, output: 5)]
-        ))
-
-        let sealed = await service.refresh(.codex)
-        Harness.expectEqual(sealed?.windowTokens, 400_000, "the pending turn is scanned before the edit")
-        Harness.expectClose(sealed?.windowCostUSD, 0.08, "a price edit leaves recorded usage alone")
-
-        append()
+        // What the settings pane does on Save: write the file, then drop the cached overrides.
+        await service.usePricingOverlay(PricingOverlay(userOverrides: [
+            "gpt-5.6-luna": ModelPricing(input: 5, output: 5),
+            "gpt-new-unlisted": ModelPricing(input: 1, output: 1),
+        ]))
 
         let after = await service.refresh(.codex)
-        Harness.expectEqual(after?.windowTokens, 600_000, "the turn logged after the edit is scanned")
-        // 0.08 frozen at the old rate plus 200k at the new $5/M rate.
-        Harness.expectClose(after?.windowCostUSD, 1.08, "only new usage bills at the new rate")
+        Harness.expectEqual(after?.windowTokens, 400_000, "repricing changes no token counts")
+        // 200k luna at the new $5/M plus 200k of the formerly unpriced model at $1/M.
+        Harness.expectClose(after?.windowCostUSD, 1.2, "a price edit reprices recorded usage")
+        Harness.expect(after?.hasUnpricedTokens == false, "an override prices usage that was scanned unpriced")
     }
 
     private static func scanning() async {
@@ -2224,7 +2157,7 @@ enum PricingOverrideTests {
         Harness.expectEqual(loaded["ox-tiered"], overrides["ox-tiered"], "the full rate set round-trips")
 
         // A model with no built-in price becomes priceable through the override alone.
-        let overlay = PricingOverlay(userOverrides: loaded, modelsDev: [:])
+        let overlay = PricingOverlay(userOverrides: loaded)
         Harness.expectEqual(
             CostPricing.cost(
                 totals: TokenTotals(input: 1_000_000),

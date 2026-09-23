@@ -8,7 +8,7 @@ import SwiftUI
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingEditorModel
     /// The settings window keeps this pane mounted behind the General one so the tabs can
-    /// cross-fade, so the scan and the catalog refresh wait for the tab to actually be opened.
+    /// cross-fade, so reading the scan cache waits for the tab to actually be opened.
     var isLoadEnabled = true
     @State private var expandedGroups = Set(PricingGroup.allCases)
     /// The column under the pointer, so an unsorted header can show the arrow a click would
@@ -61,7 +61,7 @@ struct PricingSettingsView: View {
                 .font(.system(size: 13, weight: .semibold))
             Text("USD per million tokens. Expand a row for the one-hour cache write and the "
                 + "long-context tier. Edits are saved as overrides, so models you leave alone "
-                + "keep following the built-in table and the models.dev catalog.")
+                + "keep following the built-in price book.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -491,13 +491,13 @@ struct PricingSettingsView: View {
             return "Saving…"
         }
         if self.model.hasUnsavedChanges {
-            return "Unsaved changes. New rates apply only to usage recorded after saving."
+            return "Unsaved changes. Saved rates reprice every recorded day of that model."
         }
         if self.model.saveStatus == .saved {
-            return "Saved. Usage already recorded keeps the prices it was billed at; "
-                + "the new rates apply from here on."
+            return "Saved. Costs are recalculated for all recorded usage of the edited models, "
+                + "including usage that had no price before."
         }
-        return "Saved rates apply to new usage only — past days keep the prices they were "
-            + "scanned with. Unpriced models stay out of cost totals."
+        return "Saved rates apply to all recorded usage of a model, past and future. "
+            + "Unpriced models stay out of cost totals."
     }
 }

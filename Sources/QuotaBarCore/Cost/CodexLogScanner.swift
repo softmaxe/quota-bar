@@ -21,6 +21,7 @@ enum CodexLogScanner {
     static func scan(
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook = .bundled,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env)))
@@ -63,6 +64,7 @@ enum CodexLogScanner {
                             path: path,
                             cache: cache,
                             overlay: overlay,
+                            book: book,
                             state: &state
                         )
                     } catch {
@@ -182,6 +184,7 @@ enum CodexLogScanner {
         path: String,
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook,
         state: inout ResumeState
     ) throws {
         let data = Data(line)
@@ -220,22 +223,23 @@ enum CodexLogScanner {
 
         // Older rollouts predate turn_context; count their tokens but leave them unpriced.
         let model = state.model ?? CostPricing.unknownModel
-        // The long-context tier and price belong to the individual turn, not to the day's total.
+        // The long-context tier belongs to the individual turn, not to the day's total.
+        let day = DayKey.make(from: date)
         let pricing = CostPricing.pricing(
             forNormalizedModel: model,
             provider: .codex,
+            day: day,
             overlay: overlay,
-            codexServiceTier: state.serviceTier
+            codexServiceTier: state.serviceTier,
+            book: book
         )
-        let longContext = CostPricing.isLongContext(totals: totals, pricing: pricing)
         try cache.addCodexTokens(
             path: path,
-            day: DayKey.make(from: date),
+            day: day,
             model: model,
-            longContext: longContext,
+            longContext: CostPricing.isLongContext(totals: totals, pricing: pricing),
             isFast: state.serviceTier.isFast,
-            totals: totals,
-            costUSD: pricing?.cost(for: totals, longContext: longContext)
+            totals: totals
         )
     }
 

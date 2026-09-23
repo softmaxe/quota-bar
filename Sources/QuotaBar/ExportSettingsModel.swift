@@ -50,7 +50,7 @@ final class ExportSettingsModel: ObservableObject {
         let write: @Sendable (String, URL) throws -> Void
 
         static let live = Operations(
-            read: { try UsageReportReader.read(windowDays: $0) },
+            read: { try UsageReportReader.read(windowDays: $0, overlay: PricingOverlayStore.loadFromDisk()) },
             render: { try UsageReportHTMLRenderer.render($0) },
             write: { html, url in
                 try Data(html.utf8).write(to: url, options: .atomic)

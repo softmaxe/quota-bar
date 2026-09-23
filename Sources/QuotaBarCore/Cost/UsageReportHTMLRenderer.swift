@@ -46,11 +46,7 @@ public enum UsageReportHTMLRenderer {
     }
 
     private static func resource(_ name: String, extension suffix: String) throws -> String {
-        // Packaged apps keep SwiftPM resources in Contents/Resources. Resolve them there first
-        // so a distributed app never relies on SwiftPM's absolute development-build fallback.
-        let bundled = Bundle.main.resourceURL?.appendingPathComponent("QuotaBar_QuotaBarCore.bundle")
-        let resourceBundle = bundled.flatMap(Bundle.init(url:)) ?? Bundle.module
-        guard let url = resourceBundle.url(forResource: name, withExtension: suffix, subdirectory: "UsageReport") else {
+        guard let url = CoreResources.bundle.url(forResource: name, withExtension: suffix, subdirectory: "UsageReport") else {
             throw RenderError.missingResource("\(name).\(suffix)")
         }
         return try String(contentsOf: url, encoding: .utf8)
