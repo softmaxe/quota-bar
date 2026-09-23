@@ -10,8 +10,14 @@ set -euo pipefail
 PRODUCT_NAME="QuotaBar"
 APP_NAME="${APP_NAME:-$PRODUCT_NAME}"
 BUNDLE_ID="${BUNDLE_ID:-com.quotabar.app}"
-VERSION="${VERSION:-1.0.9}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Release builds pass VERSION from the pushed tag. Local builds use the latest release tag, so a
+# release needs no version bump commit.
+if [[ -z "${VERSION:-}" ]]; then
+    latest_tag="$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)"
+    VERSION="${latest_tag:-v0.0.0}"
+    VERSION="${VERSION#v}"
+fi
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
 

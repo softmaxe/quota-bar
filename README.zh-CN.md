@@ -340,7 +340,7 @@ make build
 
 如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**，并选择要构建的分支。手动运行会将开发版 ZIP 和 SHA-256 文件上传为工作流产物，不会发布 Release。
 
-发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，标签决定应用版本号。工作流会运行测试、打包 `arm64` ZIP、校验签名、版本、架构和校验和，发布 GitHub Release，然后更新 `softmaxe/homebrew-tap`。标签发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。确认 **Release** 和 **Update Homebrew tap** 都完成后，发布流程才算结束。
+发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，标签决定应用版本号，无需另外提交版本号改动；本地 `make app` 构建使用最新的发布标签。工作流会运行测试、打包 `arm64` ZIP、校验签名、版本、架构和校验和，发布 GitHub Release，然后更新 `softmaxe/homebrew-tap`。标签发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。确认 **Release** 和 **Update Homebrew tap** 都完成后，发布流程才算结束。
 
 </details>
 
