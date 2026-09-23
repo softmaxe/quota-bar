@@ -63,18 +63,11 @@ enum PricingModelFilterVerifier {
                 "gpt-override-only": ModelPricing(input: 9, output: 10),
                 "claude-override-priced": ModelPricing(input: 7, output: 8),
                 "claude-override-only": ModelPricing(input: 9, output: 10),
-            ],
-            modelsDev: [
-                "gpt-catalog-priced": ModelPricing(input: 5, output: 6),
-                "gpt-catalog-only": ModelPricing(input: 5, output: 6),
-                "claude-catalog-priced": ModelPricing(input: 5, output: 6),
-                "claude-catalog-only": ModelPricing(input: 5, output: 6),
             ]
         )
 
         let codexUsage = [
             ModelUsageTotal(model: "gpt-5.5", tokens: 100),
-            ModelUsageTotal(model: "gpt-catalog-priced", tokens: 100),
             ModelUsageTotal(model: "gpt-override-priced", tokens: 100),
             ModelUsageTotal(model: "gpt-local-unpriced", tokens: 100),
             ModelUsageTotal(model: "gpt-5.6", tokens: 100),
@@ -92,14 +85,13 @@ enum PricingModelFilterVerifier {
             failures: &failures
         )
         self.expect(
-            !visibleCodex.contains("gpt-override-only") && !visibleCodex.contains("gpt-catalog-only"),
+            !visibleCodex.contains("gpt-override-only"),
             "unused Codex overlay models were displayed",
             failures: &failures
         )
 
         let claudeUsage = [
             ModelUsageTotal(model: "claude-opus-4", tokens: 100),
-            ModelUsageTotal(model: "claude-catalog-priced", tokens: 100),
             ModelUsageTotal(model: "claude-override-priced", tokens: 100),
             ModelUsageTotal(model: "claude-local-unpriced", tokens: 100),
             ModelUsageTotal(model: "claude-haiku-4-5-20251001", tokens: 100),
@@ -117,7 +109,7 @@ enum PricingModelFilterVerifier {
             failures: &failures
         )
         self.expect(
-            !visibleClaude.contains("claude-override-only") && !visibleClaude.contains("claude-catalog-only"),
+            !visibleClaude.contains("claude-override-only"),
             "unused Claude overlay models were displayed",
             failures: &failures
         )

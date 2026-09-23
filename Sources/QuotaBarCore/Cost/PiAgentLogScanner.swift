@@ -44,6 +44,7 @@ enum PiAgentLogScanner {
     static func scan(
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook = .bundled,
         env: [String: String],
         previous: SessionSnapshot? = nil
     ) -> Result {
@@ -60,6 +61,7 @@ enum PiAgentLogScanner {
                 eligibility: eligibility,
                 cache: cache,
                 overlay: overlay,
+                book: book,
                 previous: previous
             )
         }
@@ -71,6 +73,7 @@ enum PiAgentLogScanner {
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook,
         previous: SessionSnapshot?
     ) -> Result {
         do {
@@ -91,18 +94,17 @@ enum PiAgentLogScanner {
                     let pricing = CostPricing.pricing(
                         forNormalizedModel: model,
                         provider: .codex,
-                        overlay: overlay
+                        day: row.day,
+                        overlay: overlay,
+                        book: book
                     )
-                    let longContext = CostPricing.isLongContext(totals: row.totals, pricing: pricing)
-                    let cost = pricing?.cost(for: row.totals, longContext: longContext)
                     try cache.addPiMessage(
                         key: row.key,
                         included: included,
                         day: row.day,
                         model: model,
-                        longContext: longContext,
-                        totals: row.totals,
-                        costUSD: cost
+                        longContext: CostPricing.isLongContext(totals: row.totals, pricing: pricing),
+                        totals: row.totals
                     )
                 }
                 try cache.commit()

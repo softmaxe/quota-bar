@@ -68,7 +68,7 @@ enum InterfacePreview {
             let pricing = PricingEditorModel(
                 costService: service,
                 fixtures: .init(usage: [:], overlay: PricingOverlay()),
-                saveOperations: .init(freeze: {}, write: { _ in }, invalidate: {})
+                saveOperations: .init(write: { _ in }, invalidate: {})
             )
 
             for provider in Provider.allCases {

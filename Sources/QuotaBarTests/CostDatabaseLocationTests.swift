@@ -96,21 +96,42 @@ enum CostDatabaseLocationTests {
                 try self.scalarInt(
                     "SELECT COUNT(*) FROM codex_day WHERE path = '/missing/legacy-rollout.jsonl' "
                         + "AND is_fast = 0 AND input = 10 AND output = 2 AND cache_write = 3 "
-                        + "AND cache_write_1h = 1 AND cache_read = 4 "
-                        + "AND cost_usd = 1.25 AND unpriced_tokens = 6",
+                        + "AND cache_write_1h = 1 AND cache_read = 4",
                     from: database
                 ),
                 1,
-                "legacy Codex usage and frozen price survive schema upgrade"
+                "legacy Codex usage survives schema upgrade"
             )
             Harness.expectEqual(
                 try self.scalarInt(
                     "SELECT COUNT(*) FROM opencode_part WHERE key = 'legacy-part' "
-                        + "AND is_fast = 0 AND input = 5 AND cost_usd = 0.75",
+                        + "AND is_fast = 0 AND input = 5",
                     from: database
                 ),
                 1,
                 "legacy OpenCode usage survives with the standard tier"
+            )
+            // Cost is derived from tokens now, so the frozen figures and their index are gone.
+            Harness.expectEqual(
+                try self.scalarInt(
+                    "SELECT COUNT(*) FROM pragma_table_info('codex_day') "
+                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
+                    from: database
+                ) + self.scalarInt(
+                    "SELECT COUNT(*) FROM pragma_table_info('opencode_part') "
+                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
+                    from: database
+                ),
+                0,
+                "schema upgrade drops the stored cost columns"
+            )
+            Harness.expectEqual(
+                try self.scalarInt(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name LIKE '%_unpriced'",
+                    from: database
+                ),
+                0,
+                "schema upgrade drops the unpriced-row indexes"
             )
             Harness.expectEqual(
                 try self.scalarInt(
@@ -203,6 +224,8 @@ enum CostDatabaseLocationTests {
                 'legacy-part', 1, 0, '2026-09-05', 'legacy-opencode-model', 0,
                 5, 1, 0, 0, 0, 0.75, 0
             );
+            CREATE INDEX opencode_part_unpriced ON opencode_part(cost_usd)
+                WHERE cost_usd IS NULL OR unpriced_tokens IS NULL;
             PRAGMA user_version = 6;
             """, on: connection)
     }

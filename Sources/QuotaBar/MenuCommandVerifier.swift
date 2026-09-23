@@ -61,7 +61,7 @@ enum MenuCommandVerifier {
         let pricing = PricingEditorModel(
             costService: service,
             fixtures: .init(usage: [:], overlay: PricingOverlay()),
-            saveOperations: .init(freeze: {}, write: { _ in }, invalidate: {})
+            saveOperations: .init(write: { _ in }, invalidate: {})
         )
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)
         controller.installApplicationMenu()

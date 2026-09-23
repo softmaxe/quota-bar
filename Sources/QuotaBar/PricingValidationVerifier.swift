@@ -21,18 +21,17 @@ enum PricingValidationVerifier {
     private final class Recorder {
         var writes: [[String: ModelPricing]] = []
         var failWrite = false
-        var freezeGate: Gate?
+        var invalidateGate: Gate?
 
         func operations() -> PricingEditorModel.SaveOperations {
             PricingEditorModel.SaveOperations(
-                freeze: { [self] in
-                    if let gate = self.freezeGate { await gate.wait() }
-                },
                 write: { [self] overrides in
                     if self.failWrite { throw SaveFailure.simulated }
                     self.writes.append(overrides)
                 },
-                invalidate: {}
+                invalidate: { [self] in
+                    if let gate = self.invalidateGate { await gate.wait() }
+                }
             )
         }
     }
@@ -92,7 +91,7 @@ enum PricingValidationVerifier {
 
         input.wrappedValue = "9"
         let gate = Gate()
-        recorder.freezeGate = gate
+        recorder.invalidateGate = gate
         let firstSave = Task { await model.save() }
         Self.expect(await Self.wait(until: { gate.continuation != nil }),
                     "the asynchronous save did not begin", &failures)
@@ -105,7 +104,7 @@ enum PricingValidationVerifier {
         Self.expect(await firstSave.value, "the first save failed", &failures)
         Self.expect(model.saveStatus == .saved && recorder.writes.last?[priced.model]?.input == 9,
                     "success did not save the captured rate", &failures)
-        recorder.freezeGate = nil
+        recorder.invalidateGate = nil
 
         input.wrappedValue = "10"
         Self.expect(model.saveStatus == .dirty && model.lastSavedAt == nil,
@@ -142,13 +141,13 @@ enum PricingValidationVerifier {
         )
         let pendingLoad = Task { await loading.load() }
         Self.expect(await Self.wait(until: { loadGate.continuation != nil }),
-                    "catalog rebuild did not reach the pending commit", &failures)
+                    "table rebuild did not reach the pending commit", &failures)
         loading.debugSetRows([priced])
         loading.binding(for: priced.id, keyPath: \.input).wrappedValue = "11"
         loadGate.release()
         await pendingLoad.value
         Self.expect(loading.rows.first?.input == "11" && loading.hasUnsavedChanges,
-                    "an in-flight catalog rebuild overwrote the draft", &failures)
+                    "an in-flight table rebuild overwrote the draft", &failures)
 
         VerifierReport.finish(
             failures,

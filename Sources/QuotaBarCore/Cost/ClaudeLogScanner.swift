@@ -27,6 +27,7 @@ enum ClaudeLogScanner {
     static func scan(
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook = .bundled,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = LogFileScanner.jsonlFiles(under: self.projectRoots(env: env))
@@ -56,6 +57,7 @@ enum ClaudeLogScanner {
                             path: url.path,
                             cache: cache,
                             overlay: overlay,
+                            book: book,
                             decoder: decoder
                         )
                     } catch {
@@ -115,6 +117,7 @@ enum ClaudeLogScanner {
         path: String,
         cache: CostCache,
         overlay: PricingOverlay?,
+        book: PriceBook,
         decoder: JSONDecoder
     ) throws {
         guard let root = decoder.decodeLine(Line.self, from: line),
@@ -157,22 +160,24 @@ enum ClaudeLogScanner {
             key = "\(messageId)|\(requestId)"
         }
 
-        // The long-context tier and price are properties of the individual request, so they have
-        // to be decided here; deciding them from a day's aggregate would rewrite history.
+        // The long-context tier is a property of the individual request, so it has to be decided
+        // here; deciding it from a day's aggregate would rewrite history. The price is not: it is
+        // derived from the stored tokens whenever they are read.
+        let day = DayKey.make(from: date)
         let pricing = CostPricing.pricing(
             forNormalizedModel: model,
             provider: .claude,
-            overlay: overlay
+            day: day,
+            overlay: overlay,
+            book: book
         )
-        let longContext = CostPricing.isLongContext(totals: totals, pricing: pricing)
         try cache.addClaudeMessage(
             key: key,
             path: path,
-            day: DayKey.make(from: date),
+            day: day,
             model: model,
-            longContext: longContext,
-            totals: totals,
-            costUSD: pricing?.cost(for: totals, longContext: longContext)
+            longContext: CostPricing.isLongContext(totals: totals, pricing: pricing),
+            totals: totals
         )
     }
 }

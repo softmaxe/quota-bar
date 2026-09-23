@@ -199,6 +199,7 @@ do {
     Harness.expect(false, "claude weekly-only usage decode threw: \(error)")
 }
 
+PriceBookTests.run()
 await CostTests.run()
 await ScannerRegressionTests.run()
 await AstraPricingTests.run()

@@ -172,7 +172,7 @@ Missing information has a separate display from zero usage:
 | **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
-Add missing rates for future usage in **Settings → Pricing**.
+Add missing rates in **Settings → Pricing**. Costs are recalculated for all recorded usage of that model.
 
 <details>
 <summary>Chart date previews</summary>
@@ -209,11 +209,11 @@ On first use, QuotaBar copies any existing cost database from `~/Library/Caches/
 
 ### Pricing rules
 
-- Standard rates use manual overrides first, then the [models.dev](https://models.dev) catalog, then the [built-in pricing table](Sources/QuotaBarCore/Cost/CostPricing.swift).
-- Astra falls back to its complete built-in row when a catalog entry omits cache or long-context rates.
-- Codex Fast usage uses a separate built-in table and ignores manual overrides and catalog rates. A Fast model without an entry stays unpriced.
+- Standard rates use manual overrides first, then the built-in [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json).
+- The price book stores each model's rates in dated periods. Each day of usage is priced at the rates in force on that day, so price changes and promotions keep past days at their own rates.
+- Codex Fast usage uses the price book's Fast multiplier for that period and ignores manual overrides. A model without a Fast multiplier stays unpriced in Fast mode.
 
-The pricing catalog is cached for 24 hours. Manual rate changes apply to newly recorded usage. Past totals keep the prices used when they were scanned.
+Costs are calculated from recorded tokens whenever they are shown or exported. A manual rate applies to every recorded day of its model, including usage that was unpriced before. See [Maintaining the price book](docs/pricing.md) to update rates.
 
 Cost totals are estimates. Provider billing rules, cache accounting, and price changes can make them differ from an invoice.
 
@@ -230,9 +230,9 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
 
 The report is a single offline HTML file with a Chinese/English switch. It includes all eligible Codex, Claude, OpenCode, and Pi Agent usage already saved in SQLite, with daily usage, cost by model, token and cache composition, and expandable data tables.
 
-Export reads saved data without refreshing quota, rescanning logs, updating prices, or making network requests. Costs retain their saved estimates; unpriced tokens are excluded from costs and pricing gaps are marked. Cache tokens are shown without inferring a separate cache cost.
+Export reads saved data without refreshing quota, rescanning logs, or making network requests. It prices saved tokens with the same rates as the menu; unpriced tokens are excluded from costs and pricing gaps are marked. Cache costs are part of the totals; the report shows cache token counts rather than a separate cache cost.
 
-The file includes the period, capture time, timezone, sources, models, token counts, unpriced-token counts, and saved costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the data contract and developer checks.
+The file includes the period, capture time, timezone, sources, models, token counts, unpriced-token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the data contract and developer checks.
 
 ## Editing model prices
 
@@ -258,7 +258,7 @@ The table lists supported API models and unpriced models found locally. Click a 
 
 </details>
 
-Saved rates apply to newly recorded usage. Existing history keeps the prices used when it was scanned, including previously unpriced usage.
+Saved rates apply to all recorded usage of the model, including usage that was previously unpriced. Restoring the default returns every day to the price book's dated rates.
 
 ## Privacy and network access
 
@@ -271,13 +271,12 @@ QuotaBar reads CLI credentials and parses local session records, but it does not
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
-~/Library/Caches/QuotaBar/model-pricing/
 ~/Library/Preferences/com.quotabar.app.plist
 ```
 
 </details>
 
-Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, `api.anthropic.com` for Claude quota, and `models.dev` for model pricing. It does not send local session records to these services.
+Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Model prices ship with the app and are not fetched. It does not send local session records to these services.
 
 ## Build and develop
 
@@ -306,7 +305,7 @@ make app
 | `make run` | Build and run in the foreground. |
 | `make test` | Run core assertions and UI/policy verifiers. |
 | `make probe` | Check both provider integrations. |
-| `make probe-cost` | Rescan local logs; may refresh model prices. |
+| `make probe-cost` | Rescan local logs and print cost totals. |
 | `make benchmark-startup` | Measure status-item construction offline in a debug build. |
 | `make benchmark-cost` | Benchmark Codex scans with offline pricing; reads local logs. |
 | `make benchmark-cost PROVIDER=claude` | Benchmark Claude with the same offline pricing. |
@@ -352,7 +351,7 @@ To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows Unpriced or Partial estimate | Add missing model rates in **Settings → Pricing** for newly recorded usage. Existing history keeps its original pricing. |
+| Cost shows Unpriced or Partial estimate | Add missing model rates in **Settings → Pricing**. Recorded usage of that model is priced as well. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | Price changes cannot be saved | Correct the marked fields. If saving failed, the draft remains available to retry or discard. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |

@@ -6,7 +6,7 @@ enum AstraPricingTests {
         Self.standardRates()
         Self.fastRates()
         Self.longContextBoundary()
-        Self.catalogTierFallback()
+        Self.userOverridePrecedence()
         await Self.codexScannerIntegration()
     }
 
@@ -114,72 +114,26 @@ enum AstraPricingTests {
         )
     }
 
-    private static func catalogTierFallback() {
-        let incompleteCatalog = PricingOverlay(
-            modelsDev: ["gpt-6-astra": ModelPricing(input: 1, output: 2, cacheRead: 0.1)]
-        )
-        Harness.expectEqual(
-            CostPricing.pricing(
-                for: "gpt-6-astra",
-                provider: .codex,
-                overlay: incompleteCatalog
-            ),
-            Self.standard,
-            "an incomplete Astra catalog row falls back to the official tiered rates"
-        )
-
-        let incompleteAboveRates = ModelPricing(
-            input: 11,
-            output: 51,
-            cacheWrite: 13,
-            cacheRead: 1.1,
-            thresholdTokens: 200_000,
-            inputAbove: 22,
-            outputAbove: 76.5
-        )
-        Harness.expectEqual(
-            CostPricing.pricing(
-                for: "gpt-6-astra",
-                provider: .codex,
-                overlay: PricingOverlay(modelsDev: ["gpt-6-astra": incompleteAboveRates])
-            ),
-            Self.standard,
-            "an Astra catalog threshold without cache rates is still incomplete"
-        )
-
-        let completeCatalogRate = ModelPricing(
-            input: 11,
-            output: 51,
-            cacheWrite: 13,
-            cacheRead: 1.1,
-            thresholdTokens: 300_000,
-            inputAbove: 22,
-            outputAbove: 76.5,
-            cacheWriteAbove: 26,
-            cacheReadAbove: 2.2
-        )
-        Harness.expectEqual(
-            CostPricing.pricing(
-                for: "gpt-6-astra",
-                provider: .codex,
-                overlay: PricingOverlay(modelsDev: ["gpt-6-astra": completeCatalogRate])
-            ),
-            completeCatalogRate,
-            "a complete future Astra catalog row keeps catalog precedence"
-        )
-
+    private static func userOverridePrecedence() {
         let userRate = ModelPricing(input: 7, output: 8)
         Harness.expectEqual(
             CostPricing.pricing(
                 for: "gpt-6-astra",
                 provider: .codex,
-                overlay: PricingOverlay(
-                    userOverrides: ["gpt-6-astra": userRate],
-                    modelsDev: ["gpt-6-astra": completeCatalogRate]
-                )
+                overlay: PricingOverlay(userOverrides: ["gpt-6-astra": userRate])
             ),
             userRate,
             "an Astra user override keeps the documented highest precedence"
+        )
+        Harness.expectEqual(
+            CostPricing.pricing(
+                for: "gpt-6-astra",
+                provider: .codex,
+                overlay: PricingOverlay(userOverrides: ["gpt-6-astra": userRate]),
+                codexServiceTier: .fast
+            ),
+            Self.fast,
+            "an override states Standard rates only, so Fast keeps the book's rates"
         )
     }
 

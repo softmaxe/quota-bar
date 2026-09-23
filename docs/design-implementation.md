@@ -8,7 +8,7 @@ This implementation follows the approved interaction proposal. The original befo
 - Cmd-R dispatches through a validated AppKit application command, Cmd-1 / Cmd-2 switch providers, Cmd-comma opens settings, and Escape closes the popover. Edit commands use the responder chain for normal text editing in settings.
 - Signed-out cards preserve the provider's reason and offer the correct CLI command, copy feedback, and a Check sign-in action. Copying a command does not execute it. Credentials and permission errors retain their separate recovery paths.
 - Refresh failures retain quota readings and show the last successful update near a warning. Server and local cooldowns jointly determine when retry is available. A local usage scan exposes its own progress, failure, and retry.
-- Pricing validates finite nonnegative rates and positive integer thresholds before persistence. Invalid text cannot implicitly remove an override. Restore defaults and Discard are explicit draft operations. Saving prevents duplicate writes; errors preserve edits. Catalog reloads cannot replace a draft created while their asynchronous work was pending. Quitting protects unsaved edits, with Cancel as the default when an invalid draft cannot be saved.
+- Pricing validates finite nonnegative rates and positive integer thresholds before persistence. Invalid text cannot implicitly remove an override. Restore defaults and Discard are explicit draft operations. Saving prevents duplicate writes; errors preserve edits. Table reloads cannot replace a draft created while their asynchronous work was pending. Quitting protects unsaved edits, with Cancel as the default when an invalid draft cannot be saved.
 - Local usage has a visible Tokens / Cost selector and ten calendar date columns. Dates support whole-column pointer targets and keyboard selection. Model details are collapsed as a group; complete labels remain available to accessibility. Unit changes and refreshes preserve a still-valid date selection. Unpriced and partially priced usage have distinct labels; dates not covered by the last completed scan do not claim zero usage.
 - Quota headlines immediately display authoritative values. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Pace calculations are available through Usage pace details; duplicate Top model text is removed. Credits follow local usage.
 
@@ -59,7 +59,7 @@ Preview uses sample providers, a separate preference suite, temporary history, a
 
 ## README synchronization
 
-The English and Simplified Chinese READMEs describe the same controls, keyboard shortcuts, refresh and scan recovery, pricing draft lifecycle, and cost availability states. Both versions use the same sample images, with translated captions and alternative text. The pricing section explains that saving a new rate does not reprice previously recorded usage.
+The English and Simplified Chinese READMEs describe the same controls, keyboard shortcuts, refresh and scan recovery, pricing draft lifecycle, and cost availability states. Both versions use the same sample images, with translated captions and alternative text. The pricing section explains that saving a new rate reprices all recorded usage of that model.
 
 The root READMEs show current product views. The annotated before/after boards in `design-proposal/` remain the historical design baseline and are labeled accordingly.
 

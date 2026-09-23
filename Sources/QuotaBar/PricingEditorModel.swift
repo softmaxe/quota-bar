@@ -10,14 +10,9 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { self.rawValue }
 
+    /// The models the price book marks `showInSettings`, in the order it lists them.
     static func whitelist(for provider: Provider) -> [String] {
-        switch provider {
-        case .codex: ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest"]
-        case .claude: [
-                "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
-                "claude-sonnet-5", "claude-haiku-4-5", "claude-3-5-haiku",
-            ]
-        }
+        PriceBook.bundled.models(for: provider).filter(\.showInSettings).map(\.id)
     }
 
     static func classify(model: String) -> PricingGroup {
@@ -56,7 +51,7 @@ struct PricingRow: Identifiable, Equatable {
     let model: String
     /// True when the model appears in the local logs, which is what makes a row worth editing.
     let seenInLogs: Bool
-    /// True when the built-in table or the models.dev catalog already prices this model.
+    /// True when the price book already prices this model.
     let hasDefault: Bool
     /// Total tokens seen in local logs. The settings list uses this to put active models first.
     let usageTokens: Int
@@ -188,7 +183,7 @@ final class PricingEditorModel: ObservableObject {
     private var originalRows: [String: PricingRow] = [:]
     /// Position of each row in `rows`, so a field can reach its row without a linear scan.
     private var indexByID: [String: Int] = [:]
-    /// Rates from the built-in table plus models.dev, i.e. what a row falls back to.
+    /// Today's rates from the price book, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
     /// User overrides loaded with the current overlay, including models hidden from the table.
     private var loadedUserOverrides: [String: ModelPricing] = [:]
@@ -196,7 +191,6 @@ final class PricingEditorModel: ObservableObject {
     private var draftRevision = 0
     private let costService: CostService
     struct SaveOperations {
-        let freeze: @MainActor () async throws -> Void
         let write: @MainActor ([String: ModelPricing]) throws -> Void
         let invalidate: @MainActor () async -> Void
     }
@@ -229,18 +223,12 @@ final class PricingEditorModel: ObservableObject {
         self.costService = costService
         self.fixtures = fixtures
         self.saveOperations = saveOperations ?? SaveOperations(
-            freeze: { try await costService.freezeCurrentPrices() },
             write: { try PricingOverlayStore.saveUserOverrides($0) },
             invalidate: { await costService.invalidatePricing() }
         )
     }
 
-    /// Fills the table from disk and only then goes looking for a newer models.dev catalog.
-    ///
-    /// Both halves used to be one blocking step in front of the table, so the pane sat on a
-    /// spinner for the length of a network round trip — and for the full request timeout on a
-    /// host that cannot reach models.dev, on every single open, because a failed fetch writes
-    /// no cache and so never stops looking stale.
+    /// Fills the table from the price book, the override file, and the local scan cache.
     func load() async {
         // Reopening the pane must not throw away rates the user is part-way through typing.
         guard !self.hasUnsavedChanges, self.saveStatus != .saving else { return }
@@ -255,12 +243,6 @@ final class PricingEditorModel: ObservableObject {
             self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
             self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
         ].compactMap { $0 }
-
-        // The table is on screen by now, so the catalog refresh costs the user nothing. It
-        // only redraws when models.dev actually moved.
-        if let refreshed = await self.costService.refreshPricingCatalog(), !self.hasUnsavedChanges {
-            await self.rebuild(overlay: refreshed)
-        }
     }
 
     private func rebuild(overlay: PricingOverlay) async {
@@ -269,9 +251,9 @@ final class PricingEditorModel: ObservableObject {
         // nothing to show meanwhile.
         self.isLoading = self.rows.isEmpty
 
-        // The overlay minus the user layer is what a row would fall back to if its override
-        // were removed, which is what the Reset button has to restore.
-        let fallback = PricingOverlay(userOverrides: [:], modelsDev: overlay.modelsDev)
+        // The book alone is what a row would fall back to if its override were removed, which
+        // is what the Reset button has to restore.
+        let fallback = PricingOverlay()
 
         // Read on a connection of its own rather than through the service's actor, which a log
         // scan can hold for seconds at a time.
@@ -496,8 +478,8 @@ final class PricingEditorModel: ObservableObject {
     /// Rows hidden by the settings filter are kept in the file. A visible row is the only row
     /// allowed to update or remove its own override.
     ///
-    /// Usage already recorded keeps the cost it was scanned with: the service prices everything
-    /// on disk at the old rates first, and the new rates only reach what is logged afterwards.
+    /// Cost is derived whenever usage is read, so the saved rates reprice every recorded day,
+    /// including usage that had no price before.
     @discardableResult
     func save() async -> Bool {
         guard self.hasUnsavedChanges, self.saveStatus != .saving,
@@ -511,7 +493,6 @@ final class PricingEditorModel: ObservableObject {
         self.saveError = nil
         self.saveStatus = .saving
         do {
-            try await self.saveOperations.freeze()
             try self.saveOperations.write(overrides)
             await self.saveOperations.invalidate()
             self.saveError = nil

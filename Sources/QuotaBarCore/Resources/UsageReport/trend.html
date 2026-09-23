@@ -97,7 +97,7 @@
     </div>
     <div class="c state">
       <div class="num" data-bind="cost">—</div>
-      <div class="t" data-i18n="costLabel">Stored API cost</div>
+      <div class="t" data-i18n="costLabel">Estimated API cost</div>
       <div class="src"><span data-i18n="pricingCoverageLabel">Pricing coverage</span> · <span data-bind="pricingCoverage">—</span></div>
     </div>
   </div>
@@ -114,10 +114,10 @@
     <div class="b">
       <div class="state">
         <h2 class="t" data-i18n="modelsTitle">Model cost</h2>
-        <div class="sub" data-i18n="modelsNote">Stored cost by model.</div>
+        <div class="sub" data-i18n="modelsNote">Estimated cost by model.</div>
       </div>
       <div class="fig"><div class="wrap"><canvas id="models" data-chart="models"></canvas></div></div>
-      <div class="srcline" data-summary="model-cost"><span data-i18n="topModelLabel">Highest stored cost</span> · <span data-bind="topModel">—</span> · <span data-bind="topModelCost">—</span></div>
+      <div class="srcline" data-summary="model-cost"><span data-i18n="topModelLabel">Highest estimated cost</span> · <span data-bind="topModel">—</span> · <span data-bind="topModelCost">—</span></div>
     </div>
     <div class="b">
       <div class="state">
@@ -133,7 +133,7 @@
 
   {{DATA_DETAILS}}
 <div class="foot">
-    <span><span data-i18n="costNote">* Partial API estimate, not a bill.</span><br><span data-i18n="cacheCostNote">Historical cache USD is not stored separately.</span></span>
+    <span><span data-i18n="costNote">* Partial API estimate, not a bill.</span><br><span data-i18n="cacheCostNote">Cache USD is included but not broken out.</span></span>
     <span><span data-i18n="sourceLabel">Sources</span> · <span data-bind="sourceNames">—</span><br><span data-i18n="generatedLabel">Generated</span> · <span data-bind="capturedAt">—</span><br><span data-i18n="timeZoneLabel"></span> · <span data-bind="timeZone"></span></span>
   </div>
 </div>
@@ -146,7 +146,7 @@ const PAGE_COPY={
     headline:'本报告覆盖',
     pricingCoverageLabel:'定价覆盖',
     peakLabel:'单日峰值',
-    topModelLabel:'已存费用最高',
+    topModelLabel:'估算费用最高',
     tokenUnit:'tokens',
     bridgeRecorded:'已存记录覆盖',
     bridgeOf:' / ',
@@ -159,7 +159,7 @@ const PAGE_COPY={
     headline:'This report covers',
     pricingCoverageLabel:'Pricing coverage',
     peakLabel:'Daily peak',
-    topModelLabel:'Highest stored cost',
+    topModelLabel:'Highest estimated cost',
     tokenUnit:'tokens',
     bridgeRecorded:'Saved records cover',
     bridgeOf:' of ',

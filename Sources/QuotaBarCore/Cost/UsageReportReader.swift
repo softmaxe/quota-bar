@@ -158,7 +158,9 @@ public enum UsageReportReaderError: LocalizedError, Equatable {
     }
 }
 
-/// Reads frozen usage and costs from the local scan cache without scanning logs or changing schema.
+/// Reads recorded usage from the local scan cache without scanning logs or changing schema, and
+/// prices it the same way the popover does: each day at the rates the book gives that day, under
+/// the user's overrides.
 public enum UsageReportReader {
     fileprivate static let maximumSafeInteger: Int64 = 9_007_199_254_740_991
 
@@ -166,7 +168,9 @@ public enum UsageReportReader {
         databaseURL: URL = CostService.defaultDatabaseURL,
         windowDays: Int = 30,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        overlay: PricingOverlay? = nil,
+        book: PriceBook = .bundled
     ) throws -> UsageReportSnapshot {
         guard (1 ... 30).contains(windowDays) else {
             throw UsageReportReaderError.invalidWindowDays(windowDays)
@@ -184,7 +188,13 @@ public enum UsageReportReader {
         }
 
         let tables = try database.supportedTables()
-        let rows = try database.readRows(tables: tables, fromDay: range.keys[0], throughDay: range.keys[windowDays - 1])
+        let rows = try database.readRows(
+            tables: tables,
+            fromDay: range.keys[0],
+            throughDay: range.keys[windowDays - 1],
+            overlay: overlay,
+            book: book
+        )
         try database.commit()
         transactionOpen = false
 
@@ -390,6 +400,11 @@ private enum ReportTable: String, CaseIterable {
         self == .codexDay || self == .openCodePart
     }
 
+    /// Whose price list prices the table. The other agents run OpenAI models on Codex accounts.
+    var provider: Provider {
+        self == .claudeMessage ? .claude : .codex
+    }
+
     var includedOnly: Bool {
         self == .openCodePart || self == .piMessage
     }
@@ -397,7 +412,7 @@ private enum ReportTable: String, CaseIterable {
     var requiredColumns: Set<String> {
         var columns: Set<String> = [
             "day", "model", "long_context", "input", "output", "cache_write",
-            "cache_write_1h", "cache_read", "cost_usd", "unpriced_tokens",
+            "cache_write_1h", "cache_read",
         ]
         if self.supportsFast { columns.insert("is_fast") }
         if self.includedOnly { columns.insert("included") }
@@ -476,7 +491,13 @@ private final class ReadOnlyUsageDatabase {
         return resultTables
     }
 
-    func readRows(tables: [ReportTable], fromDay: String, throughDay: String) throws -> [UsageReportRow] {
+    func readRows(
+        tables: [ReportTable],
+        fromDay: String,
+        throughDay: String,
+        overlay: PricingOverlay?,
+        book: PriceBook
+    ) throws -> [UsageReportRow] {
         guard !tables.isEmpty else { return [] }
         let queries = tables.map { table in
             let fast = table.supportsFast ? "is_fast" : "0"
@@ -489,21 +510,10 @@ private final class ReadOnlyUsageDatabase {
                 OR typeof(cache_write) != 'integer' OR cache_write < 0 OR cache_write > \(UsageReportReader.maximumSafeInteger)
                 OR typeof(cache_write_1h) != 'integer' OR cache_write_1h < 0
                 OR cache_write_1h > cache_write OR cache_write_1h > \(UsageReportReader.maximumSafeInteger)
-                OR (cost_usd IS NOT NULL AND typeof(cost_usd) NOT IN ('integer', 'real'))
-                OR (cost_usd IS NOT NULL AND cost_usd < 0)
-                OR (unpriced_tokens IS NOT NULL AND typeof(unpriced_tokens) != 'integer')
-                OR (unpriced_tokens IS NOT NULL AND unpriced_tokens < 0)
-                OR (unpriced_tokens IS NOT NULL AND unpriced_tokens > \(UsageReportReader.maximumSafeInteger))
                 """
             return """
-                SELECT '\(table.source)', day, model, \(fast), long_context,
+                SELECT '\(table.rawValue)', day, model, \(fast), long_context,
                        SUM(input), SUM(output), SUM(cache_read), SUM(cache_write), SUM(cache_write_1h),
-                       SUM(CASE WHEN cost_usd IS NOT NULL AND unpriced_tokens IS NOT NULL THEN cost_usd ELSE 0 END),
-                       SUM(CASE WHEN cost_usd IS NOT NULL AND unpriced_tokens IS NOT NULL THEN unpriced_tokens ELSE 0 END),
-                       SUM(CASE WHEN cost_usd IS NULL OR unpriced_tokens IS NULL THEN input ELSE 0 END),
-                       SUM(CASE WHEN cost_usd IS NULL OR unpriced_tokens IS NULL THEN output ELSE 0 END),
-                       SUM(CASE WHEN cost_usd IS NULL OR unpriced_tokens IS NULL THEN cache_read ELSE 0 END),
-                       SUM(CASE WHEN cost_usd IS NULL OR unpriced_tokens IS NULL THEN cache_write ELSE 0 END),
                        MAX(CASE WHEN \(invalid) THEN 1 ELSE 0 END)
                 FROM \(table.rawValue)
                 WHERE \(included)day BETWEEN ? AND ?
@@ -522,38 +532,45 @@ private final class ReadOnlyUsageDatabase {
         var rows: [UsageReportRow] = []
         var result = sqlite3_step(statement)
         while result == SQLITE_ROW {
-            guard let source = self.text(statement, column: 0),
+            guard let tableName = self.text(statement, column: 0),
+                  let table = ReportTable(rawValue: tableName),
                   let day = self.text(statement, column: 1),
                   let model = self.text(statement, column: 2)
             else {
                 throw UsageReportReaderError.invalidData("source, day, or model is NULL")
             }
-            guard sqlite3_column_int64(statement, 16) == 0 else {
-                throw UsageReportReaderError.invalidData("\(source) contains invalid values on \(day)")
+            guard sqlite3_column_int64(statement, 10) == 0 else {
+                throw UsageReportReaderError.invalidData("\(table.source) contains invalid values on \(day)")
             }
             var usage = CheckedUsage(
                 input: try self.integer(statement, column: 5, field: "input"),
                 output: try self.integer(statement, column: 6, field: "output"),
                 cacheRead: try self.integer(statement, column: 7, field: "cacheRead"),
                 cacheWrite: try self.integer(statement, column: 8, field: "cacheWrite"),
-                cacheWrite1h: try self.integer(statement, column: 9, field: "cacheWrite1h"),
-                cost: sqlite3_column_double(statement, 10),
-                unpricedTokens: try self.integer(statement, column: 11, field: "unpricedTokens")
+                cacheWrite1h: try self.integer(statement, column: 9, field: "cacheWrite1h")
             )
-            let fallback = CheckedUsage(
-                input: try self.integer(statement, column: 12, field: "unpriced input"),
-                output: try self.integer(statement, column: 13, field: "unpriced output"),
-                cacheRead: try self.integer(statement, column: 14, field: "unpriced cacheRead"),
-                cacheWrite: try self.integer(statement, column: 15, field: "unpriced cacheWrite")
+            let tokens = TokenTotals(
+                input: Int(usage.input),
+                output: Int(usage.output),
+                cacheWrite: Int(usage.cacheWrite),
+                cacheWrite1h: Int(usage.cacheWrite1h),
+                cacheRead: Int(usage.cacheRead)
             )
-            let fallbackTotal = try fallback.snapshot(label: "unpriced usage").total
-            usage.unpricedTokens = try usage.checkedAdd(
-                usage.unpricedTokens,
-                Int64(fallbackTotal),
-                field: "unpricedTokens"
+            let pricing = CostPricing.pricing(
+                forNormalizedModel: model,
+                provider: table.provider,
+                day: day,
+                overlay: overlay,
+                codexServiceTier: sqlite3_column_int64(statement, 3) != 0 ? .fast : .standard,
+                book: book
             )
-            _ = try usage.snapshot(label: "\(source) \(day) \(model)")
-            rows.append(UsageReportRow(source: source, day: day, model: model, usage: usage))
+            if let cost = pricing?.cost(for: tokens, longContext: sqlite3_column_int64(statement, 4) != 0) {
+                usage.cost = cost
+            } else {
+                usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
+            }
+            _ = try usage.snapshot(label: "\(table.source) \(day) \(model)")
+            rows.append(UsageReportRow(source: table.source, day: day, model: model, usage: usage))
             result = sqlite3_step(statement)
         }
         guard result == SQLITE_DONE else { throw self.queryError() }

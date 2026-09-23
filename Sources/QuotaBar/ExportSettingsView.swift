@@ -30,7 +30,7 @@ struct ExportSettingsView: View {
             }
 
             Section {
-                Text("Switch between Chinese and English in the report. Uses saved local usage; cache costs are not stored separately.")
+                Text("Switch between Chinese and English in the report. Prices saved local usage at each day's rates; cache costs are included but not broken out.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -18,7 +18,7 @@ func runUsageReportRendererTests() {
         let decoded = try JSONDecoder().decode(UsageReportSnapshot.self, from: Data(html[start..<end].utf8))
         Harness.expectEqual(decoded.models.first?.name, hostile, "script-safe encoding preserves the original identifier")
         Harness.expectEqual(decoded.totals.total, 1_000, "embedded snapshot matches displayed metrics")
-        Harness.expectEqual(decoded.totals.cost, 9, "frozen partial costs are not recomputed")
+        Harness.expectEqual(decoded.totals.cost, 9, "the renderer embeds partial costs as read")
         Harness.expectEqual(decoded.totals.unpricedTokens, 100, "unpriced usage reaches the bilingual runtime")
     } catch {
         Harness.expect(false, "report rendering threw: \(error)")

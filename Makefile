@@ -37,7 +37,7 @@ probe:
 	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe
 
-## Rescan local logs and print cost totals. May refresh model prices; no quota requests.
+## Rescan local logs and print cost totals. No quota or pricing requests.
 probe-cost:
 	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Probe
 	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Probe --cost-only

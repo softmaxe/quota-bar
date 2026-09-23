@@ -172,7 +172,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 | **—**、**Unpriced** | 已记录用量，但无法根据模型费率估算成本。 |
 | **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
 
-在 **Settings → Pricing** 中补充费率，供新记录的用量使用。
+在 **Settings → Pricing** 中补充费率后，该模型的所有已记录用量都会重新计算成本。
 
 <details>
 <summary>图表日期预览</summary>
@@ -209,11 +209,11 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ### 计价规则
 
-- Standard 费率依次使用手动覆盖、[models.dev](https://models.dev) 目录和[内置价格表](Sources/QuotaBarCore/Cost/CostPricing.swift)。
-- 目录条目缺少缓存费率或长上下文费率时，Astra 回退到完整的内置价格。
-- Codex Fast 用量使用单独的内置表，不受手动覆盖和目录费率影响；表中没有的 Fast 模型不计价。
+- Standard 费率依次使用手动覆盖和内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。
+- 价格表按生效日期分段记录每个模型的费率。每天的用量按当天生效的费率计价，调价和促销结束后，过去的日期仍使用当时的费率。
+- Codex Fast 用量使用价格表中该时段的 Fast 倍率，不受手动覆盖影响；没有 Fast 倍率的模型在 Fast 模式下不计价。
 
-价格目录缓存 24 小时。手动修改费率只影响新记录的用量，过去的总计保留扫描时的价格。
+成本在显示或导出时根据已记录的 token 计算。手动费率作用于该模型的所有已记录日期，包括之前未计价的用量。更新费率的方法见[维护价格表](docs/pricing.md)。
 
 成本是估算值。供应商计费规则、缓存计算方式和价格变化，都可能让结果与账单不同。
 
@@ -230,9 +230,9 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 报告是一个可离线打开、切换中英文的 HTML 文件。它包含 SQLite 中所有符合条件的 Codex、Claude、OpenCode 和 Pi Agent 用量，展示每日用量、按模型汇总的成本、token 与缓存构成，以及可展开的数据表。
 
-导出只读取已保存的数据，不刷新额度、重扫日志、更新价格或请求网络。成本保留已存估算值；未计价 token 不计入成本，费率缺失会明确标注。报告显示缓存 token 数量，不推算单独的缓存成本。
+导出只读取已保存的数据，不刷新额度、重扫日志或请求网络。它用与菜单相同的费率为已保存的 token 计价；未计价 token 不计入成本，费率缺失会明确标注。缓存成本已计入总额，报告只显示缓存 token 数量，不单独列出缓存成本。
 
-文件包含时段、生成时间、时区、来源、模型、token 数量、未计价 token 数量和已保存的成本，不含提示词、回复、推理文本、凭据和账号 ID。数据格式与开发验证见[用量报告导出](docs/usage-report-export.md)。
+文件包含时段、生成时间、时区、来源、模型、token 数量、未计价 token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。数据格式与开发验证见[用量报告导出](docs/usage-report-export.md)。
 
 ## 编辑模型费率
 
@@ -258,7 +258,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 </details>
 
-保存后的费率用于新记录的用量。已有历史保留扫描时的价格，之前未计价的用量也不会重新计价。
+保存后的费率作用于该模型的所有已记录用量，包括之前未计价的用量。恢复默认后，每一天都回到价格表中对应日期的费率。
 
 ## 隐私与网络
 
@@ -271,13 +271,12 @@ QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会直接写入
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/pricing-overrides.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
-~/Library/Caches/QuotaBar/model-pricing/
 ~/Library/Preferences/com.quotabar.app.plist
 ```
 
 </details>
 
-Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度，并从 `models.dev` 获取模型价格。本地会话记录不会发送到这些服务。
+Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度。模型价格随应用发布，不会联网获取。本地会话记录不会发送到这些服务。
 
 ## 构建与开发
 
@@ -306,7 +305,7 @@ make app
 | `make run` | 构建并在前台运行。 |
 | `make test` | 运行核心断言和界面、行为规则验证。 |
 | `make probe` | 检查两家供应商的集成。 |
-| `make probe-cost` | 重新扫描本地日志，可能刷新模型价格。 |
+| `make probe-cost` | 重新扫描本地日志并输出成本总计。 |
 | `make benchmark-startup` | 使用调试版本，离线测量菜单栏项目的创建耗时。 |
 | `make benchmark-cost` | 使用离线价格测试 Codex 扫描性能，会读取本地日志。 |
 | `make benchmark-cost PROVIDER=claude` | 使用相同的离线价格测试 Claude 扫描性能。 |
@@ -352,7 +351,7 @@ make build
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充模型费率，供新记录的用量使用。已有历史保留原计价结果。 |
+| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充模型费率，该模型的已记录用量也会一并计价。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 费率修改无法保存 | 修正标记的字段。保存失败时草稿仍会保留，可以重试或放弃修改。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
