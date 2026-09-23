@@ -7,6 +7,10 @@ struct CostSectionView: View {
 
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
+    /// A day with no value keeps a low neutral stub on the baseline so the row stays continuous.
+    /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
+    private static let emptyStubHeight: CGFloat = 3
+    private static let minimumBarHeight: CGFloat = 4
     static let breakdownLayout = CostBreakdownLayout(
         rowHeight: 17,
         toggleHeight: 22,
@@ -256,13 +260,20 @@ struct CostSectionView: View {
                                 clearingHover: false,
                                 reduceMotion: CostChartHoverMotion.systemReduceMotion
                             ), value: selected)
-                            .frame(height: max(2, height))
+                            .frame(height: max(Self.minimumBarHeight, height))
                             .padding(.horizontal, 2)
                     } else {
-                        Text(self.zeroMark(for: day))
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .frame(height: 11, alignment: .bottom)
+                        self.emptyStub(for: day)
+                            .opacity(CostChartHighlightPolicy.opacity(
+                                dayKey: day.dayKey,
+                                selectedDayKey: self.selectedDayKey
+                            ))
+                            .animation(CostChartHoverMotion.animation(
+                                clearingHover: false,
+                                reduceMotion: CostChartHoverMotion.systemReduceMotion
+                            ), value: selected)
+                            .frame(height: Self.emptyStubHeight)
+                            .padding(.horizontal, 2)
                     }
                 }
                 .frame(height: Self.chartHeight)
@@ -307,12 +318,23 @@ struct CostSectionView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func zeroMark(for day: CostDay) -> String {
-        if self.isUnobserved(day.dayKey) { return "—" }
-        if self.selectedLabelMode == .cost, day.costAvailability.state == .unpriced {
-            return "—"
+    /// A known zero is a solid stub; a day whose value is unknown is only outlined.
+    @ViewBuilder
+    private func emptyStub(for day: CostDay) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 1.5)
+        if self.isUnknownValue(day) {
+            shape.strokeBorder(
+                Theme.chartEmptyStub,
+                style: StrokeStyle(lineWidth: 1, dash: [2, 1.5])
+            )
+        } else {
+            shape.fill(Theme.chartEmptyStub)
         }
-        return "0"
+    }
+
+    private func isUnknownValue(_ day: CostDay) -> Bool {
+        self.isUnobserved(day.dayKey)
+            || (self.selectedLabelMode == .cost && day.costAvailability.state == .unpriced)
     }
 
     private func accessibleDayValue(_ day: CostDay) -> String {
