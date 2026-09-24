@@ -92,7 +92,7 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 ### Quota windows and usage pace
 
-Each limited quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** in the reset-time control to update both limited windows. Unlimited sessions show **Session ∞** and **No limit**. Expand **Usage pace details** for reserve, deficit, and headroom.
+Each limited quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** in the reset-time control to update both limited windows. Unlimited sessions show **Session ∞** and **No limit**. A window with no quota left shows **Limit reached** in place of its pace summary. Expand **Usage pace details** for reserve, deficit, and headroom.
 
 QuotaBar compares consumption with time elapsed. After at least three comparable recorded weekly windows, history also informs the weekly pace. Samples are kept for 56 days.
 
@@ -244,7 +244,7 @@ The table lists supported API models and unpriced models found locally. Click a 
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable rates, expanded long-context fields, and per-model action menus">
 </p>
 
-- Rates must be finite and nonnegative; an optional long-context threshold must be a positive whole token count. Invalid fields disable **Save**.
+- Rates must be finite and nonnegative; an optional long-context threshold must be a positive whole token count and is required once any rate above it is set. Invalid fields disable **Save**.
 - **Save** shows progress and its result. Drafts survive failed saves, tab switches, and closing Settings while the app is running. **Discard** restores the last saved rates.
 - To remove an override, choose **Restore default rate** or **Clear custom rate** in the model's **…** menu, then save.
 - Quitting with a valid draft offers **Save**, **Discard**, or **Cancel**. Invalid drafts must be corrected before saving.
@@ -258,7 +258,7 @@ The table lists supported API models and unpriced models found locally. Click a 
 
 </details>
 
-Saved rates apply to all recorded usage of the model, including usage that was previously unpriced. Restoring the default returns every day to the price book's dated rates.
+Saved rates apply to all recorded usage of the model, including usage that was previously unpriced. Restoring the default returns every day to the price book's dated rates. A threshold change affects only requests scanned after it is saved; recorded requests keep the long-context classification from their scan.
 
 ## Privacy and network access
 
