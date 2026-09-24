@@ -43,8 +43,7 @@ enum PiAgentLogScanner {
 
     static func scan(
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook = .bundled,
+        rateCard: RateCard,
         env: [String: String],
         previous: SessionSnapshot? = nil
     ) -> Result {
@@ -60,8 +59,7 @@ enum PiAgentLogScanner {
                 sessionsDirectory,
                 eligibility: eligibility,
                 cache: cache,
-                overlay: overlay,
-                book: book,
+                rateCard: rateCard,
                 previous: previous
             )
         }
@@ -72,8 +70,7 @@ enum PiAgentLogScanner {
         _ directory: URL,
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook,
+        rateCard: RateCard,
         previous: SessionSnapshot?
     ) -> Result {
         do {
@@ -90,20 +87,13 @@ enum PiAgentLogScanner {
             try cache.beginTransaction()
             do {
                 for row in rows {
-                    let model = CostPricing.normalizeCodexModel(row.model)
-                    let pricing = CostPricing.pricing(
-                        forNormalizedModel: model,
-                        provider: .codex,
-                        day: row.day,
-                        overlay: overlay,
-                        book: book
-                    )
+                    let model = rateCard.modelID(for: row.model, provider: .codex)
                     try cache.addPiMessage(
                         key: row.key,
                         included: included,
                         day: row.day,
                         model: model,
-                        longContext: CostPricing.isLongContext(totals: row.totals, pricing: pricing),
+                        longContext: rateCard.isLongContext(row.totals, model: model, provider: .codex, day: row.day),
                         totals: row.totals
                     )
                 }

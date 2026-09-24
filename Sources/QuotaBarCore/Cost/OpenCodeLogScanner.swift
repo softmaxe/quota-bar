@@ -31,8 +31,7 @@ enum OpenCodeLogScanner {
 
     static func scan(
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook = .bundled,
+        rateCard: RateCard,
         env: [String: String]
     ) -> Result {
         let dataDirectory = self.dataDirectory(env: env)
@@ -47,8 +46,7 @@ enum OpenCodeLogScanner {
                 databaseURL,
                 eligibility: eligibility,
                 cache: cache,
-                overlay: overlay,
-                book: book
+                rateCard: rateCard
             )
         }
         return Result(touched: 0, status: .error("auth"))
@@ -58,8 +56,7 @@ enum OpenCodeLogScanner {
         _ url: URL,
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook
+        rateCard: RateCard
     ) -> Result {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
@@ -83,23 +80,20 @@ enum OpenCodeLogScanner {
             try cache.beginTransaction()
             do {
                 for row in rows {
-                    let model = CostPricing.normalizeCodexModel(row.model)
-                    let serviceTier: CostPricing.CodexServiceTier = row.isFast ? .fast : .standard
-                    let pricing = CostPricing.pricing(
-                        forNormalizedModel: model,
-                        provider: .codex,
-                        day: row.day,
-                        overlay: overlay,
-                        codexServiceTier: serviceTier,
-                        book: book
-                    )
+                    let model = rateCard.modelID(for: row.model, provider: .codex)
                     try cache.addOpenCodePart(
                         key: row.key,
                         included: included,
                         legacyInferred: legacy,
                         day: row.day,
                         model: model,
-                        longContext: CostPricing.isLongContext(totals: row.totals, pricing: pricing),
+                        longContext: rateCard.isLongContext(
+                            row.totals,
+                            model: model,
+                            provider: .codex,
+                            day: row.day,
+                            fast: row.isFast
+                        ),
                         isFast: row.isFast,
                         totals: row.totals
                     )

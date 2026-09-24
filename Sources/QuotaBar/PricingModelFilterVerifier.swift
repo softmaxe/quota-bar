@@ -8,6 +8,7 @@ import Foundation
 enum PricingModelFilterVerifier {
     static func run() -> Never {
         var failures: [String] = []
+        let bundled = RateCard()
 
         let codexWhitelist = [
             "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest",
@@ -17,48 +18,48 @@ enum PricingModelFilterVerifier {
             "claude-haiku-4-5", "claude-3-5-haiku",
         ]
         self.expect(
-            PricingGroup.whitelist(for: .codex) == codexWhitelist,
+            bundled.settingsModels(for: .codex) == codexWhitelist,
             "Codex whitelist changed",
             failures: &failures
         )
         self.expect(
-            PricingGroup.whitelist(for: .claude) == claudeWhitelist,
+            bundled.settingsModels(for: .claude) == claudeWhitelist,
             "Claude whitelist changed",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "gpt-6-astra") == .codex,
+            PricingGroup.classify(model: "gpt-6-astra", rateCard: bundled) == .codex,
             "Astra was not classified as Codex",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "gpt-local-unpriced") == .others,
+            PricingGroup.classify(model: "gpt-local-unpriced", rateCard: bundled) == .others,
             "an unpriced GPT model returned to the Codex group",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "claude-local-unpriced") == .others,
+            PricingGroup.classify(model: "claude-local-unpriced", rateCard: bundled) == .others,
             "an unpriced Claude model returned to the Claude group",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "claude-haiku-4-5") == .claude,
+            PricingGroup.classify(model: "claude-haiku-4-5", rateCard: bundled) == .claude,
             "the actual Haiku model id was not classified as Claude",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "codex-mini-latest") == .codex,
+            PricingGroup.classify(model: "codex-mini-latest", rateCard: bundled) == .codex,
             "Codex Mini was not classified as Codex",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "claude-3-5-haiku") == .claude,
+            PricingGroup.classify(model: "claude-3-5-haiku", rateCard: bundled) == .claude,
             "Haiku 3.5 was not classified as Claude",
             failures: &failures
         )
 
-        let overlay = PricingOverlay(
-            userOverrides: [
+        let rateCard = RateCard(
+            overrides: [
                 "gpt-override-priced": ModelPricing(input: 7, output: 8),
                 "gpt-override-only": ModelPricing(input: 9, output: 10),
                 "claude-override-priced": ModelPricing(input: 7, output: 8),
@@ -76,7 +77,7 @@ enum PricingModelFilterVerifier {
         let visibleCodex = PricingModelFilterPolicy.visibleModels(
             provider: .codex,
             usage: codexUsage,
-            overlay: overlay
+            rateCard: rateCard
         )
         self.expectNames(
             visibleCodex,
@@ -86,7 +87,7 @@ enum PricingModelFilterVerifier {
         )
         self.expect(
             !visibleCodex.contains("gpt-override-only"),
-            "unused Codex overlay models were displayed",
+            "unused Codex override models were displayed",
             failures: &failures
         )
 
@@ -100,7 +101,7 @@ enum PricingModelFilterVerifier {
         let visibleClaude = PricingModelFilterPolicy.visibleModels(
             provider: .claude,
             usage: claudeUsage,
-            overlay: overlay
+            rateCard: rateCard
         )
         self.expectNames(
             visibleClaude,
@@ -110,7 +111,7 @@ enum PricingModelFilterVerifier {
         )
         self.expect(
             !visibleClaude.contains("claude-override-only"),
-            "unused Claude overlay models were displayed",
+            "unused Claude override models were displayed",
             failures: &failures
         )
 

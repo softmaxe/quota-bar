@@ -31,13 +31,13 @@ enum PriceBookTests {
                     "\(model.id) is priced today"
                 )
                 Harness.expectEqual(
-                    CostPricing.normalize(model.id, provider: provider),
+                    RateCard().modelID(for: model.id, provider: provider),
                     model.id,
                     "\(model.id) is already a normalized name, so stored usage can find it"
                 )
                 for alias in model.aliases {
                     Harness.expectEqual(
-                        CostPricing.normalize(alias, provider: provider),
+                        RateCard().modelID(for: alias, provider: provider),
                         model.id,
                         "alias \(alias) resolves to \(model.id)"
                     )
@@ -120,31 +120,6 @@ enum PriceBookTests {
             "models are looked up within their own provider"
         )
         Harness.expectEqual(book.canonicalID(for: "dated", provider: .codex), "dated-model", "aliases resolve")
-        Harness.expectEqual(
-            CostPricing.cost(
-                totals: TokenTotals(input: 1_000_000),
-                model: "dated-model",
-                provider: .codex,
-                longContext: false,
-                day: "2026-12-01",
-                book: book
-            ),
-            5,
-            "cost uses the period in force on the usage day"
-        )
-        Harness.expectEqual(
-            CostPricing.cost(
-                totals: TokenTotals(input: 1_000_000),
-                model: "dated-model",
-                provider: .codex,
-                longContext: false,
-                day: "2026-12-01",
-                overlay: PricingOverlay(userOverrides: ["dated-model": ModelPricing(input: 1, output: 1)]),
-                book: book
-            ),
-            1,
-            "a user override applies on every day"
-        )
     }
 
     private static func rejectsMalformedBooks() {

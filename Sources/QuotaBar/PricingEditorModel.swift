@@ -10,15 +10,10 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { self.rawValue }
 
-    /// The models the price book marks `showInSettings`, in the order it lists them.
-    static func whitelist(for provider: Provider) -> [String] {
-        PriceBook.bundled.models(for: provider).filter(\.showInSettings).map(\.id)
-    }
-
-    static func classify(model: String) -> PricingGroup {
+    static func classify(model: String, rateCard: RateCard) -> PricingGroup {
         let name = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if self.whitelist(for: .claude).contains(name) { return .claude }
-        if self.whitelist(for: .codex).contains(name) { return .codex }
+        if rateCard.settingsModels(for: .claude).contains(name) { return .claude }
+        if rateCard.settingsModels(for: .codex).contains(name) { return .codex }
         return .others
     }
 }
@@ -29,14 +24,14 @@ enum PricingModelFilterPolicy {
     static func visibleModels(
         provider: Provider,
         usage: [ModelUsageTotal],
-        overlay: PricingOverlay
+        rateCard: RateCard,
+        day: String = DayKey.today()
     ) -> [String] {
-        let whitelist = PricingGroup.whitelist(for: provider)
-        let seen = usage.map { CostPricing.normalize($0.model, provider: provider) }
+        let whitelist = rateCard.settingsModels(for: provider)
+        let seen = usage.map { rateCard.modelID(for: $0.model, provider: provider) }
         let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
         let unpriced = seenSet.filter { name in
-            !whitelist.contains(name)
-                && CostPricing.pricing(for: name, provider: provider, overlay: overlay) == nil
+            !whitelist.contains(name) && rateCard.rates(for: name, provider: provider, day: day) == nil
         }
         return whitelist + unpriced.sorted()
     }
@@ -55,6 +50,8 @@ struct PricingRow: Identifiable, Equatable {
     let hasDefault: Bool
     /// Total tokens seen in local logs. The settings list uses this to put active models first.
     let usageTokens: Int
+    /// Position among the models the rate card lists for settings, which the default order keeps.
+    var settingsRank: Int?
 
     var input: String
     var output: String
@@ -185,7 +182,7 @@ final class PricingEditorModel: ObservableObject {
     private var indexByID: [String: Int] = [:]
     /// Today's rates from the price book, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
-    /// User overrides loaded with the current overlay, including models hidden from the table.
+    /// User overrides loaded with the current rate card, including models hidden from the table.
     private var loadedUserOverrides: [String: ModelPricing] = [:]
     private var pendingRestores: Set<String> = []
     private var draftRevision = 0
@@ -199,20 +196,20 @@ final class PricingEditorModel: ObservableObject {
     var onSaved: (() -> Void)?
 
     /// Stands in for the two things `load()` reads off the machine it is running on: the local
-    /// scan cache and the price layers on disk. Only `--dump-settings` passes one, so the pane
-    /// it renders shows made-up models at the built-in rates rather than whoever ran it.
+    /// scan cache and the override file. Only `--dump-settings` passes one, so the pane it
+    /// renders shows made-up models at the built-in rates rather than whoever ran it.
     struct PreviewFixtures {
         let usage: [Provider: [ModelUsageTotal]]
-        let overlay: PricingOverlay
+        let rateCard: RateCard
         let beforeCommit: (@MainActor () async -> Void)?
 
         init(
             usage: [Provider: [ModelUsageTotal]],
-            overlay: PricingOverlay,
+            rateCard: RateCard = RateCard(),
             beforeCommit: (@MainActor () async -> Void)? = nil
         ) {
             self.usage = usage
-            self.overlay = overlay
+            self.rateCard = rateCard
             self.beforeCommit = beforeCommit
         }
     }
@@ -234,18 +231,18 @@ final class PricingEditorModel: ObservableObject {
         guard !self.hasUnsavedChanges, self.saveStatus != .saving else { return }
 
         if let fixtures = self.fixtures {
-            await self.rebuild(overlay: fixtures.overlay)
+            await self.rebuild(rateCard: fixtures.rateCard)
             return
         }
 
-        await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
+        await self.rebuild(rateCard: RateCard.onDisk())
         self.externalScanStatuses = await [
             self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
             self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
         ].compactMap { $0 }
     }
 
-    private func rebuild(overlay: PricingOverlay) async {
+    private func rebuild(rateCard: RateCard) async {
         let startedAtRevision = self.draftRevision
         // A reload behind an already-drawn table replaces it in place; only a first fill has
         // nothing to show meanwhile.
@@ -253,7 +250,8 @@ final class PricingEditorModel: ObservableObject {
 
         // The book alone is what a row would fall back to if its override were removed, which
         // is what the Reset button has to restore.
-        let fallback = PricingOverlay()
+        let fallback = rateCard.withoutOverrides
+        let today = DayKey.today()
 
         // Read on a connection of its own rather than through the service's actor, which a log
         // scan can hold for seconds at a time.
@@ -283,24 +281,27 @@ final class PricingEditorModel: ObservableObject {
             let names = PricingModelFilterPolicy.visibleModels(
                 provider: provider,
                 usage: usage,
-                overlay: overlay
+                rateCard: rateCard,
+                day: today
             )
 
-            let seenSet = Set(seen.map { CostPricing.normalize($0, provider: provider) })
+            let seenSet = Set(seen.map { rateCard.modelID(for: $0, provider: provider) })
             let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
-                (CostPricing.normalize($0.model, provider: provider), $0.tokens)
+                (rateCard.modelID(for: $0.model, provider: provider), $0.tokens)
             })
+            let settingsModels = rateCard.settingsModels(for: provider)
 
             for name in names {
-                let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
-                let effective = CostPricing.pricing(for: name, provider: provider, overlay: overlay)
+                let fallbackPricing = fallback.rates(for: name, provider: provider, day: today)
+                let effective = rateCard.rates(for: name, provider: provider, day: today)
                 let row = PricingRow(
                     provider: provider,
-                    group: PricingGroup.classify(model: name),
+                    group: PricingGroup.classify(model: name, rateCard: rateCard),
                     model: name,
                     seenInLogs: seenSet.contains(name),
                     hasDefault: fallbackPricing != nil,
                     usageTokens: usageTokens[name] ?? 0,
+                    settingsRank: settingsModels.firstIndex(of: name),
                     input: Self.text(effective?.input),
                     output: Self.text(effective?.output),
                     cacheWrite: Self.text(effective?.cacheWrite),
@@ -325,7 +326,7 @@ final class PricingEditorModel: ObservableObject {
         if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
         guard self.draftRevision == startedAtRevision, !self.hasUnsavedChanges,
               self.saveStatus != .saving else { return }
-        self.loadedUserOverrides = overlay.userOverrides
+        self.loadedUserOverrides = rateCard.overrides
         self.defaults = defaults
         self.setRows(built)
         self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })

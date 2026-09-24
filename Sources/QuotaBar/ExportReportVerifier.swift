@@ -127,7 +127,7 @@ enum ExportReportVerifier {
         NSApplication.shared.setActivationPolicy(.accessory)
         let selection = SettingsSelection()
         selection.tab = .export
-        let pricing = PricingEditorModel(costService: CostService(), fixtures: .init(usage: [:], overlay: PricingOverlay()))
+        let pricing = PricingEditorModel(costService: CostService(), fixtures: .init(usage: [:]))
         for (name, appearance) in [("export-settings-dark", NSAppearance.Name.darkAqua), ("export-settings-light", .aqua)] {
             let hosting = NSHostingView(rootView: SettingsView(settings: SettingsStore(defaults: defaults), pricing: pricing, selection: selection))
             hosting.appearance = NSAppearance(named: appearance)

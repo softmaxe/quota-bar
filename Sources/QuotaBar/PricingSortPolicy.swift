@@ -78,12 +78,9 @@ enum PricingSortPolicy {
         if lhsGroup != rhsGroup { return lhsGroup < rhsGroup }
 
         if lhs.group != .others {
-            let whitelist = PricingGroup.whitelist(for: lhs.provider)
-            let lhsWhitelistIndex = whitelist.firstIndex(of: lhs.model) ?? Int.max
-            let rhsWhitelistIndex = whitelist.firstIndex(of: rhs.model) ?? Int.max
-            if lhsWhitelistIndex != rhsWhitelistIndex {
-                return lhsWhitelistIndex < rhsWhitelistIndex
-            }
+            let lhsRank = lhs.settingsRank ?? Int.max
+            let rhsRank = rhs.settingsRank ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
         }
 
         if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }

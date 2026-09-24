@@ -19,7 +19,7 @@ public struct OverrideFile: Sendable {
 
     /// `~/Library/Application Support/QuotaBar/pricing-overrides.json`, hand-editable.
     public static var defaultURL: URL {
-        PricingOverlayStore.applicationSupportDirectory.appendingPathComponent("pricing-overrides.json")
+        AppSupport.directory.appendingPathComponent("pricing-overrides.json")
     }
 
     public init(url: URL = OverrideFile.defaultURL) {

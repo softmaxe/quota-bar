@@ -214,6 +214,7 @@ PaceTests.run()
 HistoricalPaceTests.run()
 PricingOverrideTests.run()
 OverrideFileTests.run()
+RateCardTests.run()
 UsageReportTests.run()
 runUsageReportRendererTests()
 

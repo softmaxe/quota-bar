@@ -50,7 +50,7 @@ enum InterfacePreview {
             let settings = SettingsStore(defaults: defaults)
             settings.refreshFrequency = .manual
             settings.menuBarProvider = state == "loaded" ? .codex : .claude
-            let service = CostService(pricingOverlay: PricingOverlay())
+            let service = CostService(rateCard: RateCard())
             let store = UsageStore(
                 settings: settings,
                 costService: service,
@@ -67,7 +67,7 @@ enum InterfacePreview {
             )
             let pricing = PricingEditorModel(
                 costService: service,
-                fixtures: .init(usage: [:], overlay: PricingOverlay()),
+                fixtures: .init(usage: [:]),
                 saveOperations: .init(write: { _ in }, invalidate: {})
             )
 

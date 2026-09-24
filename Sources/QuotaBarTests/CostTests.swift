@@ -11,7 +11,7 @@ enum CostTests {
         Self.normalization()
         Self.modelBreakdownRanking()
         Self.longContextTiering()
-        Self.overlayParsing()
+        Self.overrideParsing()
         Self.legacyReadOnlyCache()
         Self.logFileScanning()
         do {
@@ -49,7 +49,7 @@ enum CostTests {
             let service = CostService(
                 databaseURL: root.appendingPathComponent("usage.sqlite"),
                 env: ["CODEX_HOME": root.path, "OPENCODE_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path],
-                pricingOverlay: PricingOverlay(userOverrides: ["replacement-model": ModelPricing(input: 1, output: 2)])
+                rateCard: RateCard(overrides: ["replacement-model": ModelPricing(input: 1, output: 2)])
             )
             Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 100, "replacement fixture is scanned")
             try transcript(200).write(to: file, atomically: true, encoding: .utf8)
@@ -78,23 +78,23 @@ enum CostTests {
             try lines.write(to: file, atomically: true, encoding: .utf8)
             let database = root.appendingPathComponent("usage.sqlite")
             let env = ["CODEX_HOME": home.path, "XDG_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path]
-            let overlay = PricingOverlay(userOverrides: ["retention-model": ModelPricing(input: 1, output: 2)])
-            let first = await CostService(databaseURL: database, env: env, pricingOverlay: overlay).refresh(.codex)
+            let rateCard = RateCard(overrides: ["retention-model": ModelPricing(input: 1, output: 2)])
+            let first = await CostService(databaseURL: database, env: env, rateCard: rateCard).refresh(.codex)
             Harness.expectEqual(first?.windowTokens, 120, "retention fixture is scanned")
             let archive = home.appendingPathComponent("archived_sessions/\(name)")
             try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.moveItem(at: file, to: archive)
-            let changedPrices = PricingOverlay(userOverrides: ["retention-model": ModelPricing(input: 100, output: 200)])
-            let moved = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
+            let changedPrices = RateCard(overrides: ["retention-model": ModelPricing(input: 100, output: 200)])
+            let moved = await CostService(databaseURL: database, env: env, rateCard: changedPrices).refresh(.codex)
             Harness.expectEqual(moved?.windowTokens, 120, "archiving a Codex session does not double count")
             Harness.expectClose(moved?.windowCostUSD, 0.014, "archived usage is priced at the current rates")
             try FileManager.default.copyItem(at: archive, to: file)
-            let copied = await CostService(databaseURL: database, env: env, pricingOverlay: changedPrices).refresh(.codex)
+            let copied = await CostService(databaseURL: database, env: env, rateCard: changedPrices).refresh(.codex)
             Harness.expectEqual(copied?.windowTokens, 120, "simultaneous archive copies are counted once")
             Harness.expectClose(copied?.windowCostUSD, 0.014, "a copied session is priced once")
             try FileManager.default.removeItem(at: home.appendingPathComponent("sessions"))
             try FileManager.default.removeItem(at: home.appendingPathComponent("archived_sessions"))
-            let restarted = CostService(databaseURL: database, env: env, pricingOverlay: changedPrices)
+            let restarted = CostService(databaseURL: database, env: env, rateCard: changedPrices)
             let retained = await restarted.refresh(.codex)
             Harness.expectEqual(retained?.windowTokens, 120, "deleted sessions retain tokens after restart")
             Harness.expectClose(retained?.windowCostUSD, 0.014, "deleted sessions stay priced from their tokens")
@@ -133,10 +133,10 @@ enum CostTests {
             let claudeLine = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"retained-request","message":{"id":"retained-message","model":"retention-model","usage":{"input_tokens":100,"output_tokens":20},"content":"PRIVATE_TRANSCRIPT_SENTINEL"}}"# + "\n"
             try claudeLine.write(to: claudeFile, atomically: true, encoding: .utf8)
             let claudeEnv = ["CLAUDE_CONFIG_DIR": claudeHome.path]
-            let claude = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: overlay).refresh(.claude)
+            let claude = await CostService(databaseURL: database, env: claudeEnv, rateCard: rateCard).refresh(.claude)
             Harness.expectEqual(claude?.windowTokens, 120, "Claude retention fixture is scanned")
             try FileManager.default.removeItem(at: claudeHome)
-            let claudeRetained = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
+            let claudeRetained = await CostService(databaseURL: database, env: claudeEnv, rateCard: changedPrices).refresh(.claude)
             Harness.expectEqual(claudeRetained?.windowTokens, 120, "Claude usage survives deleting its session directory and restart")
             Harness.expectClose(claudeRetained?.windowCostUSD, 0.014, "deleted Claude usage stays priced")
             Harness.expectEqual(claudeRetained?.days.first?.rankedModels.first?.key.source, .claude,
@@ -154,7 +154,7 @@ enum CostTests {
                 sqlite3_exec(db, "PRAGMA user_version = 6", nil, nil, nil)
             }
             sqlite3_close(db)
-            let upgraded = await CostService(databaseURL: database, env: claudeEnv, pricingOverlay: changedPrices).refresh(.claude)
+            let upgraded = await CostService(databaseURL: database, env: claudeEnv, rateCard: changedPrices).refresh(.claude)
             Harness.expectEqual(upgraded?.windowTokens, 120, "scanner version changes preserve deleted-source history")
             Harness.expectClose(upgraded?.windowCostUSD, 0.014, "scanner version changes preserve priced history")
         } catch {
@@ -218,30 +218,32 @@ enum CostTests {
         // CodexBar's table predates these two; they are the reason the built-in table was extended.
         for model in ["claude-opus-5", "claude-sonnet-5"] {
             Harness.expect(
-                CostPricing.pricing(for: model, provider: .claude) != nil,
+                RateCard().rates(for: model, provider: .claude, day: DayKey.today()) != nil,
                 "\(model) must have a built-in price"
             )
         }
 
         // 1M input + 1M output on Opus 5 at $5/$25 per million.
-        let cost = CostPricing.cost(
-            totals: TokenTotals(input: 1_000_000, output: 1_000_000),
+        let cost = RateCard().cost(
+            of: TokenTotals(input: 1_000_000, output: 1_000_000),
             model: "claude-opus-5",
             provider: .claude,
+            day: DayKey.today(),
             longContext: false
         )
         Harness.expectEqual(cost, 30.0, "opus-5 cost for 1M in + 1M out")
 
         // Cache read is a tenth of input; cache write is 1.25x.
-        let cacheCost = CostPricing.cost(
-            totals: TokenTotals(cacheWrite: 1_000_000, cacheRead: 1_000_000),
+        let cacheCost = RateCard().cost(
+            of: TokenTotals(cacheWrite: 1_000_000, cacheRead: 1_000_000),
             model: "claude-opus-5",
             provider: .claude,
+            day: DayKey.today(),
             longContext: false
         )
         Harness.expectEqual(cacheCost, 6.75, "opus-5 cache cost for 1M write + 1M read")
 
-        let codexMini = CostPricing.pricing(for: "codex-mini-latest", provider: .codex)
+        let codexMini = RateCard().rates(for: "codex-mini-latest", provider: .codex, day: DayKey.today())
         Harness.expectClose(codexMini?.input, 1.5, "codex-mini-latest input rate")
         Harness.expectClose(codexMini?.output, 6, "codex-mini-latest output rate")
         Harness.expectClose(codexMini?.cacheRead, 0.375, "codex-mini-latest cached input rate")
@@ -268,10 +270,11 @@ enum CostTests {
         ]
         for (model, expected) in fastExpected {
             Harness.expectEqual(
-                CostPricing.pricing(
+                RateCard().rates(
                     for: model,
                     provider: .codex,
-                    codexServiceTier: .fast
+                    day: DayKey.today(),
+                    fast: true
                 ),
                 expected,
                 "\(model) Fast rates match the built-in table"
@@ -279,17 +282,22 @@ enum CostTests {
         }
         for model in ["gpt-5.6-cyber", "codex-mini-latest", "unknown-fast-model"] {
             Harness.expect(
-                CostPricing.pricing(
+                RateCard(overrides: [model: ModelPricing(input: 99, output: 99)]).rates(
                     for: model,
                     provider: .codex,
-                    overlay: PricingOverlay(userOverrides: [model: ModelPricing(input: 99, output: 99)]),
-                    codexServiceTier: .fast
+                    day: DayKey.today(),
+                    fast: true
                 ) == nil,
                 "\(model) has no Fast price"
             )
         }
 
-        let haiku = CostPricing.pricing(for: "claude-3-5-haiku-20241022", provider: .claude)
+        // Logs name models with a release date; the rate card prices them under their id.
+        func bundledRates(_ name: String, provider: Provider) -> ModelPricing? {
+            let card = RateCard()
+            return card.rates(for: card.modelID(for: name, provider: provider), provider: provider, day: DayKey.today())
+        }
+        let haiku = bundledRates("claude-3-5-haiku-20241022", provider: .claude)
         Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
         Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
         Harness.expectClose(haiku?.cacheWrite, 1, "claude-3-5-haiku five-minute cache-write rate")
@@ -302,7 +310,7 @@ enum CostTests {
 
         // The 5.1 pair is the one Anthropic family that breaks the 0.1x cache-read ratio, so
         // its read rate is worth pinning rather than left to look like a typo.
-        let fable = CostPricing.pricing(for: "claude-fable-5-1-20260101", provider: .claude)
+        let fable = bundledRates("claude-fable-5-1-20260101", provider: .claude)
         Harness.expectClose(fable?.input, 10, "claude-fable-5-1 input rate")
         Harness.expectClose(fable?.output, 50, "claude-fable-5-1 output rate")
         Harness.expectClose(fable?.cacheWrite, 12.5, "claude-fable-5-1 five-minute cache-write rate")
@@ -313,18 +321,18 @@ enum CostTests {
             "claude-fable-5-1 one-hour cache-write rate is derived"
         )
         Harness.expectClose(
-            CostPricing.pricing(for: "claude-mythos-5-1", provider: .claude)?.cacheRead,
+            RateCard().rates(for: "claude-mythos-5-1", provider: .claude, day: DayKey.today())?.cacheRead,
             0.25,
             "claude-mythos-5-1 shares the 5.1 cache-read rate"
         )
         Harness.expectClose(
-            CostPricing.pricing(for: "claude-fable-5", provider: .claude)?.cacheRead,
+            RateCard().rates(for: "claude-fable-5", provider: .claude, day: DayKey.today())?.cacheRead,
             1,
             "claude-fable-5 keeps the standard 0.1x cache-read rate"
         )
 
         // Opus 5.5 is the other break from 0.1x: its cache read is 0.05x input.
-        let opus55 = CostPricing.pricing(for: "claude-opus-5-5-20260923", provider: .claude)
+        let opus55 = bundledRates("claude-opus-5-5-20260923", provider: .claude)
         Harness.expectClose(opus55?.input, 4, "claude-opus-5-5 input rate")
         Harness.expectClose(opus55?.output, 20, "claude-opus-5-5 output rate")
         Harness.expectClose(opus55?.cacheWrite, 5, "claude-opus-5-5 five-minute cache-write rate")
@@ -337,10 +345,11 @@ enum CostTests {
 
         // An unknown model must return nil rather than silently costing zero.
         Harness.expect(
-            CostPricing.cost(
-                totals: TokenTotals(input: 1_000_000),
+            RateCard().cost(
+                of: TokenTotals(input: 1_000_000),
                 model: "some-model-nobody-priced",
                 provider: .claude,
+                day: DayKey.today(),
                 longContext: false
             ) == nil,
             "unknown models must not be priced"
@@ -349,36 +358,36 @@ enum CostTests {
 
     private static func normalization() {
         Harness.expectEqual(
-            CostPricing.normalizeClaudeModel("claude-haiku-4-5-20251001"),
+            RateCard().modelID(for: "claude-haiku-4-5-20251001", provider: .claude),
             "claude-haiku-4-5",
             "claude date suffix stripped"
         )
         Harness.expectEqual(
-            CostPricing.normalizeClaudeModel("anthropic.claude-opus-4-6-v1:0"),
+            RateCard().modelID(for: "anthropic.claude-opus-4-6-v1:0", provider: .claude),
             "claude-opus-4-6",
             "bedrock prefix and version suffix stripped"
         )
         Harness.expectEqual(
-            CostPricing.normalizeClaudeModel("anthropic.claude-3-5-haiku-20241022-v1:0"),
+            RateCard().modelID(for: "anthropic.claude-3-5-haiku-20241022-v1:0", provider: .claude),
             "claude-3-5-haiku",
             "Haiku 3.5 Bedrock id normalized"
         )
         Harness.expectEqual(
-            CostPricing.normalizeClaudeModel("claude-3-5-haiku@20241022"),
+            RateCard().modelID(for: "claude-3-5-haiku@20241022", provider: .claude),
             "claude-3-5-haiku",
             "Haiku 3.5 Vertex id normalized"
         )
         Harness.expectEqual(
-            CostPricing.normalizeClaudeModel("anthropic.claude-fable-5-1-v1:0"),
+            RateCard().modelID(for: "anthropic.claude-fable-5-1-v1:0", provider: .claude),
             "claude-fable-5-1",
             "a point-release id keeps its minor version"
         )
         Harness.expectEqual(
-            CostPricing.normalizeCodexModel("openai/gpt-5.1-2026-01-01"),
+            RateCard().modelID(for: "openai/gpt-5.1-2026-01-01", provider: .codex),
             "gpt-5.1",
             "codex vendor prefix and dated suffix stripped"
         )
-        Harness.expectEqual(CostPricing.normalizeCodexModel("gpt-5.6"), "gpt-5.6-sol", "sol alias applied")
+        Harness.expectEqual(RateCard().modelID(for: "gpt-5.6", provider: .codex), "gpt-5.6-sol", "sol alias applied")
     }
 
     private static func modelBreakdownRanking() {
@@ -419,57 +428,61 @@ enum CostTests {
         let below = TokenTotals(input: 100_000)
         let above = TokenTotals(input: 300_000)
         Harness.expect(
-            !CostPricing.isLongContext(totals: below, model: "gpt-5.6-sol", provider: .codex),
+            !RateCard().isLongContext(below, model: "gpt-5.6-sol", provider: .codex, day: DayKey.today()),
             "100k tokens stays at the base tier"
         )
         Harness.expect(
-            CostPricing.isLongContext(totals: above, model: "gpt-5.6-sol", provider: .codex),
+            RateCard().isLongContext(above, model: "gpt-5.6-sol", provider: .codex, day: DayKey.today()),
             "300k tokens crosses into the long-context tier"
         )
         for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
             Harness.expect(
-                !CostPricing.isLongContext(
-                    totals: TokenTotals(input: 272_000),
+                !RateCard().isLongContext(
+                    TokenTotals(input: 272_000),
                     model: model,
-                    provider: .codex
+                    provider: .codex,
+                    day: DayKey.today()
                 ),
                 "\(model) stays at the base tier at exactly 272k tokens"
             )
             Harness.expect(
-                CostPricing.isLongContext(
-                    totals: TokenTotals(input: 272_001),
+                RateCard().isLongContext(
+                    TokenTotals(input: 272_001),
                     model: model,
-                    provider: .codex
+                    provider: .codex,
+                    day: DayKey.today()
                 ),
                 "\(model) crosses into the long-context tier above 272k tokens"
             )
         }
-        let baseCost = CostPricing.cost(
-            totals: TokenTotals(input: 1_000_000),
+        let baseCost = RateCard().cost(
+            of: TokenTotals(input: 1_000_000),
             model: "gpt-5.6-sol",
             provider: .codex,
+            day: DayKey.today(),
             longContext: false
         )
-        let longCost = CostPricing.cost(
-            totals: TokenTotals(input: 1_000_000),
+        let longCost = RateCard().cost(
+            of: TokenTotals(input: 1_000_000),
             model: "gpt-5.6-sol",
             provider: .codex,
+            day: DayKey.today(),
             longContext: true
         )
         Harness.expectEqual(baseCost, 4.0, "sol base input rate")
         Harness.expectEqual(longCost, 8.0, "sol long-context input rate")
     }
 
-    private static func overlayParsing() {
+    private static func overrideParsing() {
         let overrides = OverrideFile.parse(Data("""
         { "my-model": { "input": 1, "output": 2, "cacheRead": 0.1 } }
         """.utf8)).overrides
         Harness.expectEqual(overrides["my-model"]?.input, 1, "user override input rate")
 
         // A user override must win over the price book for the same model.
-        let overlay = PricingOverlay(userOverrides: ["claude-opus-5": ModelPricing(input: 99, output: 99)])
+        let rateCard = RateCard(overrides: ["claude-opus-5": ModelPricing(input: 99, output: 99)])
         Harness.expectEqual(
-            CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
+            rateCard.rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
             99,
             "user override beats the price book"
         )
@@ -664,7 +677,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "OPENCODE_DATA_HOME": openCodeHome.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 150, "OpenCode maps output reasoning and cache buckets")
@@ -689,7 +702,7 @@ enum CostTests {
         )
         let completed = await service.refresh(.codex)
         Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its stored usage")
-        await service.usePricingOverlay(PricingOverlay(userOverrides: [
+        await service.useRateCard(RateCard(overrides: [
             "gpt-5.6-luna": ModelPricing(
                 input: 100,
                 output: 100,
@@ -703,7 +716,7 @@ enum CostTests {
         let repriced = await service.refresh(.codex)
         // The tier was decided at scan time against the book's 272K threshold, so the override's
         // threshold of 1 cannot move stored rows into its long-context rates.
-        Harness.expectClose(repriced?.windowCostUSD, 0.025, "an overlay change reprices recorded OpenCode usage")
+        Harness.expectClose(repriced?.windowCostUSD, 0.025, "an override change reprices recorded OpenCode usage")
 
         try? #"{"openai":{"type":"api","accountId":"account-a"}}"#.write(
             to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
@@ -824,7 +837,7 @@ enum CostTests {
             #"{"type":"message","message":{"id":"ignored","role":"assistant","provider":"other","model":"gpt-5.6-luna","timestamp":\#(now),"usage":{"input":500}}}"#,
         ])
 
-        let overlay = PricingOverlay(userOverrides: [
+        let rateCard = RateCard(overrides: [
             "gpt-5.6-luna": ModelPricing(input: 1, output: 2, cacheWrite: 3, cacheRead: 0.5),
         ])
         let service = CostService(
@@ -835,7 +848,7 @@ enum CostTests {
                 "PI_CODING_AGENT_SESSION_DIR": sessions.path,
                 "OPENCODE_DATA_HOME": root.appendingPathComponent("missing-opencode").path,
             ],
-            pricingOverlay: overlay
+            rateCard: rateCard
         )
 
         let first = await service.refresh(.codex)
@@ -936,7 +949,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
 
         let before = await service.refresh(.codex)
@@ -949,7 +962,7 @@ enum CostTests {
         )
 
         // What the settings pane does on Save: write the file, then drop the cached overrides.
-        await service.usePricingOverlay(PricingOverlay(userOverrides: [
+        await service.useRateCard(RateCard(overrides: [
             "gpt-5.6-luna": ModelPricing(input: 5, output: 5),
             "gpt-new-unlisted": ModelPricing(input: 1, output: 1),
         ]))
@@ -1000,7 +1013,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: env,
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
 
         let codex = await service.refresh(.codex)
@@ -1089,7 +1102,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("fast-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let snapshot = await service.refresh(.codex)
         let modelUsage = await service.knownModelUsage(provider: .codex)
@@ -1158,7 +1171,7 @@ enum CostTests {
             let tierService = CostService(
                 databaseURL: root.appendingPathComponent("\(name)-cache.sqlite"),
                 env: ["CODEX_HOME": tierHome.path],
-                pricingOverlay: PricingOverlay()
+                rateCard: RateCard()
             )
             return await tierService.refresh(.codex)
         }
@@ -1275,7 +1288,7 @@ enum CostTests {
                 "OPENCODE_DATA_HOME": openCodeHome.path,
                 "PI_CODING_AGENT_DIR": root.appendingPathComponent("missing-pi").path,
             ],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let snapshot = await service.refresh(.codex)
         let standardKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol")
@@ -1304,7 +1317,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("stream-cache.sqlite"),
             env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("stream-claude").path],
-            pricingOverlay: PricingOverlay(userOverrides: [
+            rateCard: RateCard(overrides: [
                 "stream-model": ModelPricing(input: 1, output: 2),
             ])
         )
@@ -1341,7 +1354,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("ttl-cache.sqlite"),
             env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("ttl-claude").path],
-            pricingOverlay: PricingOverlay(userOverrides: [
+            rateCard: RateCard(overrides: [
                 "ttl-model": ModelPricing(input: 10, output: 0, cacheWrite: 12.5, cacheRead: 0),
             ])
         )
@@ -1384,10 +1397,10 @@ enum CostTests {
 
         let database = root.appendingPathComponent("replay-cache.sqlite")
         let env = ["CODEX_HOME": home.path]
-        let overlay = PricingOverlay(userOverrides: [
+        let rateCard = RateCard(overrides: [
             "replay-model": ModelPricing(input: 1, output: 1),
         ])
-        let snapshot = await CostService(databaseURL: database, env: env, pricingOverlay: overlay)
+        let snapshot = await CostService(databaseURL: database, env: env, rateCard: rateCard)
             .refresh(.codex)
         Harness.expectClose(
             snapshot?.windowCostUSD,
@@ -1402,7 +1415,7 @@ enum CostTests {
             try? handle.write(contentsOf: Data((appended + "\n").utf8))
             try? handle.close()
         }
-        let resumed = await CostService(databaseURL: database, env: env, pricingOverlay: overlay)
+        let resumed = await CostService(databaseURL: database, env: env, rateCard: rateCard)
             .refresh(.codex)
         Harness.expectClose(
             resumed?.windowCostUSD,
@@ -1435,7 +1448,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("escaped-classifier-cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         Harness.expectEqual(
             await service.refresh(.codex)?.windowTokens,
@@ -1467,7 +1480,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("bounded-resume-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 100, "bounded resume fixture scans its first turn")
@@ -1502,7 +1515,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("truncated-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 100, "truncation fixture starts with cached usage")
@@ -1532,7 +1545,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("carve-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            pricingOverlay: PricingOverlay(userOverrides: [
+            rateCard: RateCard(overrides: [
                 "carve-model": ModelPricing(input: 10, output: 0, cacheWrite: 1, cacheRead: 0),
             ])
         )
@@ -2152,21 +2165,21 @@ enum PricingOverrideTests {
         Harness.expectEqual(loaded["ox-tiered"], overrides["ox-tiered"], "the full rate set round-trips")
 
         // A model with no built-in price becomes priceable through the override alone.
-        let overlay = PricingOverlay(userOverrides: loaded)
+        let rateCard = RateCard(overrides: loaded)
         Harness.expectEqual(
-            CostPricing.cost(
-                totals: TokenTotals(input: 1_000_000),
+            rateCard.cost(
+                of: TokenTotals(input: 1_000_000),
                 model: "ox-alpha",
                 provider: .claude,
-                longContext: false,
-                overlay: overlay
+                day: DayKey.today(),
+                longContext: false
             ),
             1.5,
             "an override prices a model the built-in table does not know"
         )
         // And it outranks a built-in rate for a model that does have one.
         Harness.expectEqual(
-            CostPricing.pricing(for: "claude-opus-5", provider: .claude, overlay: overlay)?.input,
+            rateCard.rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
             99,
             "an override outranks the built-in table"
         )
@@ -2175,33 +2188,44 @@ enum PricingOverrideTests {
         // twice input when it does not.
         let hourly = TokenTotals(cacheWrite: 1_000_000, cacheWrite1h: 1_000_000)
         Harness.expectEqual(
-            CostPricing.cost(
-                totals: hourly, model: "ox-tiered", provider: .codex,
-                longContext: false, overlay: overlay
+            rateCard.cost(
+                of: hourly,
+                model: "ox-tiered",
+                provider: .codex,
+                day: DayKey.today(),
+                longContext: false
             ),
             3.5,
             "a stated one-hour rate is what bills"
         )
         Harness.expectEqual(
-            CostPricing.cost(
-                totals: hourly, model: "ox-tiered", provider: .codex,
-                longContext: true, overlay: overlay
+            rateCard.cost(
+                of: hourly,
+                model: "ox-tiered",
+                provider: .codex,
+                day: DayKey.today(),
+                longContext: true
             ),
             7,
             "the long-context one-hour rate applies above the threshold"
         )
         Harness.expectEqual(
-            CostPricing.cost(
-                totals: hourly, model: "ox-alpha", provider: .claude,
-                longContext: false, overlay: overlay
+            rateCard.cost(
+                of: hourly,
+                model: "ox-alpha",
+                provider: .claude,
+                day: DayKey.today(),
+                longContext: false
             ),
             3,
             "no stated one-hour rate falls back to twice input"
         )
         Harness.expect(
-            CostPricing.isLongContext(
-                totals: TokenTotals(input: 250_000), model: "ox-tiered",
-                provider: .codex, overlay: overlay
+            rateCard.isLongContext(
+                TokenTotals(input: 250_000),
+                model: "ox-tiered",
+                provider: .codex,
+                day: DayKey.today()
             ),
             "an overridden threshold decides the tier"
         )
@@ -2213,7 +2237,7 @@ enum PricingOverrideTests {
             "an empty override set deletes the file"
         )
         Harness.expectEqual(
-            CostPricing.pricing(for: "claude-opus-5", provider: .claude)?.input,
+            RateCard().rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
             5,
             "the built-in rate returns once the override is gone"
         )

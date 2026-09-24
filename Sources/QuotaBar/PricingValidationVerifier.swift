@@ -136,7 +136,7 @@ enum PricingValidationVerifier {
         let loadGate = Gate()
         let loading = PricingEditorModel(
             costService: CostService(),
-            fixtures: .init(usage: [:], overlay: PricingOverlay(), beforeCommit: { await loadGate.wait() }),
+            fixtures: .init(usage: [:], beforeCommit: { await loadGate.wait() }),
             saveOperations: recorder.operations()
         )
         let pendingLoad = Task { await loading.load() }
