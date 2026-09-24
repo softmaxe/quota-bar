@@ -1,7 +1,7 @@
 import QuotaBarCore
 import Foundation
 
-/// What the provider switch and red icon read off each provider's last snapshot.
+/// What the menu bar icon reads off the providers' last snapshots.
 enum MenuBarProviderPolicyTests {
     static func run() {
         let now = Date(timeIntervalSince1970: 10_000)
@@ -86,6 +86,26 @@ enum MenuBarProviderPolicyTests {
         Harness.expect(
             !MenuBarProviderPolicy.runningLow(snapshot(.codex, session: nil, weekly: nil), now: now),
             "a snapshot with no windows is not running low"
+        )
+
+        // The icon reports the tightest window across every signed-in provider.
+        Harness.expectEqual(
+            MenuBarProviderPolicy.tightestRemaining([unlimited, claude], now: now),
+            29,
+            "the tightest window across providers is the one reported"
+        )
+        Harness.expectEqual(
+            MenuBarProviderPolicy.tightestRemaining([], now: now),
+            nil,
+            "no readings leave nothing to report"
+        )
+        Harness.expect(
+            MenuBarProviderPolicy.runningLow([unlimited, low], now: now),
+            "one provider running low makes the icon run low"
+        )
+        Harness.expect(
+            !MenuBarProviderPolicy.runningLow([unlimited, drainedThenReset], now: now),
+            "providers with room left and refilled windows are not running low"
         )
     }
 }

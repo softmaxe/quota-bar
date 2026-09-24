@@ -128,22 +128,25 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         return self.settingsWindow.applicationShouldTerminate(application)
     }
 
+    /// The icon reports the tightest window across every provider's reading. It dims only when a
+    /// provider with a saved reading failed its latest refresh, so a provider that was never read
+    /// (signed out, or its keychain prompt declined) cannot grey out the other's numbers.
     private func apply(provider: Provider? = nil) {
-        let provider = provider ?? self.settings.menuBarProvider
-        let display = self.store.displays[provider] ?? ProviderDisplay()
+        let snapshots = Provider.allCases.compactMap { self.store.displays[$0]?.snapshot }
         let item = self.materializedStatusItem()
         let icon = IconRenderer.makeIcon(
-            hasReading: display.snapshot?.session != nil || display.snapshot?.weekly != nil,
-            stale: display.isStale,
-            runningLow: display.snapshot.map { MenuBarProviderPolicy.runningLow($0, now: self.now()) } ?? false
+            hasReading: snapshots.contains { $0.session != nil || $0.weekly != nil },
+            stale: self.store.displays.values.contains { $0.snapshot != nil && $0.isStale },
+            runningLow: MenuBarProviderPolicy.runningLow(snapshots, now: self.now())
         )
         // Icons are cached per state, so an unchanged state is the same instance. Assigning it
         // again would still invalidate and redraw the status button.
         if item.button?.image !== icon { item.button?.image = icon }
-        let toolTip = self.toolTip(for: provider, display: display)
+        let toolTip = self.toolTip()
         if item.button?.toolTip != toolTip { item.button?.toolTip = toolTip }
-        item.button?.setAccessibilityLabel("QuotaBar, \(provider.displayName)")
-        self.updateCard(provider: provider, display: display)
+        item.button?.setAccessibilityLabel("QuotaBar")
+        let provider = provider ?? self.settings.menuBarProvider
+        self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
     }
 
     private func materializedStatusItem() -> NSStatusItem {
@@ -233,27 +236,26 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         }
     }
 
-    private func toolTip(for provider: Provider, display: ProviderDisplay) -> String {
-        var parts = [provider.displayName]
-        if let snapshot = display.snapshot {
-            if let session = snapshot.session {
-                parts.append("session \(Formatters.percent(session.remainingPercent)) left")
-            } else if snapshot.sessionIsUnlimited {
-                parts.append("session no limit")
+    /// One line per provider, in the card's order.
+    private func toolTip() -> String {
+        Provider.allCases.map { provider in
+            let display = self.store.displays[provider] ?? ProviderDisplay()
+            var parts = [provider.displayName]
+            if let snapshot = display.snapshot {
+                if let session = snapshot.session {
+                    parts.append("session \(Formatters.percent(session.remainingPercent)) left")
+                } else if snapshot.sessionIsUnlimited {
+                    parts.append("session no limit")
+                }
+                if let weekly = snapshot.weekly {
+                    parts.append("weekly \(Formatters.percent(weekly.remainingPercent)) left")
+                }
             }
-            if let weekly = snapshot.weekly {
-                parts.append("weekly \(Formatters.percent(weekly.remainingPercent)) left")
-            }
+            if display.isSignedOut { parts.append("Not signed in") }
+            if let error = display.error { parts.append(error) }
+            return parts.joined(separator: " · ")
         }
-        if display.isSignedOut { parts.append("Not signed in") }
-        if let error = display.error { parts.append(error) }
-        for other in Provider.allCases where other != provider {
-            if let snapshot = self.store.displays[other]?.snapshot,
-               let remaining = MenuBarProviderPolicy.tightestRemaining(snapshot, now: self.now()) {
-                parts.append("\(other.displayName) \(Formatters.percent(remaining)) left")
-            }
-        }
-        return parts.joined(separator: " · ")
+        .joined(separator: "\n")
     }
 
     @objc private func statusItemClicked() {
