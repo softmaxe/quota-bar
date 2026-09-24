@@ -92,7 +92,7 @@ claude
 
 ### 额度窗口与使用节奏
 
-每个有限额的窗口显示剩余百分比和重置时间。在重置时间控件中选择 **Countdown** 或 **Clock time**，可同时切换两个有限额窗口的显示方式。无限额会话显示 **Session ∞** 和 **No limit**。展开 **Usage pace details**，可查看额度储备、缺口和使用余量。
+每个有限额的窗口显示剩余百分比和重置时间。在重置时间控件中选择 **Countdown** 或 **Clock time**，可同时切换两个有限额窗口的显示方式。无限额会话显示 **Session ∞** 和 **No limit**。额度用尽的窗口会在使用节奏摘要的位置显示 **Limit reached**。展开 **Usage pace details**，可查看额度储备、缺口和使用余量。
 
 QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，每周节奏也会结合历史记录。额度采样保留 56 天。
 
@@ -244,7 +244,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/settings-pricing.png" width="620" alt="价格设置，包含可编辑费率、展开的长上下文字段和各模型的操作菜单">
 </p>
 
-- 费率须为非负有限数值，可选的长上下文阈值须为正整数 token 数量。无效字段会禁用 **Save**。
+- 费率须为非负有限数值，可选的长上下文阈值须为正整数 token 数量；填写了任一超过阈值后的费率时，阈值为必填项。无效字段会禁用 **Save**。
 - **Save** 显示进度和结果。应用运行期间，保存失败、切换标签页或关闭设置窗口都会保留草稿。**Discard** 恢复上次保存的费率。
 - 移除覆盖费率时，在模型的 **…** 菜单选择 **Restore default rate** 或 **Clear custom rate**，然后保存。
 - 有有效草稿时退出，可选择 **Save**、**Discard** 或 **Cancel**。无效草稿须修正后才能保存。
@@ -258,7 +258,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 </details>
 
-保存后的费率作用于该模型的所有已记录用量，包括之前未计价的用量。恢复默认后，每一天都回到价格表中对应日期的费率。
+保存后的费率作用于该模型的所有已记录用量，包括之前未计价的用量。恢复默认后，每一天都回到价格表中对应日期的费率。修改阈值只影响保存后扫描的请求；已记录的请求保留扫描时判定的长上下文归类。
 
 ## 隐私与网络
 
@@ -280,7 +280,7 @@ Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`�
 
 ## 构建与开发
 
-Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager and has no Xcode project. Build commands use `Scripts/swift.sh`, which defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
+构建需要完整的 Xcode 及 Swift 6 工具链。项目使用 Swift Package Manager，没有 Xcode 工程。构建命令通过 `Scripts/swift.sh` 执行，默认使用 `/Applications/Xcode.app/Contents/Developer`，不会修改全局 `xcode-select` 设置。
 
 ```bash
 git clone https://github.com/softmaxe/quota-bar.git
@@ -289,7 +289,7 @@ make app
 open build/QuotaBar.app
 ```
 
-To use another full Xcode installation, set `DEVELOPER_DIR` to its `Contents/Developer` directory:
+如需使用其他完整 Xcode，将 `DEVELOPER_DIR` 设为其 `Contents/Developer` 目录：
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
