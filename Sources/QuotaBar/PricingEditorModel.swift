@@ -223,7 +223,7 @@ final class PricingEditorModel: ObservableObject {
         self.costService = costService
         self.fixtures = fixtures
         self.saveOperations = saveOperations ?? SaveOperations(
-            write: { try PricingOverlayStore.saveUserOverrides($0) },
+            write: { try OverrideFile().save($0) },
             invalidate: { await costService.invalidatePricing() }
         )
     }
@@ -520,16 +520,25 @@ final class PricingEditorModel: ObservableObject {
         var result: [String: [PricingField: String]] = [:]
         for row in rows {
             var errors: [PricingField: String] = [:]
+            // The text has to read as a number here; whether that number is an allowed rate is
+            // for the rules the price book and the override file share.
+            var values: [String: Double] = [:]
             for field in PricingField.allCases {
                 let value = row[keyPath: field.keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !value.isEmpty else { continue }
-                if field == .thresholdTokens {
-                    if Self.threshold(value) == nil {
-                        errors[field] = "\(row.model): \(field.title) must be a positive whole number of tokens within the supported range."
-                    }
-                } else if Self.number(value) == nil {
-                    errors[field] = "\(row.model): \(field.title) must be a finite number of at least 0 USD per million tokens."
+                let parsed = field == .thresholdTokens ? Self.threshold(value).map(Double.init) : Self.number(value)
+                if let parsed {
+                    values[field.rawValue] = parsed
+                } else {
+                    errors[field] = Self.message(for: field, model: row.model)
                 }
+            }
+            // A missing base rate is judged below, against what the row held before the edit.
+            for violation in ModelPricing.violations(in: values) where violation.rule != .missing {
+                guard let field = PricingField(rawValue: violation.key), errors[field] == nil else { continue }
+                errors[field] = violation.rule == .longContextWithoutThreshold
+                    ? "\(row.model): Enter a positive long-context threshold for the rates above it."
+                    : Self.message(for: field, model: row.model)
             }
 
             let inputEmpty = row.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -551,18 +560,15 @@ final class PricingEditorModel: ObservableObject {
                     errors[.output] = "\(row.model): Output price is required for a priced model. Use Restore default rate to clear an override."
                 }
             }
-            let aboveFields: [PricingField] = [
-                .inputAbove, .outputAbove, .cacheWriteAbove, .cacheWrite1hAbove, .cacheReadAbove,
-            ]
-            if row.thresholdTokens.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               aboveFields.contains(where: {
-                !row[keyPath: $0.keyPath].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-               }) {
-                errors[.thresholdTokens] = "\(row.model): Enter a positive long-context threshold for the rates above it."
-            }
             if !errors.isEmpty { result[row.id] = errors }
         }
         return result
+    }
+
+    private static func message(for field: PricingField, model: String) -> String {
+        field == .thresholdTokens
+            ? "\(model): \(field.title) must be a positive whole number of tokens within the supported range."
+            : "\(model): \(field.title) must be a finite number of at least 0 USD per million tokens."
     }
 
     /// Merges visible edits into the loaded user layer without deleting overrides for hidden rows.
@@ -611,6 +617,8 @@ final class PricingEditorModel: ObservableObject {
         )
     }
 
+    /// The number a rate field's text spells, grouping commas allowed. A negative number still
+    /// reads; `ModelPricing.violations` is what refuses it.
     fileprivate nonisolated static func number(_ text: String) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -628,10 +636,12 @@ final class PricingEditorModel: ObservableObject {
         } else {
             normalized = trimmed
         }
-        guard let value = Double(normalized), value.isFinite, value >= 0 else { return nil }
+        guard let value = Double(normalized), value.isFinite else { return nil }
         return value
     }
 
+    /// The whole number a threshold field's text spells, zero included, which
+    /// `ModelPricing.violations` refuses.
     private static func threshold(_ text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -641,8 +651,7 @@ final class PricingEditorModel: ObservableObject {
               parts.allSatisfy({ part in part.allSatisfy { $0 >= "0" && $0 <= "9" } }),
               parts.dropFirst().allSatisfy({ $0.count == 3 }) else { return nil }
         let digits = parts.joined()
-        guard let value = Int(digits), value > 0 else { return nil }
-        return value
+        return Int(digits)
     }
 
     static func text(_ value: Double?) -> String {

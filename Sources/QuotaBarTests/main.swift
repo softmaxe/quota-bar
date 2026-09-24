@@ -213,6 +213,7 @@ await MainActor.run { SettingsTests.run() }
 PaceTests.run()
 HistoricalPaceTests.run()
 PricingOverrideTests.run()
+OverrideFileTests.run()
 UsageReportTests.run()
 runUsageReportRendererTests()
 

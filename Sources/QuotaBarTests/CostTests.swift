@@ -461,9 +461,9 @@ enum CostTests {
     }
 
     private static func overlayParsing() {
-        let overrides = PricingOverlayStore.parseUserOverrides(Data("""
+        let overrides = OverrideFile.parse(Data("""
         { "my-model": { "input": 1, "output": 2, "cacheRead": 0.1 } }
-        """.utf8))
+        """.utf8)).overrides
         Harness.expectEqual(overrides["my-model"]?.input, 1, "user override input rate")
 
         // A user override must win over the price book for the same model.
@@ -2121,16 +2121,11 @@ enum HistoricalPaceTests {
 /// The hand-edited price layer: round-trips through disk and outranks the other layers.
 enum PricingOverrideTests {
     static func run() {
-        let url = PricingOverlayStore.userOverridesURL
-        // Never clobber a real override file while testing.
-        let backup = try? Data(contentsOf: url)
-        defer {
-            if let backup {
-                try? backup.write(to: url)
-            } else {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quotabar-overrides-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = OverrideFile(url: directory.appendingPathComponent("pricing-overrides.json"))
+        let url = file.url
 
         let overrides: [String: ModelPricing] = [
             "ox-alpha": ModelPricing(input: 1.5, output: 6, cacheWrite: 1.875, cacheRead: 0.15),
@@ -2144,13 +2139,13 @@ enum PricingOverrideTests {
             ),
         ]
         do {
-            try PricingOverlayStore.saveUserOverrides(overrides)
+            try file.save(overrides)
         } catch {
             Harness.expect(false, "saving overrides threw: \(error)")
             return
         }
 
-        let loaded = PricingOverlayStore.loadUserOverrides()
+        let loaded = file.load()
         Harness.expectEqual(loaded["ox-alpha"]?.input, 1.5, "override input rate round-trips")
         Harness.expectEqual(loaded["ox-alpha"]?.cacheRead, 0.15, "override cache rate round-trips")
         Harness.expectEqual(loaded.count, 3, "every override round-trips")
@@ -2212,7 +2207,7 @@ enum PricingOverrideTests {
         )
 
         // Saving nothing removes the file, handing control back to the lower layers.
-        try? PricingOverlayStore.saveUserOverrides([:])
+        try? file.save([:])
         Harness.expect(
             !FileManager.default.fileExists(atPath: url.path),
             "an empty override set deletes the file"

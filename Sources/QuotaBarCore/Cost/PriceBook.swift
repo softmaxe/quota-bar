@@ -206,48 +206,17 @@ public struct PriceBook: Sendable {
         )
     }
 
-    /// Rates use the same keys as the user override file, in USD per million tokens.
+    /// Rates use the same keys, and follow the same rules, as the user override file, in USD per
+    /// million tokens.
     private static func rates(_ value: Any?, at path: String) throws -> ModelPricing {
-        let optional = ModelPricing.optionalRates.map(\.json)
-        let object = try Self.object(
-            value,
-            at: path,
-            allowed: Set(["input", "output", "thresholdTokens"] + optional)
-        )
-        func rate(_ key: String) throws -> Double? {
-            guard let raw = object[key] else { return nil }
-            guard let rate = Self.number(raw), rate >= 0 else {
-                throw PriceBookError.invalid("\(path).\(key) must be a finite number of at least 0")
-            }
-            return rate
+        guard let object = value as? [String: Any] else {
+            throw PriceBookError.invalid("\(path) must be a JSON object")
         }
-        guard let input = try rate("input"), let output = try rate("output") else {
-            throw PriceBookError.invalid("\(path) needs both input and output")
+        do {
+            return try ModelPricing(json: object, numericStrings: false)
+        } catch let violation as RateViolation {
+            throw PriceBookError.invalid("\(path): \(violation)")
         }
-        var threshold: Int?
-        if let raw = object["thresholdTokens"] {
-            guard let value = Self.number(raw), value > 0, value == value.rounded(), value < 1e12 else {
-                throw PriceBookError.invalid("\(path).thresholdTokens must be a positive whole number")
-            }
-            threshold = Int(value)
-        }
-        let above = ["inputAbove", "outputAbove", "cacheWriteAbove", "cacheWrite1hAbove", "cacheReadAbove"]
-        if threshold == nil, above.contains(where: { object[$0] != nil }) {
-            throw PriceBookError.invalid("\(path) sets long-context rates without thresholdTokens")
-        }
-        return ModelPricing(
-            input: input,
-            output: output,
-            cacheWrite: try rate("cacheWrite"),
-            cacheWrite1h: try rate("cacheWrite1h"),
-            cacheRead: try rate("cacheRead"),
-            thresholdTokens: threshold,
-            inputAbove: try rate("inputAbove"),
-            outputAbove: try rate("outputAbove"),
-            cacheWriteAbove: try rate("cacheWriteAbove"),
-            cacheWrite1hAbove: try rate("cacheWrite1hAbove"),
-            cacheReadAbove: try rate("cacheReadAbove")
-        )
     }
 
     /// Ids and aliases must each name one model, and an alias must never shadow a real id.
