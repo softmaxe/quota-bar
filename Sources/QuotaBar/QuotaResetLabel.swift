@@ -29,6 +29,8 @@ struct ResetLabel: View {
     let text: String
     let mode: QuotaResetDisplayMode
     var previewHovered = false
+    /// The overview's quota rows leave room for the time and the menu chevron only.
+    var showsSymbol = true
     let onModeChanged: (QuotaResetDisplayMode) -> Void
 
     var body: some View {
@@ -39,15 +41,7 @@ struct ResetLabel: View {
         } label: {
             // One concatenated Text: the borderless menu flattens its label, and inline images
             // are what survive it, where padding, borders and stacked views do not.
-            (
-                Text(Image(systemName: "arrow.clockwise"))
-                    .font(.system(size: 9, weight: .semibold))
-                    + Text(" \(self.text) ")
-                    .font(.system(size: 11))
-                    .monospacedDigit()
-                    + Text(Image(systemName: "chevron.down"))
-                    .font(.system(size: 7, weight: .bold))
-            )
+            self.label
             .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -57,5 +51,19 @@ struct ResetLabel: View {
         .font(.system(size: 11))
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel("Reset time display, resets \(self.text)")
+    }
+
+    private var label: Text {
+        let time = Text("\(self.text) ")
+            .font(.system(size: 11))
+            .monospacedDigit()
+            + Text(Image(systemName: "chevron.down"))
+            .font(.system(size: 7, weight: .bold))
+        guard self.showsSymbol else { return time }
+        return Text(Image(systemName: "arrow.clockwise"))
+            .font(.system(size: 9, weight: .semibold))
+            + Text(" ")
+            .font(.system(size: 11))
+            + time
     }
 }

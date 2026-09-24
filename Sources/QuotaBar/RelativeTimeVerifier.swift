@@ -45,8 +45,8 @@ enum RelativeTimeVerifier {
         controller.debugBeginPresentation()
 
         Self.require(
-            controller.debugStatusLine() == "Updated just now",
-            "initial label was \(controller.debugStatusLine() ?? "nil")"
+            controller.debugStatusLine(for: .codex) == "Updated just now",
+            "initial label was \(controller.debugStatusLine(for: .codex) ?? "nil")"
         )
 
         now = base.addingTimeInterval(120)
@@ -58,14 +58,14 @@ enum RelativeTimeVerifier {
         // tracking, and the deadline is only here so a clock that never fires fails rather than
         // hangs.
         let deadline = Date().addingTimeInterval(5)
-        while controller.debugStatusLine() != "Updated 2m ago", Date() < deadline {
+        while controller.debugStatusLine(for: .codex) != "Updated 2m ago", Date() < deadline {
             _ = RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.01))
         }
         controller.debugStopOpenMenuClock()
 
         Self.require(
-            controller.debugStatusLine() == "Updated 2m ago",
-            "label after two minutes was \(controller.debugStatusLine() ?? "nil")"
+            controller.debugStatusLine(for: .codex) == "Updated 2m ago",
+            "label after two minutes was \(controller.debugStatusLine(for: .codex) ?? "nil")"
         )
 
         print("Open-menu relative time advanced without a provider refresh")

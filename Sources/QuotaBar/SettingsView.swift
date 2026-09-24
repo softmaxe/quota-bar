@@ -79,19 +79,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Section("Menu bar") {
-                Picker("Showing", selection: self.$settings.menuBarProvider) {
-                    ForEach(Provider.allCases, id: \.self) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                }
-                Text("One item at a time. Pick it here or use the switch at the top of its "
-                    + "menu. Sign-in status does not change this.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .formStyle(.grouped)
         .frame(width: Self.paneWidth, height: Self.paneHeight)

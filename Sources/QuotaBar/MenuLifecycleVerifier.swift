@@ -50,25 +50,24 @@ enum MenuLifecycleVerifier {
         for provider in Provider.allCases { store.debugRecordRefresh(at: 1_000, provider: provider) }
         var display = ProviderDisplay()
         display.error = "Offline fixture"
-        store.debugSetDisplay(display, for: settings.menuBarProvider)
+        store.debugSetDisplay(display, for: .codex)
         RunLoopDrain.run()
         require(!controller.debugHasMenu, "a background update built the hidden menu")
 
         controller.debugBeginPresentation()
         require(controller.debugHasMenu, "opening did not build the menu")
-        require(controller.debugStatusLine() == "Refresh failed", "first open lost the latest state")
+        require(controller.debugStatusLine(for: .codex) == "Refresh failed", "first open lost the latest state")
         controller.debugEndPresentation()
         let updates = controller.debugCardUpdateCount
         display.isSignedOut = true
-        store.debugSetDisplay(display, for: settings.menuBarProvider)
+        store.debugSetDisplay(display, for: .codex)
         RunLoopDrain.run()
         require(controller.debugCardUpdateCount == updates, "background updates laid out a closed card")
         controller.debugBeginPresentation()
-        require(controller.debugStatusLine() == "Not signed in", "reopening showed stale state")
+        require(controller.debugStatusLine(for: .codex) == "Not signed in", "reopening showed stale state")
         require(controller.debugCardUpdateCount > updates, "reopening did not update the card")
-
-        settings.menuBarProvider = Provider.allCases.first { $0 != settings.menuBarProvider }!
-        require(controller.debugStatusLine() == "No data yet", "provider switch kept the old card")
+        require(controller.debugStatusLine(for: .claude) == "No data yet",
+                "one provider's state leaked into the other's section")
         controller.debugEndPresentation()
         if !verifyInteraction {
             print("Menu creation is deferred; closed cards stay idle and reopen with current state")
@@ -213,7 +212,7 @@ enum MenuLifecycleVerifier {
             finish(1)
         }
         require(window.performKeyEquivalent(with: providerKey), "the popover did not handle Cmd-1")
-        require(settings.menuBarProvider == .codex, "Cmd-1 did not change the provider")
+        require(controller.debugExpandedProvider == .codex, "Cmd-1 did not open Codex details")
         if let window = controller.debugPopoverWindow { click(in: window) }
         require(controller.debugIsPopoverShown, "a click inside the card dismissed it")
         let menuWindow = NSPanel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
@@ -255,7 +254,7 @@ enum MenuLifecycleVerifier {
         require(!controller.debugIsStatusItemSelected, "dismissal delayed clearing the status selection")
         require(!controller.debugIsMonitoringDismissal, "dismissal delayed removing its input monitors")
         require(fadingWindow?.ignoresMouseEvents == true, "the fading card still accepted mouse input")
-        let providerBeforeFade = settings.menuBarProvider
+        let expandedBeforeFade = controller.debugExpandedProvider
         if let fadingWindow, let providerKey = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
             windowNumber: fadingWindow.windowNumber, context: nil, characters: "2",
@@ -265,7 +264,7 @@ enum MenuLifecycleVerifier {
         } else {
             require(false, "the fading card keyboard fixture was unavailable")
         }
-        require(settings.menuBarProvider == providerBeforeFade, "the fading card still accepted keyboard input")
+        require(controller.debugExpandedProvider == expandedBeforeFade, "the fading card still accepted keyboard input")
         require(NSApp.keyWindow == nil || NSApp.keyWindow?.isKeyWindow == true,
                 "dismissal left inconsistent key-window ownership")
         RunLoopDrain.run(for: 0.05)

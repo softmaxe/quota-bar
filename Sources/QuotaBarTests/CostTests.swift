@@ -1740,31 +1740,16 @@ enum SettingsTests {
         Harness.expectEqual(store.refreshFrequency, .fiveMinutes, "default cadence")
 
         store.refreshFrequency = .fifteenMinutes
-        store.menuBarProvider = .claude
         store.costChartLabelMode = .cost
         store.quotaResetDisplayMode = .clock
 
         let reloaded = SettingsStore(defaults: defaults)
         Harness.expectEqual(reloaded.refreshFrequency, .fifteenMinutes, "cadence survives a reload")
-        Harness.expectEqual(reloaded.menuBarProvider, .claude, "the shown provider survives a reload")
         Harness.expectEqual(reloaded.costChartLabelMode, .cost, "chart label mode survives a reload")
         Harness.expectEqual(
             reloaded.quotaResetDisplayMode,
             .clock,
             "the reset label face survives a reload"
-        )
-
-        // A machine upgrading from the two-toggle build keeps the item it had left enabled.
-        let legacySuite = "\(suite)-legacy"
-        let legacyDefaults = UserDefaults(suiteName: legacySuite) ?? .standard
-        legacyDefaults.removePersistentDomain(forName: legacySuite)
-        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
-        legacyDefaults.set(false, forKey: "provider.codex.enabled")
-        legacyDefaults.set(true, forKey: "provider.claude.enabled")
-        Harness.expectEqual(
-            SettingsStore(defaults: legacyDefaults).menuBarProvider,
-            .claude,
-            "the single remaining legacy item becomes the shown provider"
         )
     }
 }

@@ -1,9 +1,11 @@
 import QuotaBarCore
 import SwiftUI
 
-/// Local usage from the last completed scan. Each chart button owns a full calendar-day column.
+/// Local usage from every provider's last completed scan, read as one. Each chart button owns a
+/// full calendar-day column, stacked by provider in the card's order.
 struct CostSectionView: View {
-    let snapshot: CostSnapshot
+    /// One per provider with a scan, in `Provider.allCases` order.
+    let snapshots: [CostSnapshot]
 
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
@@ -24,7 +26,10 @@ struct CostSectionView: View {
     @FocusState private var focusedDayKey: String?
 
     private let todayDayKey: String
+    /// Every provider's usage on each visible day, combined.
     private let bars: [CostDay]
+    /// Each provider's own day behind a combined bar, keyed by day.
+    private let parts: [String: [(provider: Provider, day: CostDay)]]
     private let barDayKeys: Set<String>
     private let unobservedDayKeys: Set<String>
     private let onLabelModeChanged: (CostChartLabelMode) -> Void
@@ -35,7 +40,7 @@ struct CostSectionView: View {
     private let onBreakdownExpandedChanged: (Bool, String?) -> Void
 
     init(
-        snapshot: CostSnapshot,
+        snapshots: [CostSnapshot],
         previewHoveredDayKey: String? = nil,
         previewTodayDayKey: String? = nil,
         labelMode: CostChartLabelMode = .tokens,
@@ -47,20 +52,34 @@ struct CostSectionView: View {
         onOpenPricing: (() -> Void)? = nil
     ) {
         let todayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
-        let bars = CostChartHighlightPolicy.visibleDays(
-            from: snapshot.days,
-            todayDayKey: todayKey,
-            maxBars: Self.maxBars
-        )
-        self.snapshot = snapshot
+        let perProvider = snapshots.map { snapshot in
+            (snapshot, CostChartHighlightPolicy.visibleDays(
+                from: snapshot.days,
+                todayDayKey: todayKey,
+                maxBars: Self.maxBars
+            ))
+        }
+        let dayKeys = perProvider.first?.1.map(\.dayKey) ?? []
+        var parts: [String: [(provider: Provider, day: CostDay)]] = [:]
+        for (snapshot, days) in perProvider {
+            for day in days { parts[day.dayKey, default: []].append((snapshot.provider, day)) }
+        }
+        let bars = dayKeys.map { key in
+            CostDay.combining((parts[key] ?? []).map(\.day), dayKey: key)
+        }
+        self.snapshots = snapshots
         self.todayDayKey = todayKey
         self.bars = bars
+        self.parts = parts
         self.barDayKeys = Set(bars.map(\.dayKey))
-        self.unobservedDayKeys = CostChartHighlightPolicy.unobservedDayKeys(
-            visibleDays: bars,
-            recordedDays: snapshot.days,
-            scannedAt: snapshot.scannedAt
-        )
+        // A combined day is only known once every provider's scan covers it.
+        self.unobservedDayKeys = perProvider.reduce(into: Set<String>()) { keys, entry in
+            keys.formUnion(CostChartHighlightPolicy.unobservedDayKeys(
+                visibleDays: entry.1,
+                recordedDays: entry.0.days,
+                scannedAt: entry.0.scannedAt
+            ))
+        }
         self._selectedLabelMode = State(initialValue: labelMode)
         self.parentLabelMode = labelMode
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
@@ -99,8 +118,8 @@ struct CostSectionView: View {
             self.modelDisclosure
             self.estimateNote
         }
-        .onChange(of: self.snapshot) { previous, current in
-            self.reconcileSelection(providerChanged: previous.provider != current.provider)
+        .onChange(of: self.snapshots) { previous, current in
+            self.reconcileSelection(providerChanged: previous.map(\.provider) != current.map(\.provider))
         }
         .onChange(of: self.todayDayKey) { _, _ in
             self.reconcileSelection(providerChanged: false)
@@ -168,10 +187,10 @@ struct CostSectionView: View {
             self.kpi(
                 label: "Last 30 days",
                 value: self.selectedLabelMode == .tokens
-                    ? Formatters.tokens(self.snapshot.windowTokens)
-                    : self.costValue(self.snapshot.windowCostAvailability),
+                    ? Formatters.tokens(self.windowTokens)
+                    : self.costValue(self.windowCostAvailability),
                 status: self.selectedLabelMode == .cost
-                    ? self.status(self.snapshot.windowCostAvailability) : nil
+                    ? self.status(self.windowCostAvailability) : nil
             )
         }
     }
@@ -179,7 +198,20 @@ struct CostSectionView: View {
     private var needsKPIStatusRow: Bool {
         self.isUnobserved(self.todayDayKey)
             || self.status(self.todayDay.costAvailability) != nil
-            || self.status(self.snapshot.windowCostAvailability) != nil
+            || self.status(self.windowCostAvailability) != nil
+    }
+
+    private var windowTokens: Int {
+        self.snapshots.reduce(0) { $0 + $1.windowTokens }
+    }
+
+    private var windowCostAvailability: CostAvailability {
+        CostAvailability.window(of: self.snapshots)
+    }
+
+    /// One provider keeps its own color; a mix of providers marks the day in a neutral tone.
+    private var markColor: Color {
+        self.snapshots.count == 1 ? Theme.accent(for: self.snapshots[0].provider) : Color.secondary
     }
 
     private func kpi(label: String, value: String, status: String?) -> some View {
@@ -250,8 +282,7 @@ struct CostSectionView: View {
                 ZStack(alignment: .bottom) {
                     Color.clear
                     if value > 0 {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Theme.accent(for: self.snapshot.provider))
+                        self.stackedBar(day, value: value, height: max(Self.minimumBarHeight, height))
                             .opacity(CostChartHighlightPolicy.opacity(
                                 dayKey: day.dayKey,
                                 selectedDayKey: self.selectedDayKey
@@ -260,7 +291,6 @@ struct CostSectionView: View {
                                 clearingHover: false,
                                 reduceMotion: CostChartHoverMotion.systemReduceMotion
                             ), value: selected)
-                            .frame(height: max(Self.minimumBarHeight, height))
                             .padding(.horizontal, 2)
                     } else {
                         self.emptyStub(for: day)
@@ -278,7 +308,7 @@ struct CostSectionView: View {
                 }
                 .frame(height: Self.chartHeight)
                 Capsule()
-                    .fill(Theme.accent(for: self.snapshot.provider))
+                    .fill(self.markColor)
                     .frame(width: 12, height: CostChartHoverMotion.markerHeight)
                     .opacity(selected ? 1 : 0)
                     .animation(CostChartHoverMotion.animation(
@@ -296,7 +326,7 @@ struct CostSectionView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 3)
                 .strokeBorder(
-                    Theme.accent(for: self.snapshot.provider),
+                    self.markColor,
                     lineWidth: self.focusedDayKey == day.dayKey ? 1.5 : 0
                 )
                 .padding(.horizontal, 1)
@@ -316,6 +346,24 @@ struct CostSectionView: View {
         .accessibilityValue(self.accessibleDayValue(day))
         .accessibilityHint("Select day. Use Left and Right Arrow to change day.")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Each provider's share of the day, in the card's order from the baseline up. The first
+    /// provider sits at the bottom so its segments line up across days.
+    private func stackedBar(_ day: CostDay, value: Double, height: CGFloat) -> some View {
+        let segments = (self.parts[day.dayKey] ?? []).compactMap { part -> (Provider, CGFloat)? in
+            let share = CostChartHighlightPolicy.value(for: part.day, mode: self.selectedLabelMode)
+            return share > 0 ? (part.provider, height * CGFloat(share / value)) : nil
+        }
+        return VStack(spacing: 0) {
+            ForEach(segments.reversed(), id: \.0) { provider, segmentHeight in
+                Rectangle()
+                    .fill(Theme.accent(for: provider))
+                    .frame(height: segmentHeight)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .frame(height: height)
     }
 
     /// A known zero is a solid stub; a day whose value is unknown is only outlined.
@@ -420,7 +468,9 @@ struct CostSectionView: View {
                 Text(self.selectedDay.map { Formatters.dayLabel($0.dayKey) } ?? "Day")
                     .font(.system(size: 11, weight: .medium))
                 Spacer(minLength: 4)
-                if let day = self.selectedDay, !day.byModel.isEmpty {
+                if let day = self.selectedDay, !self.isUnobserved(day.dayKey), self.snapshots.count > 1 {
+                    self.providerSplit(day)
+                } else if let day = self.selectedDay, !day.byModel.isEmpty {
                     Text("\(day.byModel.count) models")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
@@ -469,6 +519,50 @@ struct CostSectionView: View {
         }
     }
 
+    /// Each provider's own value for the day, beside the combined one.
+    private func providerSplit(_ day: CostDay) -> some View {
+        HStack(spacing: 8) {
+            ForEach(self.parts[day.dayKey] ?? [], id: \.provider) { part in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Theme.accent(for: part.provider))
+                        .frame(width: 5, height: 5)
+                    Text(self.selectedLabelMode == .tokens
+                        ? Formatters.tokens(part.day.tokens.total)
+                        : self.costValue(part.day.costAvailability))
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(part.provider.displayName) \(self.accessibleShare(part.day))")
+            }
+        }
+        .font(.system(size: 10))
+        .foregroundStyle(.secondary)
+        .monospacedDigit()
+    }
+
+    private func accessibleShare(_ day: CostDay) -> String {
+        self.selectedLabelMode == .tokens
+            ? "\(day.tokens.total) tokens"
+            : self.costValue(day.costAvailability)
+    }
+
+    /// The selected day's models, grouped by provider in the card's order and ranked within each.
+    private var rankedModels: [BreakdownRow] {
+        guard let key = self.selectedDayKey else { return [] }
+        return (self.parts[key] ?? []).flatMap { part in
+            part.day.rankedModels(by: self.selectedLabelMode).enumerated().map { rank, entry in
+                BreakdownRow(provider: part.provider, rank: rank, entry: entry)
+            }
+        }
+    }
+
+    private struct BreakdownRow {
+        let provider: Provider
+        /// Position within its provider, which sets how strongly its marker is drawn.
+        let rank: Int
+        let entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage)
+    }
+
     private var modelDisclosure: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -492,10 +586,10 @@ struct CostSectionView: View {
             .accessibilityValue(self.isBreakdownExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(self.isBreakdownExpanded ? "Collapse model list" : "Expand model list")
 
-            let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
+            let ranked = self.rankedModels
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
-                    self.breakdownRow(entry, index: index)
+                ForEach(ranked, id: \.entry.key) { row in
+                    self.breakdownRow(row.entry, provider: row.provider, index: row.rank)
                         .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
                         .padding(.top, CGFloat(Self.breakdownLayout.spacing))
                 }
@@ -512,13 +606,14 @@ struct CostSectionView: View {
 
     private func breakdownRow(
         _ entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage),
+        provider: Provider,
         index: Int
     ) -> some View {
         let name = self.breakdownLabel(entry.key)
         let amount = entry.usage.costUSD.map(Formatters.cost) ?? "No price"
         return HStack(spacing: 6) {
             Rectangle()
-                .fill(Theme.accent(for: self.snapshot.provider).opacity(max(0.3, 0.75 - Double(index) * 0.08)))
+                .fill(Theme.accent(for: provider).opacity(max(0.3, 0.75 - Double(index) * 0.08)))
                 .frame(width: 2, height: 10)
             Text(name)
                 .lineLimit(1)
@@ -546,7 +641,7 @@ struct CostSectionView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                 Spacer(minLength: 0)
-                if self.snapshot.windowCostAvailability.unpricedTokens > 0,
+                if self.windowCostAvailability.unpricedTokens > 0,
                    let onOpenPricing = self.onOpenPricing {
                     Button("Pricing", action: onOpenPricing)
                         .buttonStyle(.link)
@@ -554,8 +649,8 @@ struct CostSectionView: View {
                         .accessibilityHint("Open model rates for unpriced usage")
                 }
             }
-            if let status = self.status(self.snapshot.windowCostAvailability) {
-                Text(self.availabilityDetail(status, self.snapshot.windowCostAvailability))
+            if let status = self.status(self.windowCostAvailability) {
+                Text(self.availabilityDetail(status, self.windowCostAvailability))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -576,31 +671,5 @@ struct CostSectionView: View {
 
     private func availabilityDetail(_ status: String, _ availability: CostAvailability) -> String {
         "\(status) · \(Formatters.tokens(availability.unpricedTokens)) tokens have no price"
-    }
-}
-
-/// Codex's pay-as-you-go credit balance. Claude does not report one.
-struct CreditsSectionView: View {
-    let credits: CreditsSnapshot
-    private static let cap: Double = 1000
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Credits").font(.system(size: 13, weight: .semibold))
-            UsageProgressBar(
-                percent: self.credits.unlimited ? 100 : min(100, (self.credits.balance ?? 0) / Self.cap * 100),
-                tint: Theme.accent(for: .codex)
-            )
-            HStack {
-                Text(self.leftLabel).font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text("1K tokens").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var leftLabel: String {
-        if self.credits.unlimited { return "Unlimited" }
-        return "\(Int((self.credits.balance ?? 0).rounded())) left"
     }
 }

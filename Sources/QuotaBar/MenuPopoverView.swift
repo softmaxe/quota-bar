@@ -2,36 +2,39 @@ import AppKit
 import QuotaBarCore
 import SwiftUI
 
-private struct MenuRefreshStateKey: EnvironmentKey {
-    static let defaultValue = RefreshRowPolicy.State(title: "Refresh", trailingText: nil, isEnabled: true)
+private struct ProviderRefreshStatesKey: EnvironmentKey {
+    static let defaultValue: [Provider: RefreshRowPolicy.State] = [:]
 }
 
 extension EnvironmentValues {
-    var menuRefreshState: RefreshRowPolicy.State {
-        get { self[MenuRefreshStateKey.self] }
-        set { self[MenuRefreshStateKey.self] = newValue }
+    /// Each provider's own retry state, for the Try again and Check sign-in actions on its section.
+    var providerRefreshStates: [Provider: RefreshRowPolicy.State] {
+        get { self[ProviderRefreshStatesKey.self] }
+        set { self[ProviderRefreshStatesKey.self] = newValue }
     }
 }
 
 @MainActor
 final class MenuPopoverModel: ObservableObject {
     @Published var card: MenuCardView
-    @Published var provider: Provider
     @Published var presentationID = UUID()
-    @Published var refreshState = MenuRefreshStateKey.defaultValue
+    @Published var refreshState = RefreshRowPolicy.State(
+        title: RefreshRowPolicy.idleTitle, trailingText: nil, isEnabled: true
+    )
+    @Published var providerRefreshStates: [Provider: RefreshRowPolicy.State] = [:]
     @Published var showsRefresh = true
     @Published var contentHeight: CGFloat = 0
     @Published var maximumHeight: CGFloat = 700
-    var measuredProvider: Provider?
+    /// Set for each opening, so the first frame is measured collapsed before it is shown.
+    var needsMeasurement = true
     var onRefresh: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
     var onClose: () -> Void = {}
     var onSizeChanged: () -> Void = {}
 
-    init(card: MenuCardView, provider: Provider) {
+    init(card: MenuCardView) {
         self.card = card
-        self.provider = provider
     }
     var footerHeight: CGFloat { self.showsRefresh ? 85 : 61 }
     var viewportHeight: CGFloat { max(1, min(self.contentHeight, self.maximumHeight - self.footerHeight)) }
@@ -88,7 +91,7 @@ struct MenuPopoverView: View {
         }
         .frame(width: 280)
         .frame(maxHeight: .infinity, alignment: .top)
-        .environment(\.menuRefreshState, self.model.refreshState)
+        .environment(\.providerRefreshStates, self.model.providerRefreshStates)
         .onExitCommand(perform: self.model.onClose)
     }
 }

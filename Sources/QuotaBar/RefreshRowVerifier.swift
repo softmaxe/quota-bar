@@ -55,7 +55,7 @@ enum RefreshRowVerifier {
         var recovery = ProviderDisplay()
         recovery.error = "Claude credentials need recovery."
         recovery.canAttemptCredentialRecovery = true
-        store.debugSetDisplay(recovery, for: settings.menuBarProvider)
+        store.debugSetDisplay(recovery, for: .claude)
         RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,
@@ -65,7 +65,7 @@ enum RefreshRowVerifier {
             step: "while credential recovery is available"
         )
 
-        store.debugSetDisplay(ProviderDisplay(), for: settings.menuBarProvider)
+        store.debugSetDisplay(ProviderDisplay(), for: .claude)
         RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,

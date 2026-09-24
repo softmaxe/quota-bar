@@ -39,7 +39,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
     private var isCostBreakdownExpanded = false
     private var expandedBreakdownDayKey: String?
-    private var presentedProvider: Provider?
+    /// The provider whose detail is open. Every opening starts collapsed.
+    private var expandedProvider: Provider?
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel,
          now: @escaping () -> Date = { Date() },
@@ -56,9 +57,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.reduceMotion = reduceMotion
         super.init()
         pricing.onSaved = { [weak store] in store?.refreshCostsAfterPricingChange() }
-        self.settings.$menuBarProvider.removeDuplicates().sink { [weak self] provider in
-            self?.apply(provider: provider)
-        }.store(in: &self.cancellables)
         self.store.$displays.receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.apply()
         }.store(in: &self.cancellables)
@@ -131,7 +129,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     /// The icon reports the tightest window across every provider's reading. It dims only when a
     /// provider with a saved reading failed its latest refresh, so a provider that was never read
     /// (signed out, or its keychain prompt declined) cannot grey out the other's numbers.
-    private func apply(provider: Provider? = nil) {
+    private func apply() {
         let snapshots = Provider.allCases.compactMap { self.store.displays[$0]?.snapshot }
         let item = self.materializedStatusItem()
         let icon = IconRenderer.makeIcon(
@@ -145,8 +143,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let toolTip = self.toolTip()
         if item.button?.toolTip != toolTip { item.button?.toolTip = toolTip }
         item.button?.setAccessibilityLabel("QuotaBar")
-        let provider = provider ?? self.settings.menuBarProvider
-        self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
+        self.updateCard()
     }
 
     private func materializedStatusItem() -> NSStatusItem {
@@ -357,11 +354,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     private func materializedPopover() -> NSPopover {
         if let popover = self.popover { return popover }
-        let provider = self.settings.menuBarProvider
-        let model = MenuPopoverModel(
-            card: self.makeCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay()),
-            provider: provider
-        )
+        let model = MenuPopoverModel(card: self.makeCard())
         model.onRefresh = { [weak self] in self?.refreshClicked() }
         model.onSettings = { [weak self] in self?.settingsClicked() }
         model.onQuit = { [weak self] in self?.quitClicked() }
@@ -380,11 +373,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         return popover
     }
 
-    private func makeCard(provider: Provider, display: ProviderDisplay) -> MenuCardView {
+    private func makeCard() -> MenuCardView {
         MenuCardView(
-            provider: provider, display: display, isRefreshing: self.store.isRefreshing(provider),
-            recoveries: self.recoveries[provider] ?? [:],
-            celebrationTokens: self.celebrationTokens[provider] ?? [:], now: self.now(),
+            displays: self.store.displays,
+            refreshingProviders: self.store.refreshingProviders,
+            expandedProvider: self.expandedProvider,
+            onProviderToggled: { [weak self] provider in self?.toggleDetail(of: provider) },
+            recoveries: self.recoveries,
+            celebrationTokens: self.celebrationTokens, now: self.now(),
             costChartLabelMode: self.settings.costChartLabelMode,
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
@@ -402,45 +398,46 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
                 self?.settings.quotaResetDisplayMode = mode
                 self?.refreshOpenCard()
             },
-            onProviderSelected: { [weak self] provider in self?.settings.menuBarProvider = provider },
-            onRefresh: { [weak self] in self?.refreshClicked() },
+            onRefresh: { [weak self] provider in self?.refreshProvider(provider) },
             onOpenPricing: { [weak self] in
                 self?.closePopover()
                 self?.settingsWindow.showPricing()
             },
-            onRefreshLocalUsage: { [weak self] in self?.store.retryLocalUsage(for: provider) }
+            onRefreshLocalUsage: { [weak self] provider in self?.store.retryLocalUsage(for: provider) }
         )
     }
 
-    private func updateCard(provider: Provider, display: ProviderDisplay) {
+    private func updateCard() {
         guard self.isMenuOpen, let presentation = self.presentation else { return }
 #if DEBUG
         self.debugCardUpdateCount += 1
 #endif
-        if self.presentedProvider != provider {
-            self.isCostBreakdownExpanded = false
-            self.expandedBreakdownDayKey = nil
-            self.presentedProvider = provider
+        for provider in Provider.allCases {
+            let events = self.store.consumeCelebrations(for: provider)
+            self.recoveries[provider, default: [:]].merge(events) { _, new in new }
+            for kind in events.keys { self.celebrationTokens[provider, default: [:]][kind, default: 0] += 1 }
         }
-        let events = self.store.consumeCelebrations(for: provider)
-        self.recoveries[provider, default: [:]].merge(events) { _, new in new }
-        for kind in events.keys { self.celebrationTokens[provider, default: [:]][kind, default: 0] += 1 }
-        let card = self.makeCard(provider: provider, display: display)
-        presentation.provider = provider
+        let card = self.makeCard()
         presentation.card = card
-        presentation.showsRefresh = !display.isSignedOut
+        // Signed-out sections carry their own Check sign-in action.
+        presentation.showsRefresh = !Provider.allCases.allSatisfy { self.store.displays[$0]?.isSignedOut == true }
         // Measure the first frame before presentation. Local disclosures report later sizes.
-        if presentation.contentHeight == 0 || provider != presentation.measuredProvider {
+        if presentation.contentHeight == 0 || presentation.needsMeasurement {
             presentation.contentHeight = NSHostingView(rootView: card).fittingSize.height.rounded(.up)
-            presentation.measuredProvider = provider
+            presentation.needsMeasurement = false
         }
         self.updateRefreshRow()
         self.updatePopoverSize()
     }
 
     private func refreshOpenCard() {
-        let provider = self.settings.menuBarProvider
-        self.updateCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay())
+        self.updateCard()
+    }
+
+    /// Opens one provider's detail, closing any other, or closes it when it is already open.
+    private func toggleDetail(of provider: Provider) {
+        self.expandedProvider = self.expandedProvider == provider ? nil : provider
+        self.refreshOpenCard()
     }
 
     private func updatePopoverSize() {
@@ -465,6 +462,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.updateRefreshRow()
     }
 
+    /// A provider section's own Try again or Check sign-in.
+    private func refreshProvider(_ provider: Provider) {
+        guard self.store.canRefresh(provider) else { return }
+        self.store.refresh(provider: provider, interaction: .userInitiated)
+        self.updateRefreshRow()
+    }
+
     /// One row for every provider: it runs while any provider can refresh and otherwise counts
     /// down to the first one that can.
     private func updateRefreshRow() {
@@ -477,6 +481,15 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             isRefreshing: !self.store.refreshingProviders.isEmpty,
             allowsCredentialRecovery: allowsRecovery
         )
+        presentation.providerRefreshStates = Dictionary(uniqueKeysWithValues: Provider.allCases.map { provider in
+            let display = self.store.displays[provider] ?? ProviderDisplay()
+            return (provider, RefreshRowPolicy.state(
+                cooldownRemaining: self.store.cooldownRemaining(for: provider),
+                isRefreshing: self.store.isRefreshing(provider),
+                allowsCredentialRecovery: display.canAttemptCredentialRecovery && self.store.canRefresh(provider),
+                action: display.isSignedOut ? .checkSignIn : .refresh
+            ))
+        })
     }
 
     @objc private func settingsClicked() {
@@ -492,11 +505,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.recoveries = [:]
         self.isCostBreakdownExpanded = false
         self.expandedBreakdownDayKey = nil
-        self.presentedProvider = nil
+        self.expandedProvider = nil
         self.presentation?.presentationID = UUID()
         // A closed card may have changed or been left expanded. Measure its collapsed state
         // before showing it, so the first visible frame already has the correct height.
-        self.presentation?.measuredProvider = nil
+        self.presentation?.needsMeasurement = true
         self.refreshOpenCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()
@@ -665,7 +678,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     func debugStopOpenMenuClock() { self.stopOpenMenuClock() }
     func debugStartRefreshRowClock() { self.startRefreshRowClock() }
     func debugStopRefreshRowClock() { self.stopRefreshRowClock() }
-    func debugStatusLine() -> String? { self.presentation?.card.debugStatusLine }
+    func debugStatusLine(for provider: Provider) -> String? { self.presentation?.card.debugStatusLine(for: provider) }
+    var debugExpandedProvider: Provider? { self.expandedProvider }
     func debugClickRefreshRow() { self.refreshClicked() }
     func debugRefreshRowState() -> (title: String, trailingText: String?, isEnabled: Bool)? {
         guard let state = self.presentation?.refreshState else { return nil }

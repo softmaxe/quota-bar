@@ -60,13 +60,8 @@ public enum QuotaResetDisplayMode: String {
 public final class SettingsStore: ObservableObject {
     private enum Key {
         static let refreshFrequency = "refreshFrequency"
-        static let menuBarProvider = "menuBarProvider"
         static let costChartLabelMode = "costChartLabelMode"
         static let quotaResetDisplayMode = "quotaResetDisplayMode"
-        /// Pre-single-item builds stored one visibility switch per provider.
-        static func providerEnabled(_ provider: Provider) -> String {
-            "provider.\(provider.rawValue).enabled"
-        }
     }
 
     private let defaults: UserDefaults
@@ -80,16 +75,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    /// The one provider the menu bar item shows, picked from the switch at the top of its card or
-    /// in Settings.
-    @Published public var menuBarProvider: Provider {
-        didSet {
-            guard oldValue != self.menuBarProvider else { return }
-            self.defaults.set(self.menuBarProvider.rawValue, forKey: Key.menuBarProvider)
-        }
-    }
-
-    /// Shared by both providers so the selected chart label stays consistent while switching or
+    /// Shared by the combined local usage chart so the selected label stays consistent while
     /// reopening the menu.
     @Published public var costChartLabelMode: CostChartLabelMode {
         didSet {
@@ -111,23 +97,9 @@ public final class SettingsStore: ObservableObject {
         self.defaults = defaults
         self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
             .flatMap(RefreshFrequency.init(rawValue:)) ?? .fiveMinutes
-        self.menuBarProvider = Self.initialMenuBarProvider(defaults: defaults)
         self.costChartLabelMode = (defaults.string(forKey: Key.costChartLabelMode))
             .flatMap(CostChartLabelMode.init(rawValue:)) ?? .tokens
         self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
-    }
-
-    /// Older builds showed one item per provider behind a pair of switches. When exactly one of
-    /// them was on, that is the provider the single item should keep showing.
-    private static func initialMenuBarProvider(defaults: UserDefaults) -> Provider {
-        if let stored = defaults.string(forKey: Key.menuBarProvider),
-           let provider = Provider(rawValue: stored) {
-            return provider
-        }
-        let legacy = Provider.allCases.filter {
-            defaults.object(forKey: Key.providerEnabled($0)) as? Bool == true
-        }
-        return legacy.count == 1 ? legacy[0] : (Provider.allCases.first ?? .codex)
     }
 }

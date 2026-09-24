@@ -49,7 +49,6 @@ enum InterfacePreview {
             self.scratch = scratch
             let settings = SettingsStore(defaults: defaults)
             settings.refreshFrequency = .manual
-            settings.menuBarProvider = state == "loaded" ? .codex : .claude
             let service = CostService(rateCard: RateCard())
             let store = UsageStore(
                 settings: settings,

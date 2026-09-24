@@ -299,7 +299,7 @@ enum ProviderStateVerifier {
             for mode in [CostChartLabelMode.tokens, .cost] {
                 func height(_ display: ProviderDisplay, expanded: Bool = false) -> CGFloat {
                     NSHostingView(rootView: MenuCardView(
-                        provider: provider, display: display, isRefreshing: false,
+                        displays: [provider: display],
                         animatesFill: false, costChartLabelMode: mode,
                         isCostBreakdownExpanded: expanded,
                         expandedCostBreakdownDayKey: cost.days.last?.dayKey

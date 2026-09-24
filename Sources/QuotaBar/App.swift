@@ -98,6 +98,8 @@ enum QuotaBarApp {
             ("--dump-disclosure", MotionFilmStrip.dumpDisclosure),
             ("--dump-chart-motion", MotionFilmStrip.dumpChartMotion),
             ("--dump-label-toggle", MotionFilmStrip.dumpLabelToggle),
+            ("--dump-chart-hover", CardDump.dumpChartHover),
+            ("--dump-reset-toggle", CardDump.dumpResetToggle),
         ]
         for dump in dumps {
             if let directory = values(after: dump.flag, count: 1)?[0] {
@@ -109,8 +111,6 @@ enum QuotaBarApp {
         // The same, for the dumps that render one named provider's card.
         let providerDumps: [(flag: String, run: @MainActor (String, Provider) -> Void)] = [
             ("--dump-card-celebration", { CelebrationDump.dumpCardFrames(directory: $0, provider: $1) }),
-            ("--dump-chart-hover", { CardDump.dumpChartHover(directory: $0, provider: $1) }),
-            ("--dump-reset-toggle", { CardDump.dumpResetToggle(directory: $0, provider: $1) }),
             ("--dump-breakdown-toggle", { CardDump.dumpBreakdownToggle(directory: $0, provider: $1) }),
         ]
         for dump in providerDumps {

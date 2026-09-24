@@ -153,6 +153,24 @@ public struct CostDay: Sendable, Equatable {
     }
 }
 
+extension CostDay {
+    /// One calendar day of several providers' usage read as one day. Each provider logs its own
+    /// sources, so their model rows never collide. The day stays unpriced only when none of it
+    /// has a price; otherwise the priced share is kept and the rest counts as unpriced.
+    public static func combining(_ days: [CostDay], dayKey: String) -> CostDay {
+        var byModel: [ModelUsageKey: ModelDayUsage] = [:]
+        for day in days { byModel.merge(day.byModel) { _, newer in newer } }
+        let used = days.filter { $0.tokens.total > 0 }
+        let known = used.compactMap(\.costUSD)
+        return CostDay(
+            dayKey: dayKey,
+            byModel: byModel,
+            costUSD: used.isEmpty ? 0 : known.isEmpty ? nil : known.reduce(0, +),
+            unpricedTokens: days.reduce(0) { $0 + $1.unpricedTokens }
+        )
+    }
+}
+
 /// What the popover's cost section shows for one provider.
 public struct CostSnapshot: Sendable, Equatable {
     public let provider: Provider
@@ -237,6 +255,15 @@ public struct CostAvailability: Sendable, Equatable {
     }
 
     public static let zero = CostAvailability(knownUSD: 0, totalTokens: 0, unpricedTokens: 0)
+
+    /// Several providers' 30-day windows read as one.
+    public static func window(of snapshots: [CostSnapshot]) -> CostAvailability {
+        CostAvailability(
+            knownUSD: snapshots.reduce(0) { $0 + $1.windowCostUSD },
+            totalTokens: snapshots.reduce(0) { $0 + $1.windowTokens },
+            unpricedTokens: snapshots.reduce(0) { $0 + $1.windowCostAvailability.unpricedTokens }
+        )
+    }
 }
 
 package enum DayKey {

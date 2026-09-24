@@ -13,9 +13,7 @@ enum CardDump {
         let now = Date()
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             Self.capture(
-                MenuCardView(provider: .codex,
-                             display: ProviderDisplay(snapshot: Self.loadedSnapshot(.codex), cost: Self.sampleCost(.codex)),
-                             isRefreshing: false, animatesFill: false),
+                Self.overview(),
                 named: appearance == .aqua ? "main-light" : "main-dark", into: root,
                 appearance: NSAppearance(named: appearance)
             )
@@ -26,7 +24,7 @@ enum CardDump {
             isSignedOut: true
         )
         Self.capture(
-            MenuCardView(provider: .codex, display: signedOut, isRefreshing: false, animatesFill: false),
+            Self.overview([.codex: signedOut], expanded: .codex),
             named: "sign-in", into: root
         )
         let failed = ProviderDisplay(
@@ -35,8 +33,10 @@ enum CardDump {
             failure: ProviderFailure(kind: .rateLimited, reason: "Rate limited", serverRetryAfter: now.addingTimeInterval(90))
         )
         Self.capture(
-            MenuCardView(provider: .claude, display: failed, isRefreshing: false, animatesFill: false)
-                .environment(\.menuRefreshState, RefreshRowPolicy.state(cooldownRemaining: 90, isRefreshing: false)),
+            Self.overview([.claude: failed], expanded: .claude)
+                .environment(\.providerRefreshStates, [
+                    .claude: RefreshRowPolicy.state(cooldownRemaining: 90, isRefreshing: false),
+                ]),
             named: "refresh-failed", into: root
         )
         let pricing = PricingEditorModel(
@@ -53,6 +53,29 @@ enum CardDump {
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         Self.captureSettings(AnyView(PricingSettingsView(model: pricing, isLoadEnabled: false)),
                              named: "pricing-invalid", into: root)
+    }
+
+    /// The overview with both providers loaded, except where `overrides` replaces one.
+    static func overview(
+        _ overrides: [Provider: ProviderDisplay] = [:],
+        expanded: Provider? = nil,
+        resetMode: QuotaResetDisplayMode = .countdown,
+        hoveredResetLabelWindow: QuotaWindowKind? = nil
+    ) -> MenuCardView {
+        var displays: [Provider: ProviderDisplay] = [:]
+        for provider in Provider.allCases {
+            displays[provider] = overrides[provider] ?? ProviderDisplay(
+                snapshot: Self.loadedSnapshot(provider),
+                cost: Self.sampleCost(provider)
+            )
+        }
+        return MenuCardView(
+            displays: displays,
+            expandedProvider: expanded,
+            animatesFill: false,
+            quotaResetDisplayMode: resetMode,
+            hoveredResetLabelWindow: hoveredResetLabelWindow
+        )
     }
 
     /// Renders the settings window's content off screen too, so its layout can be checked
@@ -222,7 +245,7 @@ enum CardDump {
         for state in states {
             Self.capture(
                 CostSectionView(
-                    snapshot: cost,
+                    snapshots: [cost],
                     previewHoveredDayKey: today.dayKey,
                     previewTodayDayKey: today.dayKey,
                     isBreakdownExpanded: state.expanded,
@@ -234,18 +257,20 @@ enum CardDump {
         }
     }
 
-    /// `--dump-chart-hover <dir> <provider>` walks the highlight across every bar of the cost
+    /// `--dump-chart-hover <dir>` walks the highlight across every bar of the combined cost
     /// chart, one PNG per day. The frames carry the breakdown each bar opens, not the spring that
     /// carries the highlight between them — a still cannot hold a spring.
-    static func dumpChartHover(directory: String, provider: Provider) {
+    static func dumpChartHover(directory: String) {
         let root = OffscreenCapture.directory(directory)
-        let cost = Self.sampleCost(provider)
-        guard let today = cost.days.last else { return }
+        let costs = Provider.allCases.map { Self.sampleCost($0) }
+        // The longest history sets which days have bars; every sample ends today.
+        guard let days = costs.max(by: { $0.days.count < $1.days.count })?.days,
+              let today = days.last else { return }
 
-        for (index, day) in cost.days.enumerated() {
+        for (index, day) in days.enumerated() {
             Self.capture(
                 CostSectionView(
-                    snapshot: cost,
+                    snapshots: costs,
                     previewHoveredDayKey: day.dayKey,
                     previewTodayDayKey: today.dayKey
                 ).padding(14).frame(width: 280),
@@ -254,21 +279,17 @@ enum CardDump {
                 reporting: false
             )
         }
-        print("wrote \(cost.days.count) chart hover frames to \(root.path)")
+        print("wrote \(days.count) chart hover frames to \(root.path)")
     }
 
-    /// `--dump-reset-toggle <dir> <provider>` previews both reset-time display modes: the
-    /// pointer arrives on the session menu, then the countdown changes to clock time and back.
-    /// Both windows change together because the choice belongs to the card.
+    /// `--dump-reset-toggle <dir>` previews both reset-time display modes: the pointer arrives on
+    /// the session menu, then the countdown changes to clock time and back. Every window changes
+    /// together because the choice belongs to the card.
     ///
     /// Selecting a menu choice changes the label without a transition, so the frames hold each
     /// face. The dump seeds hover because off screen there is no pointer.
-    static func dumpResetToggle(directory: String, provider: Provider) {
+    static func dumpResetToggle(directory: String) {
         let root = OffscreenCapture.directory(directory)
-        let display = ProviderDisplay(
-            snapshot: Self.loadedSnapshot(provider),
-            cost: Self.sampleCost(provider)
-        )
         // Nothing moves inside a beat, so the frames are held rather than sampled, and the beat
         // is counted in frames rather than in seconds. The export plays them back at ten a
         // second, which is a whole number of GIF delay units, so a count here is tenths.
@@ -282,12 +303,8 @@ enum CardDump {
 
         var index = 0
         for beat in beats {
-            let view = MenuCardView(
-                provider: provider,
-                display: display,
-                isRefreshing: false,
-                animatesFill: false,
-                quotaResetDisplayMode: beat.mode,
+            let view = Self.overview(
+                resetMode: beat.mode,
                 hoveredResetLabelWindow: beat.hovered ? .session : nil
             )
             let hosting = NSHostingView(rootView: view)
@@ -428,7 +445,7 @@ enum CardDump {
                     let suffix = mode == .tokens ? "" : "-cost"
                     Self.capture(
                         CostSectionView(
-                            snapshot: cost,
+                            snapshots: [cost],
                             previewHoveredDayKey: hoveredDayKey,
                             previewTodayDayKey: today.dayKey,
                             labelMode: mode
@@ -441,26 +458,19 @@ enum CardDump {
         }
 
         // Both faces of the reset label: the clock one is the longer string, and it is the one
-        // that would crowd the headline out of a 280pt card if it ever got too long.
+        // that would squeeze the bars of a 280pt card if it ever got too long. Each case is drawn
+        // twice, collapsed and with its provider's detail open.
         let resetModes: [(String, QuotaResetDisplayMode)] = [("", .countdown), ("-reset-clock", .clock)]
         for (baseName, provider, snapshot) in cases {
+            let display = ProviderDisplay(snapshot: snapshot, cost: costs[provider], error: errors[baseName])
             for (suffix, resetMode) in resetModes {
-                let name = baseName + suffix
-                Self.capture(
-                    MenuCardView(
-                        provider: provider,
-                        display: ProviderDisplay(
-                            snapshot: snapshot,
-                            cost: costs[provider],
-                            error: errors[baseName]
-                        ),
-                        isRefreshing: false,
-                        animatesFill: false,
-                        quotaResetDisplayMode: resetMode
-                    ),
-                    named: name,
-                    into: root
-                )
+                for (detailSuffix, expanded) in [("", nil), ("-detail", provider)] {
+                    Self.capture(
+                        Self.overview([provider: display], expanded: expanded, resetMode: resetMode),
+                        named: baseName + suffix + detailSuffix,
+                        into: root
+                    )
+                }
             }
         }
     }

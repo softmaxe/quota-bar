@@ -7,8 +7,8 @@ import SwiftUI
 /// card draws it, for `Scripts/readme_assets.sh`.
 @MainActor
 enum CelebrationDump {
-    /// Writes the choreography the way the card draws it: the shipped headline over the shipped
-    /// bar, at the card's width and on the card's ground.
+    /// Writes the choreography the way the card draws it: one quota row of the overview, at the
+    /// card's width and on the card's ground.
     static func dumpCardFrames(directory: String, provider: Provider, fps: Double = 25) {
         let root = OffscreenCapture.directory(directory)
 
@@ -38,7 +38,7 @@ enum CelebrationDump {
     }
 }
 
-/// One frozen frame of the reset as the menu card shows it. The headline and the glow are the
+/// One frozen frame of the reset as the menu card shows it. The labels and the glow are the
 /// shipped views; the bar is redrawn here because the shipped one owns a clock of its own and a
 /// still cannot hand it a time.
 private struct CelebrationCardFrame: View {
@@ -53,25 +53,20 @@ private struct CelebrationCardFrame: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            QuotaHeadline(
-                title: "Session",
-                percent: 100,
-                tint: self.tint,
-                frame: QuotaCelebrationFrame(
-                    elapsed: self.elapsed,
-                    percent: self.percent,
-                    isReplay: false
-                )
-            )
+        HStack(spacing: 8) {
+            Text("Session")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
             self.bar
-            HStack(spacing: 8) {
-                Text("Lasts until reset")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                ResetLabel(text: "in 5h 00m", mode: .countdown, onModeChanged: { _ in })
-            }
+            QuotaPercentLabel(
+                percent: 100,
+                color: .primary,
+                tint: self.tint,
+                frame: QuotaCelebrationFrame(elapsed: self.elapsed, percent: self.percent, isReplay: false)
+            )
+            .font(.system(size: 11, weight: .semibold))
+            .monospacedDigit()
+            ResetLabel(text: "in 5h 0m", mode: .countdown, showsSymbol: false, onModeChanged: { _ in })
         }
         .padding(.horizontal, 14)
         .frame(width: 280, height: 96, alignment: .center)
