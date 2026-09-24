@@ -146,8 +146,7 @@ struct MenuCardView: View {
     }
 }
 
-/// One provider's quota windows in a compact grid, with a header that opens its detail: the
-/// refresh warning, the pace behind each window, or the full sign-in guide.
+/// Each row reports its reset label width; the card keeps the widest.
 private struct ResetColumnWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
@@ -164,6 +163,8 @@ private extension EnvironmentValues {
     }
 }
 
+/// One provider's quota windows in a compact grid, with a header that opens its detail: the
+/// refresh warning, the pace behind each window, or the full sign-in guide.
 private struct ProviderSection: View {
     @Environment(\.providerRefreshStates) private var refreshStates
     @Environment(\.resetColumnWidth) private var resetColumnWidth
@@ -470,14 +471,14 @@ private struct ProviderSection: View {
         let denied = self.display.failure?.kind == .accessDenied
         return VStack(alignment: .leading, spacing: 5) {
             Label(
-                denied ? "Keychain access not allowed"
+                denied ? "Keychain not read"
                     : self.display.snapshot == nil ? "Refresh failed" : "Refresh failed · Showing saved reading",
                 systemImage: "exclamationmark.triangle.fill"
             )
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.orange)
             Text(denied
-                ? "\(self.provider.displayName) is not checked automatically until you ask again."
+                ? "\(error) \(self.provider.displayName) is not checked automatically until you ask again."
                 : error)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)

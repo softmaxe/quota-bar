@@ -39,9 +39,11 @@ public enum ClaudeProvider {
             switch error {
             case .keychainItemMissing, .missingOAuth, .missingAccessToken:
                 return .signedOut(error.localizedDescription)
-            case .keychainAccessDenied:
+            // Deny's exit status from `security` is not documented, so any failed keychain read
+            // may be an answer to the prompt. Asking again belongs to an explicit refresh.
+            case .keychainAccessDenied, .keychainReadFailed:
                 return .accessDenied(error.localizedDescription)
-            case .keychainReadFailed, .decodeFailed:
+            case .decodeFailed:
                 return .failed(error.localizedDescription)
             }
         } catch {

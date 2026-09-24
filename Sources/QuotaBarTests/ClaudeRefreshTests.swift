@@ -321,6 +321,20 @@ enum ClaudeRefreshTests {
             Harness.expect(false, "a denied keychain prompt reports access denied")
             return
         }
+
+        // Deny's exit status is undocumented, so any failed read must not be retried on a timer.
+        let readFailure = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: ClaudeRefreshFixture(
+                credentials: Self.credentials(accessToken: "unused", expiresIn: 3_600)
+            )),
+            gate: UsageRateLimitGate(),
+            credentialLoader: { throw ClaudeCredentialsError.keychainReadFailed("exit status 51") },
+            delegatedRefresher: {}
+        )
+        guard case .accessDenied = readFailure else {
+            Harness.expect(false, "a failed keychain read is not retried automatically")
+            return
+        }
     }
 
     private static func coordinatorPolicy() async {

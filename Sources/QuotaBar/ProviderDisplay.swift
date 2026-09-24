@@ -7,7 +7,7 @@ struct ProviderFailure: Equatable {
         case refresh
         case rateLimited
         case credentialRecovery
-        /// The keychain prompt was declined; only an explicit refresh asks again.
+        /// The credentials could not be read from the keychain; only an explicit refresh asks again.
         case accessDenied
     }
 

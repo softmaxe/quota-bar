@@ -104,7 +104,11 @@ final class UsageStore: ObservableObject {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTasks[provider] == nil else { return }
-        if interaction == .automatic, self.displays[provider]?.failure?.kind == .accessDenied { return }
+        // Local logs need no credentials, so they are still scanned.
+        if interaction == .automatic, self.displays[provider]?.failure?.kind == .accessDenied {
+            self.refreshCosts(for: provider)
+            return
+        }
         // Only a user click on a known credential-recovery state can skip the local cooldown.
         // A server 429 remains authoritative, even for that click.
         let allowsRecoveryBypass = interaction == .userInitiated

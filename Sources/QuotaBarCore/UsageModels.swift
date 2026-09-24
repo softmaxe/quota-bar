@@ -95,8 +95,9 @@ public enum ProviderState: Sendable {
     /// No usable credentials on this machine.
     case signedOut(String)
     case failed(String)
-    /// The person declined to let the app read the provider's credentials. Asking again on a
-    /// timer would repeat the system prompt, so only an explicit refresh should retry.
+    /// The provider's credentials could not be read, possibly because the person declined the
+    /// system prompt. Asking again on a timer could repeat that prompt, so only an explicit
+    /// refresh should retry.
     case accessDenied(String)
     /// A provider-enforced retry deadline. This remains structured so the UI never parses text.
     case rateLimited(reason: String, retryAfter: Date)

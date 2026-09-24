@@ -251,6 +251,7 @@ enum ProviderStateVerifier {
     private static func verifyEveryProviderRefreshes(defaults: UserDefaults) async -> String? {
         var uptime: TimeInterval = 1_000
         var calls: [Provider: [ClaudeRefreshInteraction]] = [:]
+        var scans: [Provider: Int] = [:]
         let store = UsageStore(
             settings: SettingsStore(defaults: defaults),
             costService: CostService(rateCard: RateCard()),
@@ -261,7 +262,10 @@ enum ProviderStateVerifier {
                     ? .accessDenied("Keychain access was not allowed.")
                     : .signedOut("Codex fixture")
             },
-            fetchCost: { _ in nil },
+            fetchCost: { provider in
+                await MainActor.run { scans[provider, default: 0] += 1 }
+                return nil
+            },
             historyStore: UsageHistoryStore(fileURL: URL(fileURLWithPath: "/dev/null")),
             recoveryDefaults: defaults
         )
@@ -279,6 +283,9 @@ enum ProviderStateVerifier {
         }
         guard calls[.claude]?.count == 1 else {
             return "an automatic refresh asked for declined credentials again"
+        }
+        guard await Self.wait(until: { scans[.claude] == 2 }) else {
+            return "declined credentials stopped the local usage scan"
         }
 
         store.refresh(interaction: .userInitiated)
