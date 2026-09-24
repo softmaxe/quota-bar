@@ -101,15 +101,16 @@ struct PricingRow: Identifiable, Equatable {
         !self.thresholdTokens.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    /// What an empty one-hour field bills at, so the placeholder shows the real number.
+    /// What an empty one-hour field bills at, so the placeholder shows the real number. None
+    /// while the input it derives from is negative, which saving refuses.
     var derivedCacheWrite1h: Double? {
         PricingEditorModel.number(self.input)
-            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
+            .flatMap { $0 >= 0 ? $0 * ModelPricing.oneHourCacheWriteMultiplier : nil }
     }
 
     var derivedCacheWrite1hAbove: Double? {
         PricingEditorModel.number(self.inputAbove)
-            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
+            .flatMap { $0 >= 0 ? $0 * ModelPricing.oneHourCacheWriteMultiplier : nil }
     }
 }
 
@@ -521,18 +522,15 @@ final class PricingEditorModel: ObservableObject {
         var result: [String: [PricingField: String]] = [:]
         for row in rows {
             var errors: [PricingField: String] = [:]
-            // The text has to read as a number here; whether that number is an allowed rate is
-            // for the rules the price book and the override file share.
+            // Whether a field's number is an allowed rate is for the rules the price book and the
+            // override file share. Text that does not read as a number goes in as NaN, which those
+            // rules refuse, so a filled-in field still counts as present.
             var values: [String: Double] = [:]
             for field in PricingField.allCases {
                 let value = row[keyPath: field.keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !value.isEmpty else { continue }
                 let parsed = field == .thresholdTokens ? Self.threshold(value).map(Double.init) : Self.number(value)
-                if let parsed {
-                    values[field.rawValue] = parsed
-                } else {
-                    errors[field] = Self.message(for: field, model: row.model)
-                }
+                values[field.rawValue] = parsed ?? .nan
             }
             // A missing base rate is judged below, against what the row held before the edit.
             for violation in ModelPricing.violations(in: values) where violation.rule != .missing {
