@@ -14,7 +14,7 @@
 [安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#编辑模型费率) · [开发](#构建与开发) · [排查](#排查)
 
 <p align="center">
-  <img src="docs/images/hero.png" width="620" alt="使用示例数据渲染的 Claude 和 Codex 额度卡片">
+  <img src="docs/images/hero.png" width="620" alt="使用示例数据渲染的 QuotaBar 卡片：Codex 和 Claude 的额度与合并后的本地用量，分别为收起状态和展开 Claude 详情的状态">
 </p>
 
 截图和动画使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
@@ -82,27 +82,27 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 **Codex** 或 **Claude**。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔或[编辑模型费率](#编辑模型费率)。
+打开 QuotaBar，点击菜单栏图标，即可同时查看 Codex 和 Claude。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔或[编辑模型费率](#编辑模型费率)。
 
-未登录时，点击 **Copy command**，在终端中执行复制的命令，登录后返回并点击 **Check sign-in**。复制命令不会自动执行它。
+未登录的供应商会在自己的区域显示登录命令。点击 **Copy**，在终端中执行该命令，登录后返回，点击供应商名称并选择 **Check sign-in**。复制命令不会自动执行它。
 
-读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
+读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示，即使你只使用 Codex。如果取消提示或不作回应，QuotaBar 会停止自动检查 Claude，直到你在 Claude 详情中点击 **Ask again** 或重新启动应用。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 
 ## 额度统计方式
 
 ### 额度窗口与使用节奏
 
-每个有限额的窗口显示剩余百分比和重置时间。在重置时间控件中选择 **Countdown** 或 **Clock time**，可同时切换两个有限额窗口的显示方式。无限额会话显示 **Session ∞** 和 **No limit**。展开 **Usage pace details**，可查看额度储备、缺口和使用余量。
+每家供应商的每个额度窗口占一行，显示剩余百分比和重置时间。用量快于节奏时读数变为橙色，额度用完时变为红色。在任一重置时间控件中选择 **Countdown** 或 **Clock time**，所有窗口会同时切换显示方式。无限额会话显示 **∞** 和 **No limit**。点击供应商名称，或按 ⌘1、⌘2，可查看额度储备、缺口和使用余量；同一时间只展开一家的详情。
 
 QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，每周节奏也会结合历史记录。额度采样保留 56 天。
 
-检测到会话或每周额度重置后，下次打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
+检测到会话或每周额度重置后，下次打开卡片时会播放简短的额度条动画，旁边的读数显示新值。应用遵循 macOS 的减弱动态效果设置。
 
 <details>
 <summary>额度重置动画</summary>
 
 <p align="center">
-  <img src="docs/images/quota-reset.gif" width="560" alt="简短的额度重置动效，标题始终显示新读数">
+  <img src="docs/images/quota-reset.gif" width="560" alt="简短的额度重置动效，读数始终显示新值">
 </p>
 
 </details>
@@ -111,11 +111,11 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 
 在设置中选择手动刷新，或每 1、2、5、15、30 分钟刷新一次，默认 5 分钟。
 
-- 定时刷新、打开卡片和点击 **Refresh** 都只更新当前供应商。切换标签页时，会请求更新新选中的供应商。
-- 每家供应商有独立的一分钟刷新冷却，服务端限流可能延长等待时间。
+- 定时刷新、打开卡片和点击 **Refresh** 都会更新两家供应商。
+- 每家供应商有独立的一分钟刷新冷却，服务端限流可能延长等待时间。只要有一家可以刷新，**Refresh** 就可用。
 - 手动触发 Claude 凭据恢复时可以跳过本地冷却，但仍受服务端限制。
 
-刷新失败时，卡片保留最后一次有效的额度，在顶部显示数据距今时间和恢复指引。冷却期间，重试控件会显示剩余等待时间。本地扫描单独显示进度，并提供 **Retry local scan** 操作。
+刷新失败时，卡片保留最后一次有效的额度，并在该供应商旁显示警告。点击供应商名称可查看数据距今时间和恢复指引。冷却期间，重试控件会显示剩余等待时间。每家供应商的本地扫描单独显示进度，并提供各自的重试操作。
 
 <details>
 <summary>登录与刷新失败示例</summary>
@@ -123,8 +123,8 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 <table align="center">
   <tr><th>登录指引</th><th>刷新失败时保留额度</th></tr>
   <tr>
-    <td valign="top"><img src="docs/images/interactions/sign-in.png" width="280" alt="Codex 登录卡片，提供可复制的 CLI 命令和 Check sign-in 按钮"></td>
-    <td valign="top"><img src="docs/images/interactions/refresh-failed.png" width="280" alt="已保存额度上方的刷新警告，显示数据距今时间和重试倒计时"></td>
+    <td valign="top"><img src="docs/images/interactions/sign-in.png" width="280" alt="展开的 Codex 详情，提供可复制的 CLI 命令和 Check sign-in 按钮，下方为 Claude 额度"></td>
+    <td valign="top"><img src="docs/images/interactions/refresh-failed.png" width="280" alt="展开的 Claude 详情，已保存额度下方显示刷新警告、重试倒计时和节奏详情"></td>
   </tr>
 </table>
 
@@ -132,7 +132,7 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 
 ### 菜单栏与快捷键
 
-菜单栏机器人显示当前供应商的状态。会话或每周额度任一剩余 10% 或更少时，机器人变红。刷新失败时图标变淡，还没有数据时更淡。
+菜单栏机器人显示所有已登录供应商中剩余最少的额度窗口。任一会话或每周额度剩余 10% 或更少时，机器人变红。有已保存额度的供应商刷新失败时图标变淡，还没有数据时更淡。鼠标悬停提示会列出两家供应商。
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、刷新失败、无数据">
@@ -142,16 +142,16 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 
 | 快捷键 | 操作 |
 | --- | --- |
-| ⌘1 / ⌘2 | 查看 Codex / Claude |
+| ⌘1 / ⌘2 | 展开或收起 Codex / Claude 详情 |
 | ⌘R | 可用时刷新或检查登录状态 |
 | ⌘, | 打开设置 |
 | ⌘Q | 退出，有未保存的费率修改时先询问 |
 | Esc | 关闭卡片 |
 
 <details>
-<summary>鼠标、标签切换与动效细节</summary>
+<summary>鼠标与动效细节</summary>
 
-供应商标签等宽，文字位置固定。选中项使用高亮底色和加粗名称，悬停时显示较浅的高亮。左键在按下时开关卡片，右键在松开时开关。按钮在按下时响应，展开的多行内容同时出现。减弱动态效果会关闭自定义过渡，保留按下和选中状态。
+Codex 始终排在前面，Claude 排在后面，每家供应商的位置固定。展开一家的详情会收起另一家。左键在按下时开关卡片，右键在松开时开关。按钮在按下时响应，展开的多行内容同时出现。减弱动态效果会关闭自定义过渡，保留按下和选中状态。
 
 </details>
 
@@ -161,7 +161,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 
 ### 查看图表
 
-在图表上方选择 **Tokens** 或 **Cost**。图表覆盖十个日历日，总计覆盖最近 30 天。悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可查看当天的模型明细，并固定日期。重新打开卡片可恢复悬停预览，切换单位会保留选中日期。
+本地用量合并两家供应商。在图表上方选择 **Tokens** 或 **Cost**。图表覆盖十个日历日，并按供应商颜色堆叠；选中日期会显示每家供应商的份额。总计覆盖最近 30 天。悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可按供应商查看当天的模型明细，并固定日期。重新打开卡片可恢复悬停预览，切换单位会保留选中日期。
 
 缺失信息与零用量会分别显示：
 
@@ -170,7 +170,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 | **0** 或 **$0.00** | 已扫描的数值在当前显示精度下为零，图表中该日期显示为实心灰色短条。缺失费率会另行标注。 |
 | **—**、**Not scanned yet** | 该日期晚于最后一次完成扫描的日期，且还没有记录到用量。图表中该日期显示为虚线短条。 |
 | **—**、**Unpriced** | 已记录用量，但无法根据模型费率估算成本。在 Cost 视图中，图表里该日期显示为虚线短条。 |
-| **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
+| **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。任一家供应商为部分估算时，合计也为部分估算。 |
 
 在 **Settings → Pricing** 中补充费率后，该模型的所有已记录用量都会重新计算成本。
 
@@ -178,7 +178,7 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 <summary>图表日期预览</summary>
 
 <p align="center">
-  <img src="docs/images/chart-hover.gif" width="560" alt="图表按日期预览 token 总量，Model breakdown 默认折叠">
+  <img src="docs/images/chart-hover.gif" width="560" alt="合并图表按日期预览，显示每家供应商的份额，Model breakdown 默认折叠">
 </p>
 
 </details>
@@ -348,9 +348,9 @@ make build
 
 | 问题 | 检查方法 |
 | --- | --- |
-| 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
-| 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
-| 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
+| 供应商显示未登录 | 复制该供应商区域中的命令，完成 CLI 登录后点击供应商名称，再点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
+| 数据过期或刷新返回 HTTP 429 | 点击带警告的供应商，查看详情中的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
+| 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry Codex scan** 或 **Retry Claude scan**。确认 CLI 正在向上面的路径写入会话日志。 |
 | 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充模型费率，该模型的已记录用量也会一并计价。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 费率修改无法保存 | 修正标记的字段。保存失败时草稿仍会保留，可以重试或放弃修改。 |

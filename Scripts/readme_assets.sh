@@ -26,11 +26,11 @@ echo "==> rendering frames"
 "$BIN" --dump-usage-report "$WORK/report" >/dev/null
 node Scripts/report_image.mjs "$WORK/report/usage-report.html" "$OUT/report-export.png"
 "$BIN" --dump-card-celebration "$WORK/reset" claude >/dev/null
-"$BIN" --dump-chart-hover "$WORK/hover" claude >/dev/null
+"$BIN" --dump-chart-hover "$WORK/hover" >/dev/null
 "$BIN" --dump-tab-switch "$WORK/tab" >/dev/null
 "$BIN" --dump-disclosure "$WORK/disclosure" >/dev/null
 "$BIN" --dump-chart-motion "$WORK/chart-motion" >/dev/null
-"$BIN" --dump-reset-toggle "$WORK/reset-toggle" claude >/dev/null
+"$BIN" --dump-reset-toggle "$WORK/reset-toggle" >/dev/null
 
 # AppKit captures can carry wide-gamut profiles. Convert their pixels before ffmpeg, which does
 # not preserve those PNG profiles through overlays or GIF palette generation.
@@ -40,13 +40,13 @@ for capture in card interactions settings reset hover reset-toggle; do
 done
 
 echo "==> hero"
-# The two cards are different heights — Codex carries a credits block Claude has no equivalent
-# for — so they sit top-aligned on the page ground rather than being padded to match.
-claude_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/claude-loaded.png")
-codex_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/codex-loaded.png")
-hero_height=$(( (claude_height > codex_height ? claude_height : codex_height) + 80 ))
+# The overview as it opens, beside the same card with Claude's details open. The open card is
+# taller, so both sit top-aligned on the page ground rather than being padded to match.
+collapsed_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/codex-loaded.png")
+detail_height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$WORK/card/claude-loaded-detail.png")
+hero_height=$(( (collapsed_height > detail_height ? collapsed_height : detail_height) + 80 ))
 ffmpeg -v error -y \
-  -i "$WORK/card/claude-loaded.png" -i "$WORK/card/codex-loaded.png" \
+  -i "$WORK/card/codex-loaded.png" -i "$WORK/card/claude-loaded-detail.png" \
   -filter_complex "color=c=0x1a1a1a:s=1240x${hero_height},format=rgb24[bg];[bg][0:v]overlay=40:40:format=rgb[t];[t][1:v]overlay=640:40:format=rgb" \
   -frames:v 1 "$OUT/hero.png"
 
@@ -67,11 +67,11 @@ ffmpeg -v error -y -framerate 2.2 -i "$WORK/hover/frame-%04d.png" \
   "$OUT/chart-hover.gif"
 
 echo "==> reset toggle gif"
-# A mode preview: choosing Countdown or Clock time in the reset menu updates both rows together.
-# Each face holds at ten frames a second. The source frame is 560px wide; the crop begins at the
-# first quota headline and ends after the second reset menu, omitting the provider header and chart.
+# A mode preview: choosing Countdown or Clock time in the reset menu updates every row together.
+# Each face holds at ten frames a second. The source frame is 560px wide; the crop keeps both
+# providers' quota rows and omits the local usage chart.
 ffmpeg -v error -y -framerate 10 -i "$WORK/reset-toggle/frame-%04d.png" \
-  -filter_complex "fps=10,crop=iw:268:0:146,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
+  -filter_complex "fps=10,crop=iw:354:0:6,split [a][b];[a] palettegen=max_colors=96:stats_mode=diff [p];[b][p] paletteuse=dither=sierra2_4a:diff_mode=rectangle" \
   "$OUT/reset-toggle.gif"
 
 echo "==> motion strips"
@@ -87,7 +87,7 @@ strip disclosure 560 disclosure.gif
 strip chart-motion 500 chart-motion.gif
 
 echo "==> menu bar icons"
-# One row: normal, the provider on show running low (red), a failed refresh, and no data.
+# One row: normal, a provider running low (red), a failed refresh, and no data.
 ffmpeg -v error -y \
   -i "$WORK/icons/full.png" -i "$WORK/icons/low.png" \
   -i "$WORK/icons/stale-reading.png" -i "$WORK/icons/stale.png" \

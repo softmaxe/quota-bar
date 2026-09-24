@@ -31,3 +31,17 @@ _Avoid_: above-threshold pricing
 **Fast**:
 Codex's priority service tier, billed as a multiple of the period's Standard rates.
 _Avoid_: priority tier
+
+## Quota
+
+**Quota window**:
+A provider's Session or Weekly allowance: a remaining percentage that refills at a reset time.
+_Avoid_: limit, bucket
+
+**Tightest window**:
+The quota window with the least remaining across all signed-in providers. A window whose reset time has passed counts as full. The menu bar icon reports it.
+_Avoid_: worst window, lowest quota
+
+**Saved reading**:
+A provider's last successful quota reading, still shown after a later refresh fails.
+_Avoid_: stale data, cache, last-good reading

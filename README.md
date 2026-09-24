@@ -14,7 +14,7 @@ A macOS menu bar app for checking Codex and Claude quota, reset times, local tok
 [Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
 <p align="center">
-  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards rendered with sample data">
+  <img src="docs/images/hero.png" width="620" alt="The QuotaBar card with Codex and Claude quota and combined local usage, collapsed and with Claude's details open, rendered with sample data">
 </p>
 
 Screenshots and animations use sample data. The app interface is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
@@ -82,27 +82,27 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select **Codex** or **Claude**. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
+Open QuotaBar and click its menu bar icon to see Codex and Claude together. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
 
-If a provider is not signed in, choose **Copy command**, run the copied command in Terminal, then return and choose **Check sign-in**. Copying the command does not run it.
+If a provider is not signed in, its section shows the sign-in command. Choose **Copy**, run the command in Terminal, then click the provider's name and choose **Check sign-in**. Copying the command does not run it.
 
-Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
+Reading Claude credentials may trigger a macOS Keychain prompt, even if you only use Codex. If you cancel the prompt or leave it unanswered, QuotaBar stops checking Claude automatically until you choose **Ask again** in Claude's details or relaunch the app. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 
 ## How quota tracking works
 
 ### Quota windows and usage pace
 
-Each limited quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** in the reset-time control to update both limited windows. Unlimited sessions show **Session ∞** and **No limit**. Expand **Usage pace details** for reserve, deficit, and headroom.
+Each provider shows one row per quota window with the percentage left and its reset time. The reading turns orange when the window is being used faster than its pace allows, and red when it is empty. Choose **Countdown** or **Clock time** in any reset-time control to update every window. Unlimited sessions show **∞** and **No limit**. Click a provider's name, or press ⌘1 or ⌘2, for its reserve, deficit, and headroom; one provider's details are open at a time.
 
 QuotaBar compares consumption with time elapsed. After at least three comparable recorded weekly windows, history also informs the weekly pace. Samples are kept for 56 days.
 
-After QuotaBar detects a session or weekly reset, the next open plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
+After QuotaBar detects a session or weekly reset, the next open plays a brief bar animation while the reading beside it shows the new value. The app respects macOS Reduce Motion.
 
 <details>
 <summary>Quota reset animation</summary>
 
 <p align="center">
-  <img src="docs/images/quota-reset.gif" width="560" alt="Brief quota reset feedback while the headline keeps the new reading">
+  <img src="docs/images/quota-reset.gif" width="560" alt="Brief quota reset feedback while the reading keeps the new value">
 </p>
 
 </details>
@@ -111,11 +111,11 @@ After QuotaBar detects a session or weekly reset, the next open plays a brief ba
 
 Choose manual refresh or an interval of 1, 2, 5, 15, or 30 minutes in Settings. The default is 5 minutes.
 
-- Polling, opening the card, and clicking **Refresh** update only the selected provider. Switching tabs requests an update for the newly selected provider.
-- Each provider has a one-minute refresh cooldown. A server rate limit can extend the wait.
+- Polling, opening the card, and clicking **Refresh** update both providers.
+- Each provider has its own one-minute refresh cooldown. A server rate limit can extend the wait. **Refresh** is available while either provider can refresh.
 - An explicit Claude credential-recovery action can bypass the local cooldown, but still respects the server limit.
 
-A failed refresh keeps the last good quota and shows its age and recovery instructions at the top. The retry control shows the remaining wait when a cooldown applies. Local scanning has its own progress and **Retry local scan** action.
+A failed refresh keeps the last good quota and marks the provider with a warning. Click its name for the reading's age and recovery instructions. The retry control shows the remaining wait when a cooldown applies. Each provider's local scan has its own progress and retry action.
 
 <details>
 <summary>Sign-in and refresh-failure examples</summary>
@@ -123,8 +123,8 @@ A failed refresh keeps the last good quota and shows its age and recovery instru
 <table align="center">
   <tr><th>Sign-in guidance</th><th>Refresh failure with saved quota</th></tr>
   <tr>
-    <td valign="top"><img src="docs/images/interactions/sign-in.png" width="280" alt="Codex sign-in card with a copyable CLI command and Check sign-in button"></td>
-    <td valign="top"><img src="docs/images/interactions/refresh-failed.png" width="280" alt="Refresh warning above saved quota, with its age and retry countdown"></td>
+    <td valign="top"><img src="docs/images/interactions/sign-in.png" width="280" alt="Codex details with a copyable CLI command and Check sign-in button, above Claude's quota"></td>
+    <td valign="top"><img src="docs/images/interactions/refresh-failed.png" width="280" alt="Claude details with a refresh warning below its saved quota, the retry countdown, and pace details"></td>
   </tr>
 </table>
 
@@ -132,7 +132,7 @@ A failed refresh keeps the last good quota and shows its age and recovery instru
 
 ### Menu bar and shortcuts
 
-The menu bar robot reflects the selected provider's quota and refresh status. It turns red when either the session or weekly window has 10% or less left. It dims after a failed refresh and fades further when no data is available.
+The menu bar robot reports the quota window with the least left across signed-in providers. It turns red when any session or weekly window has 10% or less left. It dims when a provider with saved quota fails to refresh, and fades further when no data is available. Its tooltip lists both providers.
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
@@ -142,16 +142,16 @@ The icon is Material Design Icons' `robot-excited`. The card scrolls when needed
 
 | Shortcut | Action |
 | --- | --- |
-| ⌘1 / ⌘2 | Show Codex / Claude |
+| ⌘1 / ⌘2 | Open or close Codex / Claude details |
 | ⌘R | Refresh or check sign-in, when available |
 | ⌘, | Open settings |
 | ⌘Q | Quit, with a prompt for unsaved price edits |
 | Esc | Close the card |
 
 <details>
-<summary>Mouse, tab, and motion behavior</summary>
+<summary>Mouse and motion behavior</summary>
 
-Provider tabs have equal widths and fixed label positions. The selected tab has a highlighted background and bold name; hover adds a lighter highlight. Left clicks toggle the card on mouse-down, right clicks on mouse-up. Buttons respond on press, and expanded rows appear together. Reduce Motion removes custom transitions while keeping pressed and selected states visible.
+Codex is always listed first and Claude second, so each provider keeps its place. Opening one provider's details closes the other's. Left clicks toggle the card on mouse-down, right clicks on mouse-up. Buttons respond on press, and expanded rows appear together. Reduce Motion removes custom transitions while keeping pressed and selected states visible.
 
 </details>
 
@@ -161,7 +161,7 @@ QuotaBar calculates token and cost totals from local session data. It does not u
 
 ### Reading the chart
 
-Choose **Tokens** or **Cost** above the chart. The chart covers ten calendar days; totals cover the last 30 days. Hover to preview a day, click to pin it, or use Left and Right Arrow when a date is focused. **Model breakdown** lists that day's models and keeps the date fixed. Reopen the card to resume hover previews. Switching units preserves the selected date.
+Local usage combines both providers. Choose **Tokens** or **Cost** above the chart. The chart covers ten calendar days and stacks each provider in its color; the selected day shows each provider's share. Totals cover the last 30 days. Hover to preview a day, click to pin it, or use Left and Right Arrow when a date is focused. **Model breakdown** lists that day's models by provider and keeps the date fixed. Reopen the card to resume hover previews. Switching units preserves the selected date.
 
 Missing information has a separate display from zero usage:
 
@@ -170,7 +170,7 @@ Missing information has a separate display from zero usage:
 | **0** or **$0.00** | The scanned value is zero at the displayed precision. The chart shows a solid gray stub for the date. Missing prices have a separate status. |
 | **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage yet. The chart shows a dashed stub for the date. |
 | **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. In Cost view, the chart shows a dashed stub for the date. |
-| **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
+| **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. A combined total is partial when either provider's is. |
 
 Add missing rates in **Settings → Pricing**. Costs are recalculated for all recorded usage of that model.
 
@@ -178,7 +178,7 @@ Add missing rates in **Settings → Pricing**. Costs are recalculated for all re
 <summary>Chart date previews</summary>
 
 <p align="center">
-  <img src="docs/images/chart-hover.gif" width="560" alt="Chart date previews with token totals and a collapsed Model breakdown">
+  <img src="docs/images/chart-hover.gif" width="560" alt="Combined chart date previews with each provider's share and a collapsed Model breakdown">
 </p>
 
 </details>
@@ -348,9 +348,9 @@ To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies
 
 | Problem | What to check |
 | --- | --- |
-| Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
-| Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
-| Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
+| Provider is not signed in | Copy the command in the provider's section, complete the CLI login, then click the provider's name and choose **Check sign-in**. Use `make probe` for the raw error. |
+| Data is stale or refresh returns HTTP 429 | Click the provider with a warning and read its details. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
+| Local scan failed | Read the local usage error and choose **Retry Codex scan** or **Retry Claude scan**. Confirm the CLI writes session logs to the paths above. |
 | Cost shows Unpriced or Partial estimate | Add missing model rates in **Settings → Pricing**. Recorded usage of that model is priced as well. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | Price changes cannot be saved | Correct the marked fields. If saving failed, the draft remains available to retry or discard. |
