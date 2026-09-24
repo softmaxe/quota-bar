@@ -10,5 +10,5 @@ The status card shows Codex and Claude together, and every refresh fetches both.
 ## Consequences
 
 - The "Showing" setting is gone. The menu bar icon reports the tightest window across signed-in providers instead of the chosen one.
-- Reading Claude's credentials can raise a keychain prompt for people who never chose Claude. If the prompt is cancelled or times out, automatic polling skips Claude until the user retries or relaunches, so the prompt appears at most once per launch.
+- Reading Claude's credentials can raise a keychain prompt for people who never chose Claude. If the credentials cannot be read, whether the prompt was cancelled, denied, or left unanswered, automatic polling skips Claude's quota until the user retries or relaunches, so the prompt appears at most once per launch. Claude's local logs are still scanned.
 - Local usage is scanned for both providers after launch, so the first scan reads both log trees.

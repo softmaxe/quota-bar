@@ -86,7 +86,7 @@ Open QuotaBar and click its menu bar icon to see Codex and Claude together. Open
 
 If a provider is not signed in, its section shows the sign-in command. Choose **Copy**, run the command in Terminal, then click the provider's name and choose **Check sign-in**. Copying the command does not run it.
 
-Reading Claude credentials may trigger a macOS Keychain prompt, even if you only use Codex. If you cancel the prompt or leave it unanswered, QuotaBar stops checking Claude automatically until you choose **Ask again** in Claude's details or relaunch the app. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
+Reading Claude credentials may trigger a macOS Keychain prompt, even if you only use Codex. If the credentials cannot be read, for example because you deny the prompt or leave it unanswered, QuotaBar stops checking Claude's quota automatically until you choose **Ask again** in Claude's details or relaunch the app. Claude's local usage is still scanned. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 
 ## How quota tracking works
 

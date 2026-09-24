@@ -86,7 +86,7 @@ claude
 
 未登录的供应商会在自己的区域显示登录命令。点击 **Copy**，在终端中执行该命令，登录后返回，点击供应商名称并选择 **Check sign-in**。复制命令不会自动执行它。
 
-读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示，即使你只使用 Codex。如果取消提示或不作回应，QuotaBar 会停止自动检查 Claude，直到你在 Claude 详情中点击 **Ask again** 或重新启动应用。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
+读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示，即使你只使用 Codex。如果无法读取凭据，例如拒绝了提示或没有作出回应，QuotaBar 会停止自动检查 Claude 的额度，直到你在 Claude 详情中点击 **Ask again** 或重新启动应用。Claude 的本地用量仍会照常扫描。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 
 ## 额度统计方式
 
