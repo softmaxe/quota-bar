@@ -72,14 +72,16 @@ struct CostSectionView: View {
         self.bars = bars
         self.parts = parts
         self.barDayKeys = Set(bars.map(\.dayKey))
-        // A combined day is only known once every provider's scan covers it.
-        self.unobservedDayKeys = perProvider.reduce(into: Set<String>()) { keys, entry in
-            keys.formUnion(CostChartHighlightPolicy.unobservedDayKeys(
-                visibleDays: entry.1,
-                recordedDays: entry.0.days,
-                scannedAt: entry.0.scannedAt
-            ))
+        // A day is unknown only when no provider's scan covers it. One provider's late or failed
+        // scan must not hide the other's recorded usage; its own scan status says it is behind.
+        let unobserved = perProvider.map { snapshot, days in
+            CostChartHighlightPolicy.unobservedDayKeys(
+                visibleDays: days,
+                recordedDays: snapshot.days,
+                scannedAt: snapshot.scannedAt
+            )
         }
+        self.unobservedDayKeys = unobserved.dropFirst().reduce(unobserved.first ?? []) { $0.intersection($1) }
         self._selectedLabelMode = State(initialValue: labelMode)
         self.parentLabelMode = labelMode
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)

@@ -61,7 +61,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             self?.apply()
         }.store(in: &self.cancellables)
         self.store.$refreshingProviders.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            self?.refreshOpenCard()
+            self?.updateCard()
         }.store(in: &self.cancellables)
     }
 
@@ -268,7 +268,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             // A new click reverses dismissal without rebuilding or moving the visible card.
             self.cancelPopoverDismissal()
             self.isMenuOpen = true
-            self.refreshOpenCard()
+            self.updateCard()
             self.startOpenMenuClock()
             self.startRefreshRowClock()
             self.startDismissalMonitoring()
@@ -384,19 +384,19 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             costChartLabelMode: self.settings.costChartLabelMode,
             onCostChartLabelModeChanged: { [weak self] mode in
                 self?.settings.costChartLabelMode = mode
-                self?.refreshOpenCard()
+                self?.updateCard()
             },
             isCostBreakdownExpanded: self.isCostBreakdownExpanded,
             expandedCostBreakdownDayKey: self.expandedBreakdownDayKey,
             onCostBreakdownExpandedChanged: { [weak self] expanded, dayKey in
                 self?.isCostBreakdownExpanded = expanded
                 self?.expandedBreakdownDayKey = expanded ? dayKey : nil
-                self?.refreshOpenCard()
+                self?.updateCard()
             },
             quotaResetDisplayMode: self.settings.quotaResetDisplayMode,
             onQuotaResetDisplayModeChanged: { [weak self] mode in
                 self?.settings.quotaResetDisplayMode = mode
-                self?.refreshOpenCard()
+                self?.updateCard()
             },
             onRefresh: { [weak self] provider in self?.refreshProvider(provider) },
             onOpenPricing: { [weak self] in
@@ -430,14 +430,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.updatePopoverSize()
     }
 
-    private func refreshOpenCard() {
-        self.updateCard()
-    }
-
     /// Opens one provider's detail, closing any other, or closes it when it is already open.
     private func toggleDetail(of provider: Provider) {
         self.expandedProvider = self.expandedProvider == provider ? nil : provider
-        self.refreshOpenCard()
+        self.updateCard()
     }
 
     private func updatePopoverSize() {
@@ -478,7 +474,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         }
         presentation.refreshState = RefreshRowPolicy.state(
             cooldownRemaining: self.store.refreshCooldownRemaining(),
-            isRefreshing: !self.store.refreshingProviders.isEmpty,
+            // "Refreshing…" only once nothing else could run: a slow provider must not hold the
+            // row for one that is ready.
+            isRefreshing: !self.store.refreshingProviders.isEmpty && !self.store.canRefreshAny,
             allowsCredentialRecovery: allowsRecovery
         )
         presentation.providerRefreshStates = Dictionary(uniqueKeysWithValues: Provider.allCases.map { provider in
@@ -510,7 +508,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         // A closed card may have changed or been left expanded. Measure its collapsed state
         // before showing it, so the first visible frame already has the correct height.
         self.presentation?.needsMeasurement = true
-        self.refreshOpenCard()
+        self.updateCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()
     }
@@ -634,7 +632,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private func startOpenMenuClock() {
         self.stopOpenMenuClock()
         let timer = Timer(timeInterval: self.openMenuClockInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshOpenCard() }
+            Task { @MainActor in self?.updateCard() }
         }
         // Relative times read in minutes, so a slightly late tick is invisible.
         timer.tolerance = self.openMenuClockInterval / 10
