@@ -20,8 +20,7 @@ enum CodexLogScanner {
     @discardableResult
     static func scan(
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook = .bundled,
+        rateCard: RateCard,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env)))
@@ -63,8 +62,7 @@ enum CodexLogScanner {
                             line: buffer,
                             path: path,
                             cache: cache,
-                            overlay: overlay,
-                            book: book,
+                            rateCard: rateCard,
                             state: &state
                         )
                     } catch {
@@ -154,7 +152,8 @@ enum CodexLogScanner {
 
     /// What a resumed scan has to know about the bytes it is skipping past.
     private struct ResumeState: Codable {
-        /// Model announced by the most recent turn_context.
+        /// Model announced by the most recent turn_context, as the log names it. Caches written
+        /// by earlier versions hold the model's id instead, which resolves to itself.
         var model: String?
         /// Service tier applied to subsequent turns.
         var isFast = false
@@ -183,8 +182,7 @@ enum CodexLogScanner {
         line: UnsafeRawBufferPointer,
         path: String,
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook,
+        rateCard: RateCard,
         state: inout ResumeState
     ) throws {
         let data = Data(line)
@@ -221,23 +219,22 @@ enum CodexLogScanner {
         guard let timestamp = root["timestamp"] as? String,
               let date = ISO8601.parse(timestamp) else { return }
 
-        // Older rollouts predate turn_context; count their tokens but leave them unpriced.
-        let model = state.model ?? CostPricing.unknownModel
+        // Older rollouts predate turn_context; count their tokens but leave them unpriced. The
+        // model is stored under its id so dated names and aliases aggregate as one model.
+        let model = state.model.map { rateCard.modelID(for: $0, provider: .codex) } ?? CostPricing.unknownModel
         // The long-context tier belongs to the individual turn, not to the day's total.
         let day = DayKey.make(from: date)
-        let pricing = CostPricing.pricing(
-            forNormalizedModel: model,
-            provider: .codex,
-            day: day,
-            overlay: overlay,
-            codexServiceTier: state.serviceTier,
-            book: book
-        )
         try cache.addCodexTokens(
             path: path,
             day: day,
             model: model,
-            longContext: CostPricing.isLongContext(totals: totals, pricing: pricing),
+            longContext: rateCard.isLongContext(
+                totals,
+                model: model,
+                provider: .codex,
+                day: day,
+                fast: state.serviceTier.isFast
+            ),
             isFast: state.serviceTier.isFast,
             totals: totals
         )
@@ -295,8 +292,7 @@ enum CodexLogScanner {
             }
             if let model = (payload["model"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
-                // Normalize on the way in so dated aliases aggregate as one model.
-                state.model = CostPricing.normalizeCodexModel(model)
+                state.model = model
             }
             return true
         }

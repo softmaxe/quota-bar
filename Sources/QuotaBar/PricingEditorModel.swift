@@ -10,15 +10,10 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { self.rawValue }
 
-    /// The models the price book marks `showInSettings`, in the order it lists them.
-    static func whitelist(for provider: Provider) -> [String] {
-        PriceBook.bundled.models(for: provider).filter(\.showInSettings).map(\.id)
-    }
-
-    static func classify(model: String) -> PricingGroup {
+    static func classify(model: String, rateCard: RateCard) -> PricingGroup {
         let name = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if self.whitelist(for: .claude).contains(name) { return .claude }
-        if self.whitelist(for: .codex).contains(name) { return .codex }
+        if rateCard.settingsModels(for: .claude).contains(name) { return .claude }
+        if rateCard.settingsModels(for: .codex).contains(name) { return .codex }
         return .others
     }
 }
@@ -29,16 +24,16 @@ enum PricingModelFilterPolicy {
     static func visibleModels(
         provider: Provider,
         usage: [ModelUsageTotal],
-        overlay: PricingOverlay
+        rateCard: RateCard,
+        day: String = DayKey.today()
     ) -> [String] {
-        let whitelist = PricingGroup.whitelist(for: provider)
-        let seen = usage.map { CostPricing.normalize($0.model, provider: provider) }
+        let settingsModels = rateCard.settingsModels(for: provider)
+        let seen = usage.map { rateCard.modelID(for: $0.model, provider: provider) }
         let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
         let unpriced = seenSet.filter { name in
-            !whitelist.contains(name)
-                && CostPricing.pricing(for: name, provider: provider, overlay: overlay) == nil
+            !settingsModels.contains(name) && rateCard.rates(for: name, provider: provider, day: day) == nil
         }
-        return whitelist + unpriced.sorted()
+        return settingsModels + unpriced.sorted()
     }
 }
 
@@ -55,6 +50,8 @@ struct PricingRow: Identifiable, Equatable {
     let hasDefault: Bool
     /// Total tokens seen in local logs. The settings list uses this to put active models first.
     let usageTokens: Int
+    /// Position among the models the rate card lists for settings, which the default order keeps.
+    var settingsRank: Int?
 
     var input: String
     var output: String
@@ -104,15 +101,16 @@ struct PricingRow: Identifiable, Equatable {
         !self.thresholdTokens.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    /// What an empty one-hour field bills at, so the placeholder shows the real number.
+    /// What an empty one-hour field bills at, so the placeholder shows the real number. None
+    /// while the input it derives from is negative, which saving refuses.
     var derivedCacheWrite1h: Double? {
         PricingEditorModel.number(self.input)
-            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
+            .flatMap { $0 >= 0 ? $0 * ModelPricing.oneHourCacheWriteMultiplier : nil }
     }
 
     var derivedCacheWrite1hAbove: Double? {
         PricingEditorModel.number(self.inputAbove)
-            .map { $0 * ModelPricing.oneHourCacheWriteMultiplier }
+            .flatMap { $0 >= 0 ? $0 * ModelPricing.oneHourCacheWriteMultiplier : nil }
     }
 }
 
@@ -161,7 +159,7 @@ enum PricingSaveStatus: Equatable {
     case idle, dirty, saving, saved, failed(String)
 }
 
-/// Backs the pricing pane: loads the effective rates, tracks edits, and writes the override file.
+/// Backs the pricing pane: loads the rate card's rates, tracks edits, and writes the override file.
 @MainActor
 final class PricingEditorModel: ObservableObject {
     @Published private(set) var rows: [PricingRow] = []
@@ -185,7 +183,7 @@ final class PricingEditorModel: ObservableObject {
     private var indexByID: [String: Int] = [:]
     /// Today's rates from the price book, i.e. what a row falls back to.
     private var defaults: [String: ModelPricing] = [:]
-    /// User overrides loaded with the current overlay, including models hidden from the table.
+    /// User overrides loaded with the current rate card, including models hidden from the table.
     private var loadedUserOverrides: [String: ModelPricing] = [:]
     private var pendingRestores: Set<String> = []
     private var draftRevision = 0
@@ -199,20 +197,20 @@ final class PricingEditorModel: ObservableObject {
     var onSaved: (() -> Void)?
 
     /// Stands in for the two things `load()` reads off the machine it is running on: the local
-    /// scan cache and the price layers on disk. Only `--dump-settings` passes one, so the pane
-    /// it renders shows made-up models at the built-in rates rather than whoever ran it.
+    /// scan cache and the override file. Only `--dump-settings` passes one, so the pane it
+    /// renders shows made-up models at the built-in rates rather than whoever ran it.
     struct PreviewFixtures {
         let usage: [Provider: [ModelUsageTotal]]
-        let overlay: PricingOverlay
+        let rateCard: RateCard
         let beforeCommit: (@MainActor () async -> Void)?
 
         init(
             usage: [Provider: [ModelUsageTotal]],
-            overlay: PricingOverlay,
+            rateCard: RateCard = RateCard(),
             beforeCommit: (@MainActor () async -> Void)? = nil
         ) {
             self.usage = usage
-            self.overlay = overlay
+            self.rateCard = rateCard
             self.beforeCommit = beforeCommit
         }
     }
@@ -223,7 +221,7 @@ final class PricingEditorModel: ObservableObject {
         self.costService = costService
         self.fixtures = fixtures
         self.saveOperations = saveOperations ?? SaveOperations(
-            write: { try PricingOverlayStore.saveUserOverrides($0) },
+            write: { try OverrideFile().save($0) },
             invalidate: { await costService.invalidatePricing() }
         )
     }
@@ -234,18 +232,18 @@ final class PricingEditorModel: ObservableObject {
         guard !self.hasUnsavedChanges, self.saveStatus != .saving else { return }
 
         if let fixtures = self.fixtures {
-            await self.rebuild(overlay: fixtures.overlay)
+            await self.rebuild(rateCard: fixtures.rateCard)
             return
         }
 
-        await self.rebuild(overlay: PricingOverlayStore.loadFromDisk())
+        await self.rebuild(rateCard: RateCard.onDisk())
         self.externalScanStatuses = await [
             self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
             self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
         ].compactMap { $0 }
     }
 
-    private func rebuild(overlay: PricingOverlay) async {
+    private func rebuild(rateCard: RateCard) async {
         let startedAtRevision = self.draftRevision
         // A reload behind an already-drawn table replaces it in place; only a first fill has
         // nothing to show meanwhile.
@@ -253,7 +251,8 @@ final class PricingEditorModel: ObservableObject {
 
         // The book alone is what a row would fall back to if its override were removed, which
         // is what the Reset button has to restore.
-        let fallback = PricingOverlay()
+        let fallback = rateCard.withoutOverrides
+        let today = DayKey.today()
 
         // Read on a connection of its own rather than through the service's actor, which a log
         // scan can hold for seconds at a time.
@@ -283,35 +282,38 @@ final class PricingEditorModel: ObservableObject {
             let names = PricingModelFilterPolicy.visibleModels(
                 provider: provider,
                 usage: usage,
-                overlay: overlay
+                rateCard: rateCard,
+                day: today
             )
 
-            let seenSet = Set(seen.map { CostPricing.normalize($0, provider: provider) })
+            let seenSet = Set(seen.map { rateCard.modelID(for: $0, provider: provider) })
             let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
-                (CostPricing.normalize($0.model, provider: provider), $0.tokens)
+                (rateCard.modelID(for: $0.model, provider: provider), $0.tokens)
             })
+            let settingsModels = rateCard.settingsModels(for: provider)
 
             for name in names {
-                let fallbackPricing = CostPricing.pricing(for: name, provider: provider, overlay: fallback)
-                let effective = CostPricing.pricing(for: name, provider: provider, overlay: overlay)
+                let fallbackPricing = fallback.rates(for: name, provider: provider, day: today)
+                let current = rateCard.rates(for: name, provider: provider, day: today)
                 let row = PricingRow(
                     provider: provider,
-                    group: PricingGroup.classify(model: name),
+                    group: PricingGroup.classify(model: name, rateCard: rateCard),
                     model: name,
                     seenInLogs: seenSet.contains(name),
                     hasDefault: fallbackPricing != nil,
                     usageTokens: usageTokens[name] ?? 0,
-                    input: Self.text(effective?.input),
-                    output: Self.text(effective?.output),
-                    cacheWrite: Self.text(effective?.cacheWrite),
-                    cacheWrite1h: Self.text(effective?.cacheWrite1h),
-                    cacheRead: Self.text(effective?.cacheRead),
-                    thresholdTokens: Self.integerText(effective?.thresholdTokens),
-                    inputAbove: Self.text(effective?.inputAbove),
-                    outputAbove: Self.text(effective?.outputAbove),
-                    cacheWriteAbove: Self.text(effective?.cacheWriteAbove),
-                    cacheWrite1hAbove: Self.text(effective?.cacheWrite1hAbove),
-                    cacheReadAbove: Self.text(effective?.cacheReadAbove)
+                    settingsRank: settingsModels.firstIndex(of: name),
+                    input: Self.text(current?.input),
+                    output: Self.text(current?.output),
+                    cacheWrite: Self.text(current?.cacheWrite),
+                    cacheWrite1h: Self.text(current?.cacheWrite1h),
+                    cacheRead: Self.text(current?.cacheRead),
+                    thresholdTokens: Self.integerText(current?.thresholdTokens),
+                    inputAbove: Self.text(current?.inputAbove),
+                    outputAbove: Self.text(current?.outputAbove),
+                    cacheWriteAbove: Self.text(current?.cacheWriteAbove),
+                    cacheWrite1hAbove: Self.text(current?.cacheWrite1hAbove),
+                    cacheReadAbove: Self.text(current?.cacheReadAbove)
                 )
                 defaults[row.id] = fallbackPricing
                 built.append(row)
@@ -325,7 +327,7 @@ final class PricingEditorModel: ObservableObject {
         if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
         guard self.draftRevision == startedAtRevision, !self.hasUnsavedChanges,
               self.saveStatus != .saving else { return }
-        self.loadedUserOverrides = overlay.userOverrides
+        self.loadedUserOverrides = rateCard.overrides
         self.defaults = defaults
         self.setRows(built)
         self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
@@ -520,16 +522,22 @@ final class PricingEditorModel: ObservableObject {
         var result: [String: [PricingField: String]] = [:]
         for row in rows {
             var errors: [PricingField: String] = [:]
+            // Whether a field's number is an allowed rate is for the rules the price book and the
+            // override file share. Text that does not read as a number goes in as NaN, which those
+            // rules refuse, so a filled-in field still counts as present.
+            var values: [String: Double] = [:]
             for field in PricingField.allCases {
                 let value = row[keyPath: field.keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !value.isEmpty else { continue }
-                if field == .thresholdTokens {
-                    if Self.threshold(value) == nil {
-                        errors[field] = "\(row.model): \(field.title) must be a positive whole number of tokens within the supported range."
-                    }
-                } else if Self.number(value) == nil {
-                    errors[field] = "\(row.model): \(field.title) must be a finite number of at least 0 USD per million tokens."
-                }
+                let parsed = field == .thresholdTokens ? Self.threshold(value).map(Double.init) : Self.number(value)
+                values[field.rawValue] = parsed ?? .nan
+            }
+            // A missing base rate is judged below, against what the row held before the edit.
+            for violation in ModelPricing.violations(in: values) where violation.rule != .missing {
+                guard let field = PricingField(rawValue: violation.key), errors[field] == nil else { continue }
+                errors[field] = violation.rule == .longContextWithoutThreshold
+                    ? "\(row.model): Enter a positive long-context threshold for the rates above it."
+                    : Self.message(for: field, model: row.model)
             }
 
             let inputEmpty = row.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -551,18 +559,15 @@ final class PricingEditorModel: ObservableObject {
                     errors[.output] = "\(row.model): Output price is required for a priced model. Use Restore default rate to clear an override."
                 }
             }
-            let aboveFields: [PricingField] = [
-                .inputAbove, .outputAbove, .cacheWriteAbove, .cacheWrite1hAbove, .cacheReadAbove,
-            ]
-            if row.thresholdTokens.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               aboveFields.contains(where: {
-                !row[keyPath: $0.keyPath].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-               }) {
-                errors[.thresholdTokens] = "\(row.model): Enter a positive long-context threshold for the rates above it."
-            }
             if !errors.isEmpty { result[row.id] = errors }
         }
         return result
+    }
+
+    private static func message(for field: PricingField, model: String) -> String {
+        field == .thresholdTokens
+            ? "\(model): \(field.title) must be a positive whole number of tokens within the supported range."
+            : "\(model): \(field.title) must be a finite number of at least 0 USD per million tokens."
     }
 
     /// Merges visible edits into the loaded user layer without deleting overrides for hidden rows.
@@ -611,6 +616,8 @@ final class PricingEditorModel: ObservableObject {
         )
     }
 
+    /// The number a rate field's text spells, grouping commas allowed. A negative number still
+    /// reads; `ModelPricing.violations` is what refuses it.
     fileprivate nonisolated static func number(_ text: String) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -628,10 +635,12 @@ final class PricingEditorModel: ObservableObject {
         } else {
             normalized = trimmed
         }
-        guard let value = Double(normalized), value.isFinite, value >= 0 else { return nil }
+        guard let value = Double(normalized), value.isFinite else { return nil }
         return value
     }
 
+    /// The whole number a threshold field's text spells, zero included, which
+    /// `ModelPricing.violations` refuses.
     private static func threshold(_ text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -641,8 +650,7 @@ final class PricingEditorModel: ObservableObject {
               parts.allSatisfy({ part in part.allSatisfy { $0 >= "0" && $0 <= "9" } }),
               parts.dropFirst().allSatisfy({ $0.count == 3 }) else { return nil }
         let digits = parts.joined()
-        guard let value = Int(digits), value > 0 else { return nil }
-        return value
+        return Int(digits)
     }
 
     static func text(_ value: Double?) -> String {

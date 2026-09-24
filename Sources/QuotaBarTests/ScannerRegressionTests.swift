@@ -76,7 +76,7 @@ enum ScannerRegressionTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let snapshot = await service.refresh(.claude)
         let tokens = snapshot?.days.first?.tokens
@@ -146,7 +146,7 @@ enum ScannerRegressionTests {
         var service: CostService? = CostService(
             databaseURL: database,
             env: env,
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let initial = await service?.refresh(.codex)
         Harness.expectEqual(initial?.windowTokens, 1, "the initial Codex turn is scanned")
@@ -159,7 +159,7 @@ enum ScannerRegressionTests {
             try? handle.write(contentsOf: Data((event(total: 1) + "\n").utf8))
             try? handle.close()
         }
-        let restored = await CostService(databaseURL: database, env: env, pricingOverlay: PricingOverlay())
+        let restored = await CostService(databaseURL: database, env: env, rateCard: RateCard())
             .refresh(.codex)
         Harness.expectEqual(restored?.windowTokens, 1, "a persisted cursor filters a replayed token count")
         Harness.expectEqual(restored?.topModel, "gpt-5.6-sol", "a persisted cursor keeps the active model")
@@ -174,7 +174,7 @@ enum ScannerRegressionTests {
             try? handle.write(contentsOf: Data((event(total: 2) + "\n").utf8))
             try? handle.close()
         }
-        let resumed = await CostService(databaseURL: database, env: env, pricingOverlay: PricingOverlay())
+        let resumed = await CostService(databaseURL: database, env: env, rateCard: RateCard())
             .refresh(.codex)
         Harness.expectEqual(resumed?.windowTokens, 2, "a corrupt resume state falls back to prefix replay")
         Harness.expectEqual(resumed?.topModel, "gpt-5.6-sol", "prefix replay recovers the active model")
@@ -189,14 +189,14 @@ enum ScannerRegressionTests {
             try? handle.write(contentsOf: Data((event(total: 2) + "\n").utf8))
             try? handle.close()
         }
-        let replayed = await CostService(databaseURL: database, env: env, pricingOverlay: PricingOverlay())
+        let replayed = await CostService(databaseURL: database, env: env, rateCard: RateCard())
             .refresh(.codex)
         Harness.expectEqual(replayed?.windowTokens, 2, "a missing resume state still filters a replayed token count")
 
         let replacementContext = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-luna"}}"#
         try? ([replacementContext, event(last: 3, total: 3)].joined(separator: "\n") + "\n")
             .write(to: file, atomically: true, encoding: .utf8)
-        let rewritten = await CostService(databaseURL: database, env: env, pricingOverlay: PricingOverlay())
+        let rewritten = await CostService(databaseURL: database, env: env, rateCard: RateCard())
             .refresh(.codex)
         Harness.expectEqual(rewritten?.windowTokens, 3, "a rewritten file drops usage derived from its old cursor")
         Harness.expectEqual(rewritten?.topModel, "gpt-5.6-luna", "a rewritten file drops its persisted model")

@@ -154,8 +154,7 @@ enum CardDump {
                 ModelUsageTotal(model: "gpt-5.6-terra", tokens: 91_000_000),
                 ModelUsageTotal(model: "gpt-5.6-luna", tokens: 12_400_000),
             ],
-        ],
-        overlay: PricingOverlay()
+        ]
     )
 
     /// `sampleCost` mixes three models into a day, which is the normal day and fits the block

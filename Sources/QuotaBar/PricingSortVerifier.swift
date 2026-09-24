@@ -146,6 +146,9 @@ enum PricingSortVerifier {
             seenInLogs: usageTokens > 0,
             hasDefault: !input.isEmpty,
             usageTokens: usageTokens,
+            settingsRank: group == .others
+                ? nil
+                : RateCard().settingsModels(for: group == .claude ? .claude : .codex).firstIndex(of: model),
             input: input,
             output: output,
             cacheWrite: "",

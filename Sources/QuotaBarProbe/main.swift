@@ -118,7 +118,7 @@ func benchmarkCost(arguments: [String]) async -> Never {
     for iteration in 0..<iterations {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cost-\(iteration).sqlite"),
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let (cold, coldTime) = await milliseconds { await service.refresh(provider) }
         guard let cold else { fail("cold scan failed") }

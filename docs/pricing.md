@@ -36,7 +36,7 @@ Providers are `codex` (OpenAI models, including OpenCode and Pi Agent usage) and
 
 A model has these keys:
 
-- `id` is the name scanners store: lowercase, with no date suffix or vendor prefix. `CostPricing.normalize` must return it unchanged.
+- `id` is the name scanners store: lowercase, with no date suffix or vendor prefix. `RateCard.modelID(for:provider:)` must return it unchanged.
 - `aliases` lists other names for the same model. They resolve to `id` before usage is stored.
 - `showInSettings` lists the model in the pricing settings before it appears in local logs.
 - `retired` marks a model that is no longer on the provider's price list. Keep retired models so older usage stays priced.
@@ -45,7 +45,7 @@ A model has these keys:
 A period has these keys:
 
 - `from` is the first local day (`yyyy-MM-dd`) the rates apply to. The first period has no `from` and covers every earlier day. Later periods need one, in ascending order.
-- `rates` are USD per million tokens and use the same keys as the user override file. `input` and `output` are required. `cacheWrite` is the five-minute rate. Leave `cacheWrite1h` out when it is 2x input, which is Anthropic's published ratio. Rates ending in `Above` need `thresholdTokens`.
+- `rates` are USD per million tokens and use the same keys as the user override file. `input` and `output` are required. `cacheWrite` is the five-minute rate. Leave `cacheWrite1h` out when it is 2x input, which is Anthropic's published ratio. Rates ending in `Above` need `thresholdTokens`. The override file follows the same rules, and an override entry that breaks one is ignored.
 - `fastMultiplier` prices Codex Fast usage as that multiple of every rate in the period. Leave it out and Fast usage of the model stays unpriced.
 
 ## Common changes

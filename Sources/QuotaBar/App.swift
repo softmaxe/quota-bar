@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.controller?.installApplicationMenu()
         self.store.start()
         // Pricing no longer reads the models.dev catalog that 1.0.x cached.
-        PricingOverlayStore.removeLegacyCatalogCache()
+        AppSupport.removeLegacyCatalogCache()
         if CommandLine.arguments.contains("--show-export-settings") {
             self.controller?.showExportSettings()
         }

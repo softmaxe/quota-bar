@@ -77,7 +77,7 @@ public actor UsageHistoryStore {
 
     /// `~/Library/Application Support/QuotaBar/usage-history.json`.
     public static var defaultFileURL: URL {
-        PricingOverlayStore.applicationSupportDirectory.appendingPathComponent("usage-history.json")
+        AppSupport.directory.appendingPathComponent("usage-history.json")
     }
 
     /// Records a sample when it is worth keeping, then returns the dataset of completed windows.

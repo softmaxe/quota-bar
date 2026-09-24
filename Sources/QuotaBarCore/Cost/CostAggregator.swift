@@ -1,13 +1,12 @@
 import Foundation
 
 /// Turns the cache's day/model/tier rows into the numbers the popover shows, pricing each one
-/// at the rates the book gives its day.
+/// at the rate card's rates for its day.
 enum CostAggregator {
     static func snapshot(
         provider: Provider,
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook = .bundled,
+        rateCard: RateCard,
         windowDays: Int = 30,
         now: Date = Date(),
         calendar: Calendar = .current
@@ -36,15 +35,14 @@ enum CostAggregator {
                 modelTokens[key.model, default: 0] += totals.total
                 guard totals.total > 0 else { continue }
 
-                let pricing = CostPricing.pricing(
-                    forNormalizedModel: key.model,
+                if let cost = rateCard.cost(
+                    of: totals,
+                    model: key.model,
                     provider: provider,
                     day: dayKey,
-                    overlay: overlay,
-                    codexServiceTier: key.isFast ? .fast : .standard,
-                    book: book
-                )
-                if let cost = pricing?.cost(for: totals, longContext: key.longContext) {
+                    fast: key.isFast,
+                    longContext: key.longContext
+                ) {
                     dayCost += cost
                     dayPriced = true
                     dayCostByModel[usageKey, default: 0] += cost

@@ -159,8 +159,7 @@ public enum UsageReportReaderError: LocalizedError, Equatable {
 }
 
 /// Reads recorded usage from the local scan cache without scanning logs or changing schema, and
-/// prices it the same way the popover does: each day at the rates the book gives that day, under
-/// the user's overrides.
+/// prices it the same way the popover does: each day at the rate card's rates for that day.
 public enum UsageReportReader {
     fileprivate static let maximumSafeInteger: Int64 = 9_007_199_254_740_991
 
@@ -169,8 +168,7 @@ public enum UsageReportReader {
         windowDays: Int = 30,
         now: Date = Date(),
         calendar: Calendar = .current,
-        overlay: PricingOverlay? = nil,
-        book: PriceBook = .bundled
+        rateCard: RateCard = RateCard()
     ) throws -> UsageReportSnapshot {
         guard (1 ... 30).contains(windowDays) else {
             throw UsageReportReaderError.invalidWindowDays(windowDays)
@@ -192,8 +190,7 @@ public enum UsageReportReader {
             tables: tables,
             fromDay: range.keys[0],
             throughDay: range.keys[windowDays - 1],
-            overlay: overlay,
-            book: book
+            rateCard: rateCard
         )
         try database.commit()
         transactionOpen = false
@@ -495,8 +492,7 @@ private final class ReadOnlyUsageDatabase {
         tables: [ReportTable],
         fromDay: String,
         throughDay: String,
-        overlay: PricingOverlay?,
-        book: PriceBook
+        rateCard: RateCard
     ) throws -> [UsageReportRow] {
         guard !tables.isEmpty else { return [] }
         let queries = tables.map { table in
@@ -556,15 +552,14 @@ private final class ReadOnlyUsageDatabase {
                 cacheWrite1h: Int(usage.cacheWrite1h),
                 cacheRead: Int(usage.cacheRead)
             )
-            let pricing = CostPricing.pricing(
-                forNormalizedModel: model,
+            if let cost = rateCard.cost(
+                of: tokens,
+                model: model,
                 provider: table.provider,
                 day: day,
-                overlay: overlay,
-                codexServiceTier: sqlite3_column_int64(statement, 3) != 0 ? .fast : .standard,
-                book: book
-            )
-            if let cost = pricing?.cost(for: tokens, longContext: sqlite3_column_int64(statement, 4) != 0) {
+                fast: sqlite3_column_int64(statement, 3) != 0,
+                longContext: sqlite3_column_int64(statement, 4) != 0
+            ) {
                 usage.cost = cost
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)

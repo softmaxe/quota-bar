@@ -26,8 +26,7 @@ enum ClaudeLogScanner {
     @discardableResult
     static func scan(
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook = .bundled,
+        rateCard: RateCard,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
         let files = LogFileScanner.jsonlFiles(under: self.projectRoots(env: env))
@@ -56,8 +55,7 @@ enum ClaudeLogScanner {
                             line: buffer,
                             path: url.path,
                             cache: cache,
-                            overlay: overlay,
-                            book: book,
+                            rateCard: rateCard,
                             decoder: decoder
                         )
                     } catch {
@@ -116,8 +114,7 @@ enum ClaudeLogScanner {
         line: UnsafeRawBufferPointer,
         path: String,
         cache: CostCache,
-        overlay: PricingOverlay?,
-        book: PriceBook,
+        rateCard: RateCard,
         decoder: JSONDecoder
     ) throws {
         guard let root = decoder.decodeLine(Line.self, from: line),
@@ -129,7 +126,7 @@ enum ClaudeLogScanner {
         guard !rawModel.isEmpty, rawModel != "<synthetic>" else { return }
         // Normalize before storing so `claude-opus-5` and `claude-opus-5-20260101` aggregate as
         // one model rather than competing for the top-model slot.
-        let model = CostPricing.normalizeClaudeModel(rawModel)
+        let model = rateCard.modelID(for: rawModel, provider: .claude)
 
         // Anthropic reports input_tokens already net of both cache buckets, so unlike Codex
         // nothing has to be peeled out of it here.
@@ -164,19 +161,12 @@ enum ClaudeLogScanner {
         // here; deciding it from a day's aggregate would rewrite history. The price is not: it is
         // derived from the stored tokens whenever they are read.
         let day = DayKey.make(from: date)
-        let pricing = CostPricing.pricing(
-            forNormalizedModel: model,
-            provider: .claude,
-            day: day,
-            overlay: overlay,
-            book: book
-        )
         try cache.addClaudeMessage(
             key: key,
             path: path,
             day: day,
             model: model,
-            longContext: CostPricing.isLongContext(totals: totals, pricing: pricing),
+            longContext: rateCard.isLongContext(totals, model: model, provider: .claude, day: day),
             totals: totals
         )
     }

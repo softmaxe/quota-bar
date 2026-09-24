@@ -85,10 +85,10 @@ enum CostDatabaseLocationTests {
                 "XDG_DATA_HOME": directory.appendingPathComponent("missing-xdg-home").path,
                 "PI_CODING_AGENT_DIR": directory.appendingPathComponent("missing-pi-home").path,
             ]
-            let overlay = PricingOverlay(userOverrides: [
+            let rateCard = RateCard(overrides: [
                 "migration-model": ModelPricing(input: 1, output: 2),
             ])
-            let service = CostService(databaseURL: database, env: env, pricingOverlay: overlay)
+            let service = CostService(databaseURL: database, env: env, rateCard: rateCard)
 
             let retained = await service.refresh(.codex)
             Harness.expect(retained != nil, "legacy schema opens when all source sessions are absent")

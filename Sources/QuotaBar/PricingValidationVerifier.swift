@@ -79,6 +79,18 @@ enum PricingValidationVerifier {
             Self.expect(!(await model.save()), "\(invalid) reached threshold save", &failures)
         }
         threshold.wrappedValue = ""
+        // A long-context rate that does not read as a number still needs a threshold to apply to.
+        let inputAbove = model.binding(for: priced.id, keyPath: \.inputAbove)
+        inputAbove.wrappedValue = "abc"
+        Self.expect(model.error(for: priced.id, field: .inputAbove) != nil,
+                    "an unreadable long-context rate was not flagged", &failures)
+        Self.expect(model.error(for: priced.id, field: .thresholdTokens) != nil,
+                    "an unreadable long-context rate did not ask for a threshold", &failures)
+        // A negative rate is refused, and the one-hour placeholder does not derive from it.
+        input.wrappedValue = "-1"
+        Self.expect(model.rows.first(where: { $0.id == priced.id })?.derivedCacheWrite1h == nil,
+                    "a negative input produced a one-hour placeholder", &failures)
+        inputAbove.wrappedValue = ""
         input.wrappedValue = ""
         Self.expect(model.error(for: priced.id, field: .input) != nil,
                     "clearing a priced base rate did not require an explicit restore", &failures)
@@ -136,7 +148,7 @@ enum PricingValidationVerifier {
         let loadGate = Gate()
         let loading = PricingEditorModel(
             costService: CostService(),
-            fixtures: .init(usage: [:], overlay: PricingOverlay(), beforeCommit: { await loadGate.wait() }),
+            fixtures: .init(usage: [:], beforeCommit: { await loadGate.wait() }),
             saveOperations: recorder.operations()
         )
         let pendingLoad = Task { await loading.load() }

@@ -36,13 +36,13 @@ enum AstraPricingTests {
 
     private static func standardRates() {
         Harness.expectEqual(
-            CostPricing.pricing(for: "gpt-6-astra", provider: .codex),
+            RateCard().rates(for: "gpt-6-astra", provider: .codex, day: DayKey.today()),
             Self.standard,
             "Astra Standard rates match the official table"
         )
         Harness.expectClose(
-            CostPricing.cost(
-                totals: TokenTotals(
+            RateCard().cost(
+                of: TokenTotals(
                     input: 1_000_000,
                     output: 1_000_000,
                     cacheWrite: 1_000_000,
@@ -50,6 +50,7 @@ enum AstraPricingTests {
                 ),
                 model: "gpt-6-astra",
                 provider: .codex,
+                day: DayKey.today(),
                 longContext: false
             ),
             73.5,
@@ -59,21 +60,23 @@ enum AstraPricingTests {
 
     private static func fastRates() {
         Harness.expectEqual(
-            CostPricing.pricing(
+            RateCard().rates(
                 for: "gpt-6-astra",
                 provider: .codex,
-                codexServiceTier: .fast
+                day: DayKey.today(),
+                fast: true
             ),
             Self.fast,
             "Astra Fast rates are twice the applicable Standard rates"
         )
         Harness.expectClose(
-            CostPricing.cost(
-                totals: TokenTotals(input: 1_000_000, output: 1_000_000),
+            RateCard().cost(
+                of: TokenTotals(input: 1_000_000, output: 1_000_000),
                 model: "gpt-6-astra",
                 provider: .codex,
-                longContext: true,
-                codexServiceTier: .fast
+                day: DayKey.today(),
+                fast: true,
+                longContext: true
             ),
             190,
             "Astra Fast long-context cost applies both published multipliers"
@@ -82,24 +85,26 @@ enum AstraPricingTests {
 
     private static func longContextBoundary() {
         Harness.expect(
-            !CostPricing.isLongContext(
-                totals: TokenTotals(input: 200_000, cacheRead: 72_000),
+            !RateCard().isLongContext(
+                TokenTotals(input: 200_000, cacheRead: 72_000),
                 model: "gpt-6-astra",
-                provider: .codex
+                provider: .codex,
+                day: DayKey.today()
             ),
             "Astra stays at Standard rates at exactly 272K input tokens"
         )
         Harness.expect(
-            CostPricing.isLongContext(
-                totals: TokenTotals(input: 200_000, cacheRead: 72_001),
+            RateCard().isLongContext(
+                TokenTotals(input: 200_000, cacheRead: 72_001),
                 model: "gpt-6-astra",
-                provider: .codex
+                provider: .codex,
+                day: DayKey.today()
             ),
             "Astra switches tiers above 272K input tokens"
         )
         Harness.expectClose(
-            CostPricing.cost(
-                totals: TokenTotals(
+            RateCard().cost(
+                of: TokenTotals(
                     input: 1_000_000,
                     output: 1_000_000,
                     cacheWrite: 1_000_000,
@@ -107,6 +112,7 @@ enum AstraPricingTests {
                 ),
                 model: "gpt-6-astra",
                 provider: .codex,
+                day: DayKey.today(),
                 longContext: true
             ),
             122,
@@ -117,20 +123,20 @@ enum AstraPricingTests {
     private static func userOverridePrecedence() {
         let userRate = ModelPricing(input: 7, output: 8)
         Harness.expectEqual(
-            CostPricing.pricing(
+            RateCard(overrides: ["gpt-6-astra": userRate]).rates(
                 for: "gpt-6-astra",
                 provider: .codex,
-                overlay: PricingOverlay(userOverrides: ["gpt-6-astra": userRate])
+                day: DayKey.today()
             ),
             userRate,
             "an Astra user override keeps the documented highest precedence"
         )
         Harness.expectEqual(
-            CostPricing.pricing(
+            RateCard(overrides: ["gpt-6-astra": userRate]).rates(
                 for: "gpt-6-astra",
                 provider: .codex,
-                overlay: PricingOverlay(userOverrides: ["gpt-6-astra": userRate]),
-                codexServiceTier: .fast
+                day: DayKey.today(),
+                fast: true
             ),
             Self.fast,
             "an override states Standard rates only, so Fast keeps the book's rates"
@@ -175,7 +181,7 @@ enum AstraPricingTests {
                 "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
                 "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
             ],
-            pricingOverlay: PricingOverlay()
+            rateCard: RateCard()
         )
         let snapshot = await service.refresh(.codex)
         let standardKey = ModelUsageKey(source: .codex, model: "gpt-6-astra")

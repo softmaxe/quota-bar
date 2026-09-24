@@ -77,7 +77,7 @@ enum UsageReportTests {
                 windowDays: 3,
                 now: self.captureDate,
                 calendar: self.calendar,
-                book: book
+                rateCard: RateCard(book: book)
             )
 
             Harness.expectEqual(report.period, "2026-09-13 至 2026-09-15", "report period")
@@ -166,8 +166,7 @@ enum UsageReportTests {
                 windowDays: 2,
                 now: self.captureDate,
                 calendar: self.calendar,
-                overlay: PricingOverlay(userOverrides: ["claude-opus-5": ModelPricing(input: 7, output: 7)]),
-                book: book
+                rateCard: RateCard(book: book, overrides: ["claude-opus-5": ModelPricing(input: 7, output: 7)])
             )
             Harness.expectEqual(report.days.map(\.cost), [1, 10], "each day uses its own period and the override")
             Harness.expectEqual(report.totals.unpricedTokens, 0, "every dated row is priced")

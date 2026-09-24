@@ -59,7 +59,7 @@ enum ProviderStateVerifier {
         let fetches = Fetches()
         let store = UsageStore(
             settings: settings,
-            costService: CostService(pricingOverlay: PricingOverlay()),
+            costService: CostService(rateCard: RateCard()),
             clock: { uptime },
             dateClock: { origin.addingTimeInterval(uptime - 1_000) },
             fetchState: { _, _ in await fetches.fetchQuota() },

@@ -46,7 +46,7 @@ enum MenuCommandVerifier {
         let settings = SettingsStore(defaults: defaults)
         settings.refreshFrequency = .manual
         settings.menuBarProvider = .codex
-        let service = CostService(pricingOverlay: PricingOverlay())
+        let service = CostService(rateCard: RateCard())
         let requests = Requests()
         var uptime: TimeInterval = 1_000
         let store = UsageStore(
@@ -60,7 +60,7 @@ enum MenuCommandVerifier {
         )
         let pricing = PricingEditorModel(
             costService: service,
-            fixtures: .init(usage: [:], overlay: PricingOverlay()),
+            fixtures: .init(usage: [:]),
             saveOperations: .init(write: { _ in }, invalidate: {})
         )
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)

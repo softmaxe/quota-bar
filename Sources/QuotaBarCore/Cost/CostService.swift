@@ -14,8 +14,11 @@ public struct ModelUsageTotal: Sendable, Equatable {
 /// single-writer and scans run off the main thread.
 public actor CostService {
     private var cache: CostCache?
-    private var overlay: PricingOverlay?
-    private let book: PriceBook
+    /// The rates of the current refresh. nil until the override file is next read.
+    private var rateCard: RateCard?
+    /// What a dropped rate card is rebuilt from.
+    private var book: PriceBook
+    private let overrideFile: OverrideFile
     private var openCodeStatus: OpenCodeScanStatus = .idle
     private var piAgentStatus: PiAgentScanStatus = .idle
     /// The Pi Agent session files the store already reflects, so an unchanged directory is not
@@ -26,18 +29,19 @@ public actor CostService {
     public nonisolated let databaseURL: URL
     private let env: [String: String]
 
-    /// `pricingOverlay` pins the user overrides instead of reading the file, and `priceBook`
-    /// replaces the bundled rates; tests use both to keep prices fixed.
+    /// `rateCard` pins the rates until `invalidatePricing`; tests use it to keep prices fixed. Its
+    /// book, the shipped one when none is pinned, is what `overrideFile` is laid over after that.
     public init(
         databaseURL: URL? = nil,
         env: [String: String] = ProcessInfo.processInfo.environment,
-        pricingOverlay: PricingOverlay? = nil,
-        priceBook: PriceBook = .bundled
+        rateCard: RateCard? = nil,
+        overrideFile: OverrideFile = OverrideFile()
     ) {
         self.databaseURL = databaseURL ?? Self.defaultDatabaseURL
         self.env = env
-        self.overlay = pricingOverlay
-        self.book = priceBook
+        self.rateCard = rateCard
+        self.book = rateCard?.book ?? .bundled
+        self.overrideFile = overrideFile
     }
 
     /// `~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite`.
@@ -48,10 +52,11 @@ public actor CostService {
     public func refresh(_ provider: Provider) async -> CostSnapshot? {
         do {
             let cache = try self.openCache()
-            let overlay = self.currentOverlay()
+            // One rate card for the whole refresh, so the scan and the pricing never disagree.
+            let rateCard = self.currentRateCard()
 
             let started = Date()
-            let touched = try self.scan(provider, cache: cache, overlay: overlay)
+            let touched = try self.scan(provider, cache: cache, rateCard: rateCard)
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
@@ -62,8 +67,7 @@ public actor CostService {
             return try CostAggregator.snapshot(
                 provider: provider,
                 cache: cache,
-                overlay: overlay,
-                book: self.book
+                rateCard: rateCard
             )
         } catch {
             Log.ui.error(
@@ -86,16 +90,17 @@ public actor CostService {
         self.piAgentStatus
     }
 
-    /// Drops the cached overrides so the next refresh picks up an edited override file. Cost is
-    /// derived when it is read, so that refresh reprices all recorded usage at the new rates.
+    /// Drops the rate card so the next refresh reads the override file again. Cost is derived
+    /// when it is read, so that refresh reprices all recorded usage at the new rates.
     public func invalidatePricing() {
-        self.overlay = nil
+        self.rateCard = nil
     }
 
-    /// Replaces the cached overrides outright. The app reloads them from disk instead
+    /// Replaces the rate card outright. The app rereads the override file instead
     /// (`invalidatePricing`); this exists so tests can move prices without touching the file.
-    public func usePricingOverlay(_ overlay: PricingOverlay) {
-        self.overlay = overlay
+    public func useRateCard(_ rateCard: RateCard) {
+        self.rateCard = rateCard
+        self.book = rateCard.book
     }
 
     private func openCache() throws -> CostCache {
@@ -109,32 +114,26 @@ public actor CostService {
     }
 
     /// Read from disk once, then again only after `invalidatePricing`.
-    private func currentOverlay() -> PricingOverlay {
-        if let overlay = self.overlay { return overlay }
-        let overlay = PricingOverlayStore.loadFromDisk()
-        self.overlay = overlay
-        return overlay
+    private func currentRateCard() -> RateCard {
+        if let rateCard = self.rateCard { return rateCard }
+        let rateCard = RateCard(book: self.book, overrides: self.overrideFile.load())
+        self.rateCard = rateCard
+        return rateCard
     }
 
     /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
-    private func scan(_ provider: Provider, cache: CostCache, overlay: PricingOverlay) throws -> Int {
+    private func scan(_ provider: Provider, cache: CostCache, rateCard: RateCard) throws -> Int {
         switch provider {
         case .codex:
-            let codexTouched = try CodexLogScanner.scan(
-                cache: cache,
-                overlay: overlay,
-                book: self.book,
-                env: self.env
-            )
-            let openCode = OpenCodeLogScanner.scan(cache: cache, overlay: overlay, book: self.book, env: self.env)
+            let codexTouched = try CodexLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
+            let openCode = OpenCodeLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
             self.openCodeStatus = openCode.status
             if case .error = openCode.status {
                 Log.ui.error("OpenCode usage scan failed; cached usage was kept")
             }
             let pi = PiAgentLogScanner.scan(
                 cache: cache,
-                overlay: overlay,
-                book: self.book,
+                rateCard: rateCard,
                 env: self.env,
                 previous: self.piAgentSessions
             )
@@ -145,7 +144,7 @@ public actor CostService {
             }
             return codexTouched + openCode.touched + pi.touched
         case .claude:
-            return try ClaudeLogScanner.scan(cache: cache, overlay: overlay, book: self.book, env: self.env)
+            return try ClaudeLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
         }
     }
 

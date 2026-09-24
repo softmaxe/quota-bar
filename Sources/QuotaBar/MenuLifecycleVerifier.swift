@@ -25,7 +25,7 @@ enum MenuLifecycleVerifier {
         }
         NSApplication.shared.setActivationPolicy(.accessory)
         let settings = SettingsStore(defaults: defaults)
-        let service = CostService(pricingOverlay: PricingOverlay())
+        let service = CostService(rateCard: RateCard())
         let store = UsageStore(settings: settings, costService: service, clock: { 1_000 }, recoveryDefaults: defaults)
         var reduceMotion = false
         let started = ContinuousClock.now
