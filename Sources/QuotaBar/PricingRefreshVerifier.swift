@@ -58,8 +58,11 @@ enum PricingRefreshVerifier {
         let fetches = Fetches()
         let store = UsageStore(
             settings: settings, costService: service,
-            fetchState: { _, _ in await fetches.fetchQuota() },
-            fetchCost: { _ in await fetches.fetchCost() },
+            // Codex is the provider under test; Claude answers at once.
+            fetchState: { provider, _ in
+                provider == .codex ? await fetches.fetchQuota() : .signedOut("Claude fixture")
+            },
+            fetchCost: { provider in provider == .codex ? await fetches.fetchCost() : nil },
             recoveryDefaults: defaults
         )
         let pricing = PricingEditorModel(costService: service)

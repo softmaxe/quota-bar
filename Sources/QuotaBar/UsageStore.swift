@@ -3,14 +3,13 @@ import Combine
 import Foundation
 
 /// Owns provider state and the refresh schedule. Polling, opening the menu, and the Refresh row
-/// refresh only the displayed provider. Switching providers refreshes the newly selected one.
-/// Price edits refresh local costs independently of quota requests.
+/// refresh every provider, each through its own cooldown. Price edits refresh local costs
+/// independently of quota requests.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
-    /// Which providers have a fetch in flight. Per provider rather than one flag: a switch made
-    /// while the provider left behind is still fetching must not make the new card say
-    /// "Refreshing…" for a request that is not about it.
+    /// Which providers have a fetch in flight. Per provider rather than one flag: each provider's
+    /// row says "Refreshing…" only for a request that is about it.
     @Published private(set) var refreshingProviders: Set<Provider> = []
 
     private var timer: Timer?
@@ -21,10 +20,8 @@ final class UsageStore: ObservableObject {
     private let recovery: QuotaRecoveryTracker
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
-    private var providerObserver: AnyCancellable?
     /// One cooldown per provider, claimed by whichever path asked, so the minute after any
-    /// refresh of that provider stays quiet. Switching back and forth buys no extra refreshes:
-    /// each provider's own minute has to elapse before it is fetched again.
+    /// refresh of that provider stays quiet.
     private var cooldowns = ProviderRefreshCooldown()
     private let clock: () -> TimeInterval
     private let dateClock: () -> Date
@@ -58,18 +55,6 @@ final class UsageStore: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.rescheduleTimer() }
-
-        // The moment of the switch is the only thing that pulls the other provider into a
-        // refresh, and it goes through that provider's cooldown like every other path.
-        // SettingsStore is MainActor-isolated; consume the emitted provider synchronously so a
-        // rapid switch back cannot leave a fetch queued behind a newer selection.
-        self.providerObserver = self.settings.$menuBarProvider
-            .removeDuplicates()
-            .dropFirst()
-            .sink { [weak self] provider in
-                guard let self else { return }
-                self.refresh(provider: provider)
-            }
     }
 
     /// Rebuilt whenever the cadence changes; `.manual` leaves no timer at all.
@@ -98,20 +83,14 @@ final class UsageStore: ObservableObject {
         self.costTasks = [:]
         self.pendingCostRefreshes = []
         self.settingsObserver = nil
-        self.providerObserver = nil
     }
 
-    /// Refreshes the provider on screen. `force` only skips the local cooldown for an explicit
-    /// user-initiated credential recovery already requested by the provider.
-    func refresh(
-        force: Bool = false,
-        interaction: ClaudeRefreshInteraction = .automatic
-    ) {
-        self.refresh(
-            provider: self.settings.menuBarProvider,
-            force: force,
-            interaction: interaction
-        )
+    /// Refreshes every provider. An automatic refresh leaves out a provider whose credentials the
+    /// person declined to share, so the system prompt is not raised again on a timer.
+    func refresh(interaction: ClaudeRefreshInteraction = .automatic) {
+        for provider in Provider.allCases {
+            self.refresh(provider: provider, interaction: interaction)
+        }
     }
 
     /// Whether this provider currently has a fetch in flight.
@@ -119,17 +98,16 @@ final class UsageStore: ObservableObject {
         self.refreshingProviders.contains(provider)
     }
 
-    private func refresh(
-        provider: Provider,
-        force: Bool = false,
-        interaction: ClaudeRefreshInteraction = .automatic
-    ) {
+    /// Refreshes one provider. A user-initiated refresh of a known credential-recovery state skips
+    /// the local cooldown, and one of declined credentials asks for them again.
+    func refresh(provider: Provider, interaction: ClaudeRefreshInteraction = .automatic) {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
         guard self.refreshTasks[provider] == nil else { return }
+        if interaction == .automatic, self.displays[provider]?.failure?.kind == .accessDenied { return }
         // Only a user click on a known credential-recovery state can skip the local cooldown.
         // A server 429 remains authoritative, even for that click.
-        let allowsRecoveryBypass = force && interaction == .userInitiated
+        let allowsRecoveryBypass = interaction == .userInitiated
             && self.displays[provider]?.canAttemptCredentialRecovery == true
         guard self.serverCooldownRemaining(for: provider) == 0 else { return }
         guard self.claimRefresh(for: provider, force: allowsRecoveryBypass, at: self.clock()) else { return }
@@ -212,19 +190,22 @@ final class UsageStore: ObservableObject {
     /// Price edits only affect local costs. Coalesce edits during a scan into one follow-up
     /// so its earlier snapshot cannot hide the result of saving new rates.
     func refreshCostsAfterPricingChange() {
-        self.refreshCosts(for: self.settings.menuBarProvider, afterPricingChange: true)
+        for provider in Provider.allCases {
+            self.refreshCosts(for: provider, afterPricingChange: true)
+        }
     }
 
-    /// Retries only the selected provider's local usage scan. This has no quota cooldown and
-    /// shares the scan task with automatic and pricing-triggered work, so repeated clicks coalesce.
-    func retryLocalUsage() {
-        self.refreshCosts(for: self.settings.menuBarProvider)
+    /// Retries one provider's local usage scan. This has no quota cooldown and shares the scan
+    /// task with automatic and pricing-triggered work, so repeated clicks coalesce.
+    func retryLocalUsage(for provider: Provider) {
+        self.refreshCosts(for: provider)
     }
 
-    /// Seconds until the next refresh of the provider on screen would actually run. The Refresh
-    /// row counts this down instead of accepting clicks it would drop.
+    /// Seconds until a refresh of any provider would actually run: zero while one can refresh,
+    /// otherwise the shortest wait. The Refresh row counts this down instead of accepting clicks
+    /// it would drop.
     func refreshCooldownRemaining() -> TimeInterval {
-        self.cooldownRemaining(for: self.settings.menuBarProvider)
+        Provider.allCases.map { self.cooldownRemaining(for: $0) }.min() ?? 0
     }
 
     func cooldownRemaining(for provider: Provider) -> TimeInterval {
@@ -248,6 +229,11 @@ final class UsageStore: ObservableObject {
         return self.cooldownRemaining(for: provider) == 0
     }
 
+    /// Whether an explicit Refresh would fetch at least one provider.
+    var canRefreshAny: Bool {
+        Provider.allCases.contains { self.canRefresh($0) }
+    }
+
     private func serverCooldownRemaining(for provider: Provider) -> TimeInterval {
         guard let deadline = self.displays[provider]?.retryDeadline else { return 0 }
         return max(0, deadline.timeIntervalSince(self.dateClock()))
@@ -267,7 +253,9 @@ final class UsageStore: ObservableObject {
     /// Starts the cooldown without the network round trip a real refresh would make, so the menu
     /// wiring can be verified headlessly.
     func debugRecordRefresh(at time: TimeInterval, provider: Provider? = nil) {
-        self.cooldowns.recordRefresh(provider ?? self.settings.menuBarProvider, at: time)
+        for provider in provider.map({ [$0] }) ?? Provider.allCases {
+            self.cooldowns.recordRefresh(provider, at: time)
+        }
     }
 #endif
 
@@ -286,6 +274,12 @@ final class UsageStore: ObservableObject {
         case let .failed(reason):
             display.error = reason
             display.failure = ProviderFailure(kind: .refresh, reason: reason)
+            display.signedOutReason = nil
+            display.isSignedOut = false
+            display.canAttemptCredentialRecovery = false
+        case let .accessDenied(reason):
+            display.error = reason
+            display.failure = ProviderFailure(kind: .accessDenied, reason: reason)
             display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false
@@ -325,6 +319,8 @@ final class UsageStore: ObservableObject {
             Log.ui.info("\(provider.rawValue, privacy: .public) signed out: \(reason, privacy: .public)")
         case let .failed(reason):
             Log.ui.error("\(provider.rawValue, privacy: .public) refresh failed: \(reason, privacy: .public)")
+        case let .accessDenied(reason):
+            Log.ui.warning("\(provider.rawValue, privacy: .public) access denied: \(reason, privacy: .public)")
         case let .rateLimited(reason, retryAfter):
             Log.ui.warning(
                 "\(provider.rawValue, privacy: .public) rate-limited until \(retryAfter): \(reason, privacy: .public)"

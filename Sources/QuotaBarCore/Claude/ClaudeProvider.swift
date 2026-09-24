@@ -39,6 +39,8 @@ public enum ClaudeProvider {
             switch error {
             case .keychainItemMissing, .missingOAuth, .missingAccessToken:
                 return .signedOut(error.localizedDescription)
+            case .keychainAccessDenied:
+                return .accessDenied(error.localizedDescription)
             case .keychainReadFailed, .decodeFailed:
                 return .failed(error.localizedDescription)
             }

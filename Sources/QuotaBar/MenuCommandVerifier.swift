@@ -45,7 +45,6 @@ enum MenuCommandVerifier {
 
         let settings = SettingsStore(defaults: defaults)
         settings.refreshFrequency = .manual
-        settings.menuBarProvider = .codex
         let service = CostService(rateCard: RateCard())
         let requests = Requests()
         var uptime: TimeInterval = 1_000
@@ -80,20 +79,21 @@ enum MenuCommandVerifier {
         commands.update()
         require(refreshItem.isEnabled, "the Refresh command started disabled")
         require(menu.performKeyEquivalent(with: key), "Cmd-R did not reach the application menu")
-        require(await Self.wait(until: { requests.quota == 1 && !store.isRefreshing(.codex) }),
-                "Cmd-R did not complete one fixture request")
+        let providers = Provider.allCases.count
+        require(await Self.wait(until: { requests.quota == providers && store.refreshingProviders.isEmpty }),
+                "Cmd-R did not complete one fixture request per provider")
 
         commands.update()
         require(!refreshItem.isEnabled, "the Refresh command ignored its cooldown validation")
         _ = menu.performKeyEquivalent(with: key)
         await Task.yield()
-        require(requests.quota == 1, "Cmd-R bypassed the refresh cooldown")
+        require(requests.quota == providers, "Cmd-R bypassed the refresh cooldown")
 
         uptime = 1_061
         commands.update()
         require(refreshItem.isEnabled, "the Refresh command did not re-enable after cooldown")
         require(menu.performKeyEquivalent(with: key), "Cmd-R remained disabled after cooldown")
-        require(await Self.wait(until: { requests.quota == 2 && !store.isRefreshing(.codex) }),
+        require(await Self.wait(until: { requests.quota == 2 * providers && store.refreshingProviders.isEmpty }),
                 "Cmd-R did not run after cooldown")
 
         store.stop()

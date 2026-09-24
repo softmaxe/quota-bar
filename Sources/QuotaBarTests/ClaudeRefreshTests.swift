@@ -97,6 +97,7 @@ enum ClaudeRefreshTests {
         await Self.manualRefreshStopsWhenDelegationDoesNotChangeCredentials()
         await Self.manualRefreshReportsCLIUnavailable()
         await Self.manualRefreshStopsAfterRetryUnauthorized()
+        await Self.deniedKeychainPromptIsAccessDenied()
         await Self.coordinatorPolicy()
         await Self.coordinatorCooldownAndRequest()
         await Self.coordinatorSingleFlight()
@@ -281,6 +282,45 @@ enum ClaudeRefreshTests {
             return
         }
         Harness.expect(reason.contains("rejected"), "a rejected retry is classified as recovery failure")
+    }
+
+    /// A cancelled or unanswered keychain prompt is the person's answer, not a transient failure,
+    /// so automatic refreshes must be able to tell it apart and stop asking.
+    private static func deniedKeychainPromptIsAccessDenied() async {
+        guard case .keychainAccessDenied = ClaudeCredentialsStore.readFailure(
+            terminationStatus: 128,
+            message: "security: SecKeychainItemCopyAccess: User canceled the operation."
+        ) else {
+            Harness.expect(false, "a cancelled keychain prompt is classified as access denied")
+            return
+        }
+        guard case .keychainItemMissing = ClaudeCredentialsStore.readFailure(
+            terminationStatus: 44,
+            message: "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain."
+        ) else {
+            Harness.expect(false, "a missing keychain item stays signed out")
+            return
+        }
+        guard case .keychainReadFailed = ClaudeCredentialsStore.readFailure(
+            terminationStatus: 1,
+            message: "security: unexpected error"
+        ) else {
+            Harness.expect(false, "other keychain failures stay ordinary read failures")
+            return
+        }
+
+        let state = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: ClaudeRefreshFixture(
+                credentials: Self.credentials(accessToken: "unused", expiresIn: 3_600)
+            )),
+            gate: UsageRateLimitGate(),
+            credentialLoader: { throw ClaudeCredentialsError.keychainAccessDenied("timed out after 10s") },
+            delegatedRefresher: {}
+        )
+        guard case .accessDenied = state else {
+            Harness.expect(false, "a denied keychain prompt reports access denied")
+            return
+        }
     }
 
     private static func coordinatorPolicy() async {

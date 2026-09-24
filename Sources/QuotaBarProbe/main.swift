@@ -23,6 +23,8 @@ func report(_ provider: Provider, _ state: ProviderState) {
         print("  signed out: \(reason)")
     case let .failed(reason):
         print("  FAILED: \(reason)")
+    case let .accessDenied(reason):
+        print("  ACCESS DENIED: \(reason)")
     case let .rateLimited(reason, retryAfter):
         print("  RATE LIMITED until \(retryAfter): \(reason)")
     case let .recoveryRequired(reason):

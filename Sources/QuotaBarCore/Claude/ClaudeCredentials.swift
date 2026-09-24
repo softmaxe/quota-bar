@@ -39,6 +39,8 @@ public struct ClaudeCredentials: Sendable, Equatable {
 public enum ClaudeCredentialsError: LocalizedError, Sendable {
     case keychainItemMissing
     case keychainReadFailed(String)
+    /// The keychain prompt was cancelled or left unanswered.
+    case keychainAccessDenied(String)
     case decodeFailed
     case missingOAuth
     case missingAccessToken
@@ -49,6 +51,8 @@ public enum ClaudeCredentialsError: LocalizedError, Sendable {
             "No Claude Code credentials in the keychain. Run `claude` to sign in."
         case let .keychainReadFailed(reason):
             "Could not read the Claude keychain item: \(reason)"
+        case let .keychainAccessDenied(reason):
+            "Keychain access to Claude Code's credentials was not allowed (\(reason))."
         case .decodeFailed:
             "Claude keychain payload could not be decoded."
         case .missingOAuth:
@@ -67,6 +71,16 @@ public enum ClaudeCredentialsStore {
     public static func load() throws -> ClaudeCredentials {
         let payload = try Self.readKeychainPayload()
         return try Self.parse(data: payload)
+    }
+
+    /// Classifies a failed `security` run. 44 is SecurityAgent's "item not found"; 128 is the user
+    /// cancelling the prompt.
+    package static func readFailure(terminationStatus: Int32, message: String) -> ClaudeCredentialsError {
+        if message.contains("could not be found") { return .keychainItemMissing }
+        if terminationStatus == 128 || message.localizedCaseInsensitiveContains("user canceled") {
+            return .keychainAccessDenied(message.isEmpty ? "prompt cancelled" : message)
+        }
+        return .keychainReadFailed(message.isEmpty ? "exit status \(terminationStatus)" : message)
     }
 
     public static func parse(data: Data) throws -> ClaudeCredentials {
@@ -119,7 +133,8 @@ public enum ClaudeCredentialsStore {
         }
         if process.isRunning {
             process.terminate()
-            throw ClaudeCredentialsError.keychainReadFailed("timed out after \(Int(Self.readTimeout))s")
+            // Nobody answered the prompt, which is as much an answer as Deny.
+            throw ClaudeCredentialsError.keychainAccessDenied("timed out after \(Int(Self.readTimeout))s")
         }
 
         let out = stdout.fileHandleForReading.readDataToEndOfFile()
@@ -128,13 +143,7 @@ public enum ClaudeCredentialsStore {
         guard process.terminationStatus == 0 else {
             let message = String(data: err, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            // 44 is SecurityAgent's "item not found"; 128 is the user cancelling the prompt.
-            if message.contains("could not be found") {
-                throw ClaudeCredentialsError.keychainItemMissing
-            }
-            throw ClaudeCredentialsError.keychainReadFailed(
-                message.isEmpty ? "exit status \(process.terminationStatus)" : message
-            )
+            throw Self.readFailure(terminationStatus: process.terminationStatus, message: message)
         }
 
         guard let text = String(data: out, encoding: .utf8) else {

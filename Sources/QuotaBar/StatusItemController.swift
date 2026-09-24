@@ -120,8 +120,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action != #selector(self.refreshClicked)
-            || self.store.canRefresh(self.settings.menuBarProvider)
+        menuItem.action != #selector(self.refreshClicked) || self.store.canRefreshAny
     }
 
     func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
@@ -407,7 +406,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
                 self?.closePopover()
                 self?.settingsWindow.showPricing()
             },
-            onRefreshLocalUsage: { [weak self] in self?.store.retryLocalUsage() }
+            onRefreshLocalUsage: { [weak self] in self?.store.retryLocalUsage(for: provider) }
         )
     }
 
@@ -459,23 +458,22 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     }
 
     @objc private func refreshClicked() {
-        let provider = self.settings.menuBarProvider
-        guard self.store.canRefresh(provider) else { return }
-        let recovery = self.store.displays[provider]?.canAttemptCredentialRecovery == true
-        self.store.refresh(force: recovery, interaction: .userInitiated)
+        guard self.store.canRefreshAny else { return }
+        self.store.refresh(interaction: .userInitiated)
         self.updateRefreshRow()
     }
 
+    /// One row for every provider: it runs while any provider can refresh and otherwise counts
+    /// down to the first one that can.
     private func updateRefreshRow() {
         guard self.isMenuOpen, let presentation = self.presentation else { return }
-        let provider = presentation.provider
-        let display = self.store.displays[provider] ?? ProviderDisplay()
-        let allowsRecovery = display.canAttemptCredentialRecovery && self.store.canRefresh(provider)
+        let allowsRecovery = Provider.allCases.contains { provider in
+            self.store.displays[provider]?.canAttemptCredentialRecovery == true && self.store.canRefresh(provider)
+        }
         presentation.refreshState = RefreshRowPolicy.state(
-            cooldownRemaining: self.store.cooldownRemaining(for: provider),
-            isRefreshing: self.store.isRefreshing(provider),
-            allowsCredentialRecovery: allowsRecovery,
-            action: display.isSignedOut ? .checkSignIn : .refresh
+            cooldownRemaining: self.store.refreshCooldownRemaining(),
+            isRefreshing: !self.store.refreshingProviders.isEmpty,
+            allowsCredentialRecovery: allowsRecovery
         )
     }
 

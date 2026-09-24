@@ -7,6 +7,8 @@ struct ProviderFailure: Equatable {
         case refresh
         case rateLimited
         case credentialRecovery
+        /// The keychain prompt was declined; only an explicit refresh asks again.
+        case accessDenied
     }
 
     var kind: Kind

@@ -53,6 +53,7 @@ enum ProviderStateVerifier {
 
         NSApplication.shared.setActivationPolicy(.accessory)
         if let failure = Self.verifySignedOutCards() { finish(failure) }
+        if let failure = await Self.verifyEveryProviderRefreshes(defaults: defaults) { finish(failure) }
         var uptime: TimeInterval = 1_000
         let origin = Date(timeIntervalSince1970: 1_800_000_000)
         let settings = SettingsStore(defaults: defaults)
@@ -62,8 +63,12 @@ enum ProviderStateVerifier {
             costService: CostService(rateCard: RateCard()),
             clock: { uptime },
             dateClock: { origin.addingTimeInterval(uptime - 1_000) },
-            fetchState: { _, _ in await fetches.fetchQuota() },
-            fetchCost: { _ in await fetches.fetchCost() },
+            // Codex is the provider under test; Claude answers at once so its refreshes stay out
+            // of the way.
+            fetchState: { provider, _ in
+                provider == .codex ? await fetches.fetchQuota() : .signedOut("Claude fixture")
+            },
+            fetchCost: { provider in provider == .codex ? await fetches.fetchCost() : nil },
             historyStore: UsageHistoryStore(fileURL: URL(fileURLWithPath: "/dev/null")),
             recoveryDefaults: defaults
         )
@@ -103,7 +108,7 @@ enum ProviderStateVerifier {
             finish("local scan failure was mislabeled a quota failure")
         }
 
-        store.retryLocalUsage()
+        store.retryLocalUsage(for: .codex)
         guard await Self.wait(until: { fetches.costCalls == 2 && fetches.cost != nil }) else {
             finish("local usage retry did not start")
         }
@@ -111,7 +116,7 @@ enum ProviderStateVerifier {
               store.displays[.codex]?.localScanStatus == .scanning else {
             finish("local usage retry changed quota state or skipped progress")
         }
-        store.retryLocalUsage()
+        store.retryLocalUsage(for: .codex)
         guard fetches.costCalls == 2 else {
             finish("repeated local usage retry started a duplicate scan")
         }
@@ -179,7 +184,7 @@ enum ProviderStateVerifier {
               !store.canRefresh(.codex) else {
             finish("cached quota or effective server retry state is wrong")
         }
-        store.refresh(force: true, interaction: .userInitiated)
+        store.refresh(interaction: .userInitiated)
         guard fetches.quotaCalls == 3 else {
             finish("a force request bypassed the server retry deadline")
         }
@@ -239,6 +244,51 @@ enum ProviderStateVerifier {
         }
         store.stop()
         finish()
+    }
+
+    /// Every refresh reaches both providers, and a declined keychain prompt is only asked again
+    /// when the person asks for it.
+    private static func verifyEveryProviderRefreshes(defaults: UserDefaults) async -> String? {
+        var uptime: TimeInterval = 1_000
+        var calls: [Provider: [ClaudeRefreshInteraction]] = [:]
+        let store = UsageStore(
+            settings: SettingsStore(defaults: defaults),
+            costService: CostService(rateCard: RateCard()),
+            clock: { uptime },
+            fetchState: { provider, interaction in
+                await MainActor.run { calls[provider, default: []].append(interaction) }
+                return provider == .claude
+                    ? .accessDenied("Keychain access was not allowed.")
+                    : .signedOut("Codex fixture")
+            },
+            fetchCost: { _ in nil },
+            historyStore: UsageHistoryStore(fileURL: URL(fileURLWithPath: "/dev/null")),
+            recoveryDefaults: defaults
+        )
+        defer { store.stop() }
+
+        store.refresh()
+        guard await Self.wait(until: {
+            store.displays[.claude]?.failure?.kind == .accessDenied && store.displays[.codex]?.isSignedOut == true
+        }) else { return "one refresh did not reach every provider" }
+
+        uptime = 1_100
+        store.refresh()
+        guard await Self.wait(until: { calls[.codex]?.count == 2 }) else {
+            return "an automatic refresh skipped a provider with no declined prompt"
+        }
+        guard calls[.claude]?.count == 1 else {
+            return "an automatic refresh asked for declined credentials again"
+        }
+
+        store.refresh(interaction: .userInitiated)
+        guard await Self.wait(until: { calls[.claude]?.count == 2 }) else {
+            return "an explicit refresh did not ask for declined credentials again"
+        }
+        guard calls[.claude]?.last == .userInitiated else {
+            return "the retry of declined credentials was not marked as the person's"
+        }
+        return nil
     }
 
     /// Compare actual hosted content rather than a policy flag: the regression kept the data
