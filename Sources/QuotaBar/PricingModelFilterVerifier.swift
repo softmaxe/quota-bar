@@ -10,21 +10,21 @@ enum PricingModelFilterVerifier {
         var failures: [String] = []
         let bundled = RateCard()
 
-        let codexWhitelist = [
+        let codexSettingsModels = [
             "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-mini-latest",
         ]
-        let claudeWhitelist = [
+        let claudeSettingsModels = [
             "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5",
             "claude-haiku-4-5", "claude-3-5-haiku",
         ]
         self.expect(
-            bundled.settingsModels(for: .codex) == codexWhitelist,
-            "Codex whitelist changed",
+            bundled.settingsModels(for: .codex) == codexSettingsModels,
+            "Codex settings models changed",
             failures: &failures
         )
         self.expect(
-            bundled.settingsModels(for: .claude) == claudeWhitelist,
-            "Claude whitelist changed",
+            bundled.settingsModels(for: .claude) == claudeSettingsModels,
+            "Claude settings models changed",
             failures: &failures
         )
         self.expect(
@@ -81,7 +81,7 @@ enum PricingModelFilterVerifier {
         )
         self.expectNames(
             visibleCodex,
-            codexWhitelist + ["gpt-local-unpriced"],
+            codexSettingsModels + ["gpt-local-unpriced"],
             "Codex visible models",
             failures: &failures
         )
@@ -105,7 +105,7 @@ enum PricingModelFilterVerifier {
         )
         self.expectNames(
             visibleClaude,
-            claudeWhitelist + ["claude-local-unpriced"],
+            claudeSettingsModels + ["claude-local-unpriced"],
             "Claude visible models",
             failures: &failures
         )

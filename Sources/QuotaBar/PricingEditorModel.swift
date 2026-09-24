@@ -27,13 +27,13 @@ enum PricingModelFilterPolicy {
         rateCard: RateCard,
         day: String = DayKey.today()
     ) -> [String] {
-        let whitelist = rateCard.settingsModels(for: provider)
+        let settingsModels = rateCard.settingsModels(for: provider)
         let seen = usage.map { rateCard.modelID(for: $0.model, provider: provider) }
         let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
         let unpriced = seenSet.filter { name in
-            !whitelist.contains(name) && rateCard.rates(for: name, provider: provider, day: day) == nil
+            !settingsModels.contains(name) && rateCard.rates(for: name, provider: provider, day: day) == nil
         }
-        return whitelist + unpriced.sorted()
+        return settingsModels + unpriced.sorted()
     }
 }
 
@@ -159,7 +159,7 @@ enum PricingSaveStatus: Equatable {
     case idle, dirty, saving, saved, failed(String)
 }
 
-/// Backs the pricing pane: loads the effective rates, tracks edits, and writes the override file.
+/// Backs the pricing pane: loads the rate card's rates, tracks edits, and writes the override file.
 @MainActor
 final class PricingEditorModel: ObservableObject {
     @Published private(set) var rows: [PricingRow] = []
@@ -294,7 +294,7 @@ final class PricingEditorModel: ObservableObject {
 
             for name in names {
                 let fallbackPricing = fallback.rates(for: name, provider: provider, day: today)
-                let effective = rateCard.rates(for: name, provider: provider, day: today)
+                let current = rateCard.rates(for: name, provider: provider, day: today)
                 let row = PricingRow(
                     provider: provider,
                     group: PricingGroup.classify(model: name, rateCard: rateCard),
@@ -303,17 +303,17 @@ final class PricingEditorModel: ObservableObject {
                     hasDefault: fallbackPricing != nil,
                     usageTokens: usageTokens[name] ?? 0,
                     settingsRank: settingsModels.firstIndex(of: name),
-                    input: Self.text(effective?.input),
-                    output: Self.text(effective?.output),
-                    cacheWrite: Self.text(effective?.cacheWrite),
-                    cacheWrite1h: Self.text(effective?.cacheWrite1h),
-                    cacheRead: Self.text(effective?.cacheRead),
-                    thresholdTokens: Self.integerText(effective?.thresholdTokens),
-                    inputAbove: Self.text(effective?.inputAbove),
-                    outputAbove: Self.text(effective?.outputAbove),
-                    cacheWriteAbove: Self.text(effective?.cacheWriteAbove),
-                    cacheWrite1hAbove: Self.text(effective?.cacheWrite1hAbove),
-                    cacheReadAbove: Self.text(effective?.cacheReadAbove)
+                    input: Self.text(current?.input),
+                    output: Self.text(current?.output),
+                    cacheWrite: Self.text(current?.cacheWrite),
+                    cacheWrite1h: Self.text(current?.cacheWrite1h),
+                    cacheRead: Self.text(current?.cacheRead),
+                    thresholdTokens: Self.integerText(current?.thresholdTokens),
+                    inputAbove: Self.text(current?.inputAbove),
+                    outputAbove: Self.text(current?.outputAbove),
+                    cacheWriteAbove: Self.text(current?.cacheWriteAbove),
+                    cacheWrite1hAbove: Self.text(current?.cacheWrite1hAbove),
+                    cacheReadAbove: Self.text(current?.cacheReadAbove)
                 )
                 defaults[row.id] = fallbackPricing
                 built.append(row)
