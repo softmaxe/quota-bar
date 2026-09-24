@@ -16,6 +16,9 @@ public actor CostService {
     private var cache: CostCache?
     /// The rates of the current refresh. nil until the override file is next read.
     private var rateCard: RateCard?
+    /// What a dropped rate card is rebuilt from.
+    private var book: PriceBook
+    private let overrideFile: OverrideFile
     private var openCodeStatus: OpenCodeScanStatus = .idle
     private var piAgentStatus: PiAgentScanStatus = .idle
     /// The Pi Agent session files the store already reflects, so an unchanged directory is not
@@ -26,16 +29,19 @@ public actor CostService {
     public nonisolated let databaseURL: URL
     private let env: [String: String]
 
-    /// `rateCard` pins the rates instead of reading the override file; tests use it to keep
-    /// prices fixed.
+    /// `rateCard` pins the rates until `invalidatePricing`; tests use it to keep prices fixed. Its
+    /// book, the shipped one when none is pinned, is what `overrideFile` is laid over after that.
     public init(
         databaseURL: URL? = nil,
         env: [String: String] = ProcessInfo.processInfo.environment,
-        rateCard: RateCard? = nil
+        rateCard: RateCard? = nil,
+        overrideFile: OverrideFile = OverrideFile()
     ) {
         self.databaseURL = databaseURL ?? Self.defaultDatabaseURL
         self.env = env
         self.rateCard = rateCard
+        self.book = rateCard?.book ?? .bundled
+        self.overrideFile = overrideFile
     }
 
     /// `~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite`.
@@ -94,6 +100,7 @@ public actor CostService {
     /// (`invalidatePricing`); this exists so tests can move prices without touching the file.
     public func useRateCard(_ rateCard: RateCard) {
         self.rateCard = rateCard
+        self.book = rateCard.book
     }
 
     private func openCache() throws -> CostCache {
@@ -109,7 +116,7 @@ public actor CostService {
     /// Read from disk once, then again only after `invalidatePricing`.
     private func currentRateCard() -> RateCard {
         if let rateCard = self.rateCard { return rateCard }
-        let rateCard = RateCard.onDisk()
+        let rateCard = RateCard(book: self.book, overrides: self.overrideFile.load())
         self.rateCard = rateCard
         return rateCard
     }

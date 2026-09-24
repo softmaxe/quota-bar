@@ -1072,6 +1072,7 @@ enum CostTests {
 
         await Self.claudeStreamingChunksKeepTheFinalOutput(root: root)
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
+        await Self.invalidatingPricingKeepsTheBook(root: root)
         await Self.escapedClassifierRecordsAreScanned(root: root)
         await Self.codexSkipsReEmittedTokenCounts(root: root)
         await Self.codexResumeLimitDoesNotPeek(root: root)
@@ -1337,6 +1338,58 @@ enum CostTests {
 
     /// Anthropic bills a one-hour cache write at twice the input rate and a five-minute one at
     /// 1.25x, so the two TTLs cannot share the table's single cache-write column.
+    /// Saving overrides drops the service's rate card. The next refresh rereads the override
+    /// file the service was given and lays it over the same price book, not the shipped one.
+    private static func invalidatingPricingKeepsTheBook(root: URL) async {
+        let projects = root.appendingPathComponent("invalidate-claude/projects/app")
+        try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        func line(_ id: String, model: String) -> String {
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"\#(model)","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+        }
+        let lines = [line("a", model: "claude-book-only"), line("b", model: "claude-override-only")]
+        try? (lines.joined(separator: "\n") + "\n")
+            .write(to: projects.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
+
+        let book: PriceBook
+        do {
+            book = try PriceBook(data: Data("""
+                {
+                  "schemaVersion": 1,
+                  "providers": {
+                    "claude": {
+                      "source": "https://example.com", "checkedAt": "2026-09-01",
+                      "models": [ { "id": "claude-book-only", "periods": [ { "rates": { "input": 2, "output": 2 } } ] } ]
+                    }
+                  }
+                }
+                """.utf8))
+        } catch {
+            Harness.expect(false, "invalidation fixture book threw: \(error)")
+            return
+        }
+        let overrideFile = OverrideFile(url: root.appendingPathComponent("invalidate-overrides.json"))
+        try? overrideFile.save(["claude-override-only": ModelPricing(input: 3, output: 3)])
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("invalidate-cache.sqlite"),
+            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("invalidate-claude").path],
+            rateCard: RateCard(book: book),
+            overrideFile: overrideFile
+        )
+        Harness.expectClose(
+            await service.refresh(.claude)?.windowCostUSD,
+            2,
+            "a pinned rate card prices from its own book and ignores the override file"
+        )
+        await service.invalidatePricing()
+        Harness.expectClose(
+            await service.refresh(.claude)?.windowCostUSD,
+            5,
+            "after invalidation the service rereads its override file over the same book"
+        )
+    }
+
     private static func claudeOneHourCacheWritesCostDouble(root: URL) async {
         let projects = root.appendingPathComponent("ttl-claude/projects/app")
         try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
