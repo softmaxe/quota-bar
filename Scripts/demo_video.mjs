@@ -24,6 +24,7 @@ const OUT = join(ROOT, 'build/demo');
 const CACHE = join(OUT, 'samples');
 const FPS = 30;
 /** GitHub accepts README video attachments up to 10 MB on free plans; leave headroom. */
+const LIMIT_BYTES = 10 * 1024 * 1024;
 const BUDGET_BYTES = 9.2 * 1024 * 1024;
 const AUDIO_KBPS = 128;
 
@@ -33,6 +34,11 @@ const option = name => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 };
+const FLAGS = ['--audio', '--encode-only', '--stills'];
+for (const [index, arg] of args.entries()) {
+  if (!LANGUAGES.includes(arg) && !FLAGS.includes(arg) && args[index - 1] !== '--stills') throw new Error(`Unknown argument ${arg}. Use ${[...LANGUAGES, ...FLAGS].join(', ')}.`);
+}
+if (flag('--stills') && !option('--stills')) throw new Error('--stills needs times, e.g. --stills 9.5,31');
 const languages = args.filter(arg => LANGUAGES.includes(arg));
 const targets = languages.length ? languages : LANGUAGES;
 
@@ -87,7 +93,8 @@ async function renderAudio(browser, origin) {
   await downloadSamples();
   log('rendering soundtrack');
   const page = await browser.newPage();
-  page.on('pageerror', error => console.error(error));
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   await page.goto(`${origin}/docs/demo/demo.html?render=1`);
   const manifest = Object.fromEntries(Object.entries(SAMPLES).map(([instrument, samples]) => [
     instrument, samples.map(sample => ({midi: sample.midi, layer: sample.layer, src: `/build/demo/samples/${encodeURI(cacheName(instrument, sample)).replace(/#/g, '%23')}`})),
@@ -102,14 +109,14 @@ async function renderAudio(browser, origin) {
     return btoa(binary);
   }, {manifest, duration: DURATION});
   await page.close();
+  if (errors.length) throw new Error(errors.join('\n'));
 
   const raw = join(OUT, 'soundtrack.f32');
   writeFileSync(raw, Buffer.from(base64, 'base64'));
   // Loudness-normalize for small speakers and headphones alike, then encode once for muxing.
-  run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'f32le', '-ar', '48000', '-ac', '2', '-i', raw,
-    '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-ar', '48000', '-c:a', 'aac', '-b:a', `${AUDIO_KBPS}k`, join(OUT, 'soundtrack.m4a')]);
-  run('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'f32le', '-ar', '48000', '-ac', '2', '-i', raw,
-    '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-ar', '48000', '-c:a', 'pcm_s16le', join(OUT, 'soundtrack.wav')]);
+  const normalize = ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'f32le', '-ar', '48000', '-ac', '2', '-i', raw, '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-ar', '48000'];
+  run('ffmpeg', [...normalize, '-c:a', 'aac', '-b:a', `${AUDIO_KBPS}k`, join(OUT, 'soundtrack.m4a')]);
+  run('ffmpeg', [...normalize, '-c:a', 'pcm_s16le', join(OUT, 'soundtrack.wav')]);
   log('build/demo/soundtrack.m4a');
 }
 
@@ -180,7 +187,7 @@ async function encode(language, master, final) {
     '-c:a', 'copy', '-shortest', '-movflags', '+faststart', final]);
   const size = statSync(final).size;
   log(`${final.replace(ROOT + '/', '')}: ${(size / 1024 / 1024).toFixed(2)} MB`);
-  if (size > 10 * 1024 * 1024) throw new Error(`${final} is over GitHub's 10 MB attachment limit`);
+  if (size > LIMIT_BYTES) throw new Error(`${final} is over GitHub's 10 MB attachment limit`);
 }
 
 mkdirSync(OUT, {recursive: true});
