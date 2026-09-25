@@ -212,7 +212,6 @@ MenuBarProviderPolicyTests.run()
 await MainActor.run { SettingsTests.run() }
 PaceTests.run()
 HistoricalPaceTests.run()
-PricingOverrideTests.run()
 OverrideFileTests.run()
 RateCardTests.run()
 UsageReportTests.run()

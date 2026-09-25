@@ -11,7 +11,6 @@ enum CostTests {
         Self.normalization()
         Self.modelBreakdownRanking()
         Self.longContextTiering()
-        Self.overrideParsing()
         Self.legacyReadOnlyCache()
         Self.logFileScanning()
         do {
@@ -471,21 +470,6 @@ enum CostTests {
         )
         Harness.expectEqual(baseCost, 4.0, "sol base input rate")
         Harness.expectEqual(longCost, 8.0, "sol long-context input rate")
-    }
-
-    private static func overrideParsing() {
-        let overrides = OverrideFile.parse(Data("""
-        { "my-model": { "input": 1, "output": 2, "cacheRead": 0.1 } }
-        """.utf8)).overrides
-        Harness.expectEqual(overrides["my-model"]?.input, 1, "user override input rate")
-
-        // A user override must win over the price book for the same model.
-        let rateCard = RateCard(overrides: ["claude-opus-5": ModelPricing(input: 99, output: 99)])
-        Harness.expectEqual(
-            rateCard.rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
-            99,
-            "user override beats the price book"
-        )
     }
 
     // MARK: - Scanning
@@ -2191,118 +2175,5 @@ enum HistoricalPaceTests {
         // Every past week ran the window dry from here, so this one is projected to as well.
         Harness.expect(!withRisk.willLastToReset, "a history of running dry projects running dry")
         Harness.expect(withRisk.etaSeconds != nil, "a projected run-out carries an ETA")
-    }
-}
-
-/// The hand-edited price layer: round-trips through disk and outranks the other layers.
-enum PricingOverrideTests {
-    static func run() {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quotabar-overrides-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = OverrideFile(url: directory.appendingPathComponent("pricing-overrides.json"))
-        let url = file.url
-
-        let overrides: [String: ModelPricing] = [
-            "ox-alpha": ModelPricing(input: 1.5, output: 6, cacheWrite: 1.875, cacheRead: 0.15),
-            "claude-opus-5": ModelPricing(input: 99, output: 99),
-            // Everything the billing math reads, so an override cannot silently drop a tier.
-            "ox-tiered": ModelPricing(
-                input: 2, output: 12, cacheWrite: 2.5, cacheWrite1h: 3.5, cacheRead: 0.2,
-                thresholdTokens: 200_000,
-                inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5,
-                cacheWrite1hAbove: 7, cacheReadAbove: 0.4
-            ),
-        ]
-        do {
-            try file.save(overrides)
-        } catch {
-            Harness.expect(false, "saving overrides threw: \(error)")
-            return
-        }
-
-        let loaded = file.load()
-        Harness.expectEqual(loaded["ox-alpha"]?.input, 1.5, "override input rate round-trips")
-        Harness.expectEqual(loaded["ox-alpha"]?.cacheRead, 0.15, "override cache rate round-trips")
-        Harness.expectEqual(loaded.count, 3, "every override round-trips")
-        Harness.expectEqual(loaded["ox-tiered"], overrides["ox-tiered"], "the full rate set round-trips")
-
-        // A model with no built-in price becomes priceable through the override alone.
-        let rateCard = RateCard(overrides: loaded)
-        Harness.expectEqual(
-            rateCard.cost(
-                of: TokenTotals(input: 1_000_000),
-                model: "ox-alpha",
-                provider: .claude,
-                day: DayKey.today(),
-                longContext: false
-            ),
-            1.5,
-            "an override prices a model the built-in table does not know"
-        )
-        // And it outranks a built-in rate for a model that does have one.
-        Harness.expectEqual(
-            rateCard.rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
-            99,
-            "an override outranks the built-in table"
-        )
-
-        // A one-hour cache write is billed at its own rate when the override states one, and at
-        // twice input when it does not.
-        let hourly = TokenTotals(cacheWrite: 1_000_000, cacheWrite1h: 1_000_000)
-        Harness.expectEqual(
-            rateCard.cost(
-                of: hourly,
-                model: "ox-tiered",
-                provider: .codex,
-                day: DayKey.today(),
-                longContext: false
-            ),
-            3.5,
-            "a stated one-hour rate is what bills"
-        )
-        Harness.expectEqual(
-            rateCard.cost(
-                of: hourly,
-                model: "ox-tiered",
-                provider: .codex,
-                day: DayKey.today(),
-                longContext: true
-            ),
-            7,
-            "the long-context one-hour rate applies above the threshold"
-        )
-        Harness.expectEqual(
-            rateCard.cost(
-                of: hourly,
-                model: "ox-alpha",
-                provider: .claude,
-                day: DayKey.today(),
-                longContext: false
-            ),
-            3,
-            "no stated one-hour rate falls back to twice input"
-        )
-        Harness.expect(
-            rateCard.isLongContext(
-                TokenTotals(input: 250_000),
-                model: "ox-tiered",
-                provider: .codex,
-                day: DayKey.today()
-            ),
-            "an overridden threshold decides the tier"
-        )
-
-        // Saving nothing removes the file, handing control back to the lower layers.
-        try? file.save([:])
-        Harness.expect(
-            !FileManager.default.fileExists(atPath: url.path),
-            "an empty override set deletes the file"
-        )
-        Harness.expectEqual(
-            RateCard().rates(for: "claude-opus-5", provider: .claude, day: DayKey.today())?.input,
-            5,
-            "the built-in rate returns once the override is gone"
-        )
     }
 }

@@ -35,6 +35,24 @@ enum OverrideFileTests {
         { "kept": { "input": 1, "output": 2 }, "broken": { "input": 1, "output": 2, "thresholdTokens": 0 } }
         """.utf8).write(to: file.url)
         Harness.expectEqual(Set(file.load().keys), ["kept"], "loading drops only the broken entry")
+
+        // Every rate the billing math reads survives the trip, so an override cannot drop a tier.
+        let full = ModelPricing(
+            input: 2, output: 12, cacheWrite: 2.5, cacheWrite1h: 3.5, cacheRead: 0.2,
+            thresholdTokens: 200_000,
+            inputAbove: 4, outputAbove: 18, cacheWriteAbove: 5,
+            cacheWrite1hAbove: 7, cacheReadAbove: 0.4
+        )
+        do {
+            try file.save(["full": full])
+        } catch {
+            Harness.expect(false, "saving a full rate set threw: \(error)")
+        }
+        Harness.expectEqual(file.load()["full"], full, "the full rate set round-trips")
+
+        // Saving nothing removes the file, handing every model back to the price book.
+        try? file.save([:])
+        Harness.expect(!FileManager.default.fileExists(atPath: file.url.path), "an empty override set deletes the file")
     }
 
     /// An override follows the same rules as the price book's own rates. An entry that breaks one
