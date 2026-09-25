@@ -974,6 +974,14 @@ enum CostTests {
         Harness.expect(after?.hasUnpricedTokens == false, "an override prices usage that was scanned unpriced")
     }
 
+    /// Scans count only the last 30 days, so a fixture stamped with a fixed date ages out of the
+    /// window. Fixtures are stamped at the start of today instead, `seconds` later for ordering.
+    private static func todayStamp(plus seconds: TimeInterval = 0) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Calendar.current.startOfDay(for: Date()).addingTimeInterval(seconds))
+    }
+
     private static func scanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-costtests-\(ProcessInfo.processInfo.processIdentifier)")
@@ -991,7 +999,7 @@ enum CostTests {
             )
         }
 
-        let day = "2026-08-26T10:00:00.000Z"
+        let day = Self.todayStamp()
         // turn_context names the model; each token_count carries that turn's delta.
         // A real day mixes models: turn_context announces the model for the turns that follow.
         let solTurn = #"{"type":"event_msg","timestamp":"\#(day)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":200000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
@@ -1308,8 +1316,9 @@ enum CostTests {
         try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         let file = projects.appendingPathComponent("session.jsonl")
 
+        let timestamp = Self.todayStamp()
         func line(output: Int) -> String {
-            #"{"type":"assistant","timestamp":"2026-08-26T15:00:00.000Z","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":100000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":100000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
         }
         // A partial chunk, then the finished reply, then the same message replayed into a fork.
         let lines = [line(output: 40), line(output: 20_000), line(output: 20_000)]
@@ -1336,8 +1345,6 @@ enum CostTests {
         )
     }
 
-    /// Anthropic bills a one-hour cache write at twice the input rate and a five-minute one at
-    /// 1.25x, so the two TTLs cannot share the table's single cache-write column.
     /// Saving overrides drops the service's rate card. The next refresh rereads the override
     /// file the service was given and lays it over the same price book, not the shipped one.
     private static func invalidatingPricingKeepsTheBook(root: URL) async {
@@ -1390,13 +1397,16 @@ enum CostTests {
         )
     }
 
+    /// Anthropic bills a one-hour cache write at twice the input rate and a five-minute one at
+    /// 1.25x, so the two TTLs cannot share the table's single cache-write column.
     private static func claudeOneHourCacheWritesCostDouble(root: URL) async {
         let projects = root.appendingPathComponent("ttl-claude/projects/app")
         try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         let file = projects.appendingPathComponent("session.jsonl")
 
+        let timestamp = Self.todayStamp()
         func line(_ id: String, fiveMinute: Int, oneHour: Int) -> String {
-            #"{"type":"assistant","timestamp":"2026-08-26T14:00:00.000Z","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"ttl-model","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":\#(fiveMinute + oneHour),"cache_creation":{"ephemeral_5m_input_tokens":\#(fiveMinute),"ephemeral_1h_input_tokens":\#(oneHour)},"cache_read_input_tokens":0}}}"#
+            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"ttl-model","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":\#(fiveMinute + oneHour),"cache_creation":{"ephemeral_5m_input_tokens":\#(fiveMinute),"ephemeral_1h_input_tokens":\#(oneHour)},"cache_read_input_tokens":0}}}"#
         }
         let lines = [
             line("a", fiveMinute: 100_000, oneHour: 0),
@@ -1435,16 +1445,16 @@ enum CostTests {
             withIntermediateDirectories: true
         )
 
-        func event(_ time: String, last: Int, total: Int) -> String {
-            #"{"type":"event_msg","timestamp":"\#(time)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
+        func event(_ second: TimeInterval, last: Int, total: Int) -> String {
+            #"{"type":"event_msg","timestamp":"\#(Self.todayStamp(plus: second))","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
         }
-        let context = #"{"type":"turn_context","timestamp":"2026-08-26T13:00:00.000Z","payload":{"model":"replay-model"}}"#
+        let context = #"{"type":"turn_context","timestamp":"\#(Self.todayStamp())","payload":{"model":"replay-model"}}"#
         let lines = [
             context,
-            event("2026-08-26T13:00:01.000Z", last: 100_000, total: 100_000),
-            event("2026-08-26T13:00:02.000Z", last: 100_000, total: 200_000),
+            event(1, last: 100_000, total: 100_000),
+            event(2, last: 100_000, total: 200_000),
             // Same running total as the line above: a re-emission, not a third turn.
-            event("2026-08-26T13:00:03.000Z", last: 100_000, total: 200_000),
+            event(3, last: 100_000, total: 200_000),
         ]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
@@ -1462,7 +1472,7 @@ enum CostTests {
         )
 
         // The replay is the last line, so a resumed scan has to recognise it across the boundary.
-        let appended = event("2026-08-26T13:00:04.000Z", last: 100_000, total: 200_000)
+        let appended = event(4, last: 100_000, total: 200_000)
         if let handle = try? FileHandle(forWritingTo: file) {
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: Data((appended + "\n").utf8))
@@ -1488,7 +1498,7 @@ enum CostTests {
                 withIntermediateDirectories: true
             )
         }
-        let timestamp = "2026-09-04T12:00:00.000Z"
+        let timestamp = Self.todayStamp()
         let codexLines = [
             #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"escaped-model"}}"#,
             #"{"t\u0079pe":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_\u0063ount","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
@@ -1522,7 +1532,7 @@ enum CostTests {
             at: file.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let timestamp = "2026-08-26T13:00:00.000Z"
+        let timestamp = Self.todayStamp()
         let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"bounded-model"}}"#
         func event(total: Int) -> String {
             #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total)}}}}"#
@@ -1558,7 +1568,7 @@ enum CostTests {
             at: file.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let timestamp = "2026-08-26T14:00:00.000Z"
+        let timestamp = Self.todayStamp()
         let lines = [
             #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"truncated-model"}}"#,
             #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
@@ -1588,7 +1598,7 @@ enum CostTests {
             withIntermediateDirectories: true
         )
 
-        let timestamp = "2026-08-26T12:00:00.000Z"
+        let timestamp = Self.todayStamp()
         let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"carve-model"}}"#
         // 100,000 prompt tokens: 60k served from cache, 10k written to it, 30k fresh.
         let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100000,"cached_input_tokens":60000,"cache_write_input_tokens":10000,"output_tokens":0}}}}"#
