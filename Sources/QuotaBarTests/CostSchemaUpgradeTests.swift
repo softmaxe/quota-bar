@@ -2,76 +2,11 @@ import Foundation
 import QuotaBarCore
 import SQLite3
 
-enum CostDatabaseLocationTests {
-    static func run() throws {
-        try self.migratesWALDatabase()
-        try self.keepsExistingDestination()
-        try self.doesNothingWithoutSource()
-    }
-
-    static func runSchemaMigration() async throws {
+/// Databases written by 1.0.7 and earlier stored frozen costs. Opening one upgrades it in place
+/// without losing usage whose source logs are gone.
+enum CostSchemaUpgradeTests {
+    static func run() async throws {
         try await self.upgradesLegacyUsageSchema()
-    }
-
-    private static func migratesWALDatabase() throws {
-        try self.withTemporaryDirectory { directory in
-            let source = directory.appendingPathComponent("legacy/cost-usage.sqlite")
-            let destination = directory.appendingPathComponent("durable/cost-usage.sqlite")
-            try FileManager.default.createDirectory(
-                at: source.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-
-            var sourceDatabase: OpaquePointer?
-            guard sqlite3_open(source.path, &sourceDatabase) == SQLITE_OK, let sourceDatabase else {
-                throw TestError.sqlite("Could not open WAL fixture")
-            }
-            defer { sqlite3_close(sourceDatabase) }
-
-            try self.execute("PRAGMA journal_mode=WAL", on: sourceDatabase)
-            try self.execute("PRAGMA wal_autocheckpoint=0", on: sourceDatabase)
-            try self.execute("CREATE TABLE usage (tokens INTEGER NOT NULL)", on: sourceDatabase)
-            try self.execute("INSERT INTO usage VALUES (42)", on: sourceDatabase)
-
-            let wal = URL(fileURLWithPath: source.path + "-wal")
-            let walSize = try wal.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            Harness.expect(walSize > 0, "legacy fixture keeps committed data in WAL")
-
-            try CostDatabaseLocation.migrateIfNeeded(from: source, to: destination)
-
-            Harness.expect(FileManager.default.fileExists(atPath: source.path), "migration leaves the legacy database intact")
-            Harness.expectEqual(try self.readTokens(from: destination), 42, "migration includes committed WAL data")
-        }
-    }
-
-    private static func keepsExistingDestination() throws {
-        try self.withTemporaryDirectory { directory in
-            let source = directory.appendingPathComponent("legacy.sqlite")
-            let destination = directory.appendingPathComponent("cost-usage.sqlite")
-            try Data("legacy".utf8).write(to: source)
-            let existing = Data("existing".utf8)
-            try existing.write(to: destination)
-
-            try CostDatabaseLocation.migrateIfNeeded(from: source, to: destination)
-
-            Harness.expectEqual(try Data(contentsOf: destination), existing, "existing destination wins")
-            Harness.expectEqual(try Data(contentsOf: source), Data("legacy".utf8), "existing destination leaves source intact")
-        }
-    }
-
-    private static func doesNothingWithoutSource() throws {
-        try self.withTemporaryDirectory { directory in
-            let source = directory.appendingPathComponent("missing/cost-usage.sqlite")
-            let destination = directory.appendingPathComponent("durable/cost-usage.sqlite")
-
-            try CostDatabaseLocation.migrateIfNeeded(from: source, to: destination)
-
-            Harness.expect(!FileManager.default.fileExists(atPath: destination.path), "missing source creates no database")
-            Harness.expect(
-                !FileManager.default.fileExists(atPath: destination.deletingLastPathComponent().path),
-                "missing source creates no destination directory"
-            )
-        }
     }
 
     private static func upgradesLegacyUsageSchema() async throws {
@@ -230,26 +165,6 @@ enum CostDatabaseLocationTests {
             """, on: connection)
     }
 
-    private static func readTokens(from database: URL) throws -> Int {
-        var connection: OpaquePointer?
-        guard sqlite3_open_v2(database.path, &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let connection else {
-            throw TestError.sqlite("Could not open migrated database")
-        }
-        defer { sqlite3_close(connection) }
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(connection, "SELECT tokens FROM usage", -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            throw TestError.sqlite("Could not query migrated database")
-        }
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw TestError.sqlite("Migrated database contains no usage row")
-        }
-        return Int(sqlite3_column_int64(statement, 0))
-    }
-
     private static func scalarInt(_ sql: String, from database: URL) throws -> Int {
         var connection: OpaquePointer?
         guard sqlite3_open_v2(database.path, &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
@@ -279,17 +194,9 @@ enum CostDatabaseLocationTests {
         }
     }
 
-    private static func withTemporaryDirectory(_ body: (URL) throws -> Void) throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quotabar-cost-location-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try body(directory)
-    }
-
     private static func withTemporaryDirectory(_ body: (URL) async throws -> Void) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quotabar-cost-location-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("quotabar-cost-schema-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try await body(directory)

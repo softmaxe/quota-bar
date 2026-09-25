@@ -203,7 +203,7 @@ OpenCode 的 `openai` 用量和 Pi Agent 的 `openai-codex` 助手用量，仅�
 
 Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent 按稳定 ID 去重。Codex 标准 rollout UUID 能避免归档移动或复制后被重复计算。QuotaBar 还会缓存 Codex 的当前模型、服务层级和最后一次 token 总计，所以长会话追加内容时不会重新处理前面的记录。
 
-第一次使用时，QuotaBar 会把 `~/Library/Caches/QuotaBar/cost-usage/` 下已有的成本数据库复制到[持久存储位置](#隐私与网络)，已提交的 SQLite WAL 数据也会一起复制，旧缓存保持不动。扫描器升级时保留已记录的历史，不会从源日志重建。
+扫描器升级时保留已记录的历史，不会从源日志重建。
 
 </details>
 

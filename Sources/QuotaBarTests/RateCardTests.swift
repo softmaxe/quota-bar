@@ -148,6 +148,25 @@ enum RateCardTests {
             3,
             "the long-context tier bills the override's rates above the threshold"
         )
+
+        // A one-hour cache write bills at its own rate when one is stated.
+        let hourly = RateCard(book: book, overrides: [
+            "ox-dated": ModelPricing(
+                input: 1, output: 1, cacheWrite1h: 3.5,
+                thresholdTokens: 50, inputAbove: 3, cacheWrite1hAbove: 7
+            ),
+        ])
+        let oneHourWrite = TokenTotals(cacheWrite: 1_000_000, cacheWrite1h: 1_000_000)
+        Harness.expectEqual(
+            hourly.cost(of: oneHourWrite, model: "ox-dated", provider: .codex, day: "2026-11-22", longContext: false),
+            3.5,
+            "a stated one-hour rate is what bills"
+        )
+        Harness.expectEqual(
+            hourly.cost(of: oneHourWrite, model: "ox-dated", provider: .codex, day: "2026-11-22", longContext: true),
+            7,
+            "the long-context one-hour rate applies above the threshold"
+        )
     }
 
     private static func unpricedUsage(_ book: PriceBook) {

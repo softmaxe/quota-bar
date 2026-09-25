@@ -203,7 +203,7 @@ The first scan of a large history may take time. QuotaBar saves dates, models, s
 
 Codex and Claude resume from the last byte read. OpenCode and Pi Agent deduplicate records by stable IDs. Standard Codex rollout UUIDs prevent archive moves and copies from counting twice. Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay earlier records.
 
-On first use, QuotaBar copies any existing cost database from `~/Library/Caches/QuotaBar/cost-usage/` to the [persistent location](#privacy-and-network-access), including committed SQLite WAL data. The old cache remains intact. Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
+Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
 
 </details>
 
