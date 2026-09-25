@@ -46,7 +46,9 @@ public actor CostService {
 
     /// `~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite`.
     public static var defaultDatabaseURL: URL {
-        CostDatabaseLocation.defaultURL
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/QuotaBar/cost-usage", isDirectory: true)
+            .appendingPathComponent("cost-usage.sqlite", isDirectory: false)
     }
 
     public func refresh(_ provider: Provider) async -> CostSnapshot? {
@@ -105,9 +107,6 @@ public actor CostService {
 
     private func openCache() throws -> CostCache {
         if let cache = self.cache { return cache }
-        if self.databaseURL == Self.defaultDatabaseURL {
-            try CostDatabaseLocation.migrateIfNeeded(from: CostDatabaseLocation.legacyURL, to: self.databaseURL)
-        }
         let cache = try CostCache(path: self.databaseURL)
         self.cache = cache
         return cache

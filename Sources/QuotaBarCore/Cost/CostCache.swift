@@ -494,7 +494,7 @@ final class CostCache {
         for extra in [
             (table: "opencode_part", source: CostUsageSource.openCode, supportsFast: true),
             (table: "pi_message", source: CostUsageSource.piAgent, supportsFast: false),
-        ] where try self.tableExists(extra.table) {
+        ] {
             try self.readUsage(
                 table: extra.table,
                 source: extra.source,
@@ -568,7 +568,7 @@ final class CostCache {
         }
         guard provider == .codex else { return models }
         var totals = Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) })
-        for extraTable in ["opencode_part", "pi_message"] where try self.tableExists(extraTable) {
+        for extraTable in ["opencode_part", "pi_message"] {
             let extra = try self.prepared(
                 "SELECT model, SUM(input + output + cache_write + cache_read) FROM \(extraTable) WHERE included = 1 GROUP BY model"
             )
@@ -647,13 +647,6 @@ final class CostCache {
             if String(cString: sqlite3_column_text(stmt, 1)) == name { return true }
         }
         return false
-    }
-
-    private func tableExists(_ table: String) throws -> Bool {
-        let stmt = try self.prepared("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, table, -1, sqliteTransient)
-        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     private var lastErrorMessage: String {

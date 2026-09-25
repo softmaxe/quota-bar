@@ -9,13 +9,11 @@ enum CostTests {
         Self.iso8601Parsing()
         Self.normalization()
         Self.modelBreakdownRanking()
-        Self.legacyReadOnlyCache()
         Self.logFileScanning()
         do {
-            try CostDatabaseLocationTests.run()
-            try await CostDatabaseLocationTests.runSchemaMigration()
+            try await CostSchemaUpgradeTests.run()
         } catch {
-            Harness.expect(false, "cost database migration tests failed: \(error)")
+            Harness.expect(false, "cost schema upgrade tests failed: \(error)")
         }
         await Self.scanning()
         await Self.deletedSessionsRetainUsage()
@@ -312,28 +310,6 @@ enum CostTests {
     }
 
     // MARK: - Scanning
-
-    private static func legacyReadOnlyCache() {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-legacy-cache-\(ProcessInfo.processInfo.processIdentifier).sqlite")
-        try? FileManager.default.removeItem(at: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        var db: OpaquePointer?
-        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
-            Harness.expect(false, "legacy cache fixture opens")
-            return
-        }
-        sqlite3_exec(db, """
-            CREATE TABLE codex_day (
-                path TEXT, day TEXT, model TEXT, long_context INTEGER,
-                input INTEGER, output INTEGER, cache_write INTEGER, cache_read INTEGER
-            );
-            INSERT INTO codex_day VALUES ('log', '2026-08-31', 'gpt-5.6-luna', 0, 7, 0, 0, 0);
-            """, nil, nil, nil)
-        sqlite3_close(db)
-        let usage = CostUsageReader.knownModelUsage(provider: .codex, databaseURL: url)
-        Harness.expectEqual(usage, [ModelUsageTotal(model: "gpt-5.6-luna", tokens: 7)], "old read-only cache needs no OpenCode table")
-    }
 
     private static func logFileScanning() {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -1626,7 +1602,7 @@ enum RefreshRowPolicyTests {
     }
 }
 
-/// Settings persistence and migration.
+/// Settings persistence.
 enum SettingsTests {
     @MainActor
     static func run() {
@@ -1655,19 +1631,6 @@ enum SettingsTests {
             reloaded.quotaResetDisplayMode,
             .clock,
             "the reset label face survives a reload"
-        )
-
-        // A machine upgrading from the two-toggle build keeps the item it had left enabled.
-        let legacySuite = "\(suite)-legacy"
-        let legacyDefaults = UserDefaults(suiteName: legacySuite) ?? .standard
-        legacyDefaults.removePersistentDomain(forName: legacySuite)
-        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
-        legacyDefaults.set(false, forKey: "provider.codex.enabled")
-        legacyDefaults.set(true, forKey: "provider.claude.enabled")
-        Harness.expectEqual(
-            SettingsStore(defaults: legacyDefaults).menuBarProvider,
-            .claude,
-            "the single remaining legacy item becomes the shown provider"
         )
     }
 }
