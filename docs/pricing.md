@@ -66,4 +66,4 @@ After any edit, update `checkedAt` for the provider or model you compared, then 
 make test
 ```
 
-`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It prints a note when a provider was last checked more than 45 days ago.
+`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It also pins the published rates of the current models on 2026-09-25, so editing an old period fails; a new period does not. It prints a note when a provider was last checked more than 45 days ago.

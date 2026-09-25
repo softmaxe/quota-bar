@@ -7,10 +7,8 @@ import SQLite3
 enum CostTests {
     static func run() async {
         Self.iso8601Parsing()
-        Self.pricingLookup()
         Self.normalization()
         Self.modelBreakdownRanking()
-        Self.longContextTiering()
         Self.legacyReadOnlyCache()
         Self.logFileScanning()
         do {
@@ -26,9 +24,42 @@ enum CostTests {
         await Self.openCodeFastUsageIsSeparate()
         await Self.piAgentScanning()
         await Self.pricingEditsRepriceHistory()
+        await Self.codexAstraTurnsKeepTheirTiers()
     }
 
     // MARK: - Pricing
+
+    /// A copy of the shipped rates the scanner checks price against. The shipped book gains a
+    /// period whenever a price changes, and these checks must not move when one takes effect.
+    private static let fixtureBook: PriceBook = {
+        do {
+            return try PriceBook(data: Data("""
+                {
+                  "schemaVersion": 1,
+                  "providers": {
+                    "codex": {
+                      "source": "https://example.com", "checkedAt": "2026-09-25",
+                      "models": [
+                        { "id": "gpt-6-astra", "periods": [ { "rates": { "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1, "thresholdTokens": 272000, "inputAbove": 20, "outputAbove": 75, "cacheWriteAbove": 25, "cacheReadAbove": 2 }, "fastMultiplier": 2 } ] },
+                        { "id": "gpt-5.6-sol", "periods": [ { "rates": { "input": 4, "output": 20, "cacheWrite": 5, "cacheRead": 0.4, "thresholdTokens": 272000, "inputAbove": 8, "outputAbove": 30, "cacheWriteAbove": 10, "cacheReadAbove": 0.8 }, "fastMultiplier": 2 } ] },
+                        { "id": "gpt-5.6-luna", "periods": [ { "rates": { "input": 0.2, "output": 1.2, "cacheWrite": 0.25, "cacheRead": 0.02, "thresholdTokens": 272000, "inputAbove": 0.4, "outputAbove": 1.8, "cacheWriteAbove": 0.5, "cacheReadAbove": 0.04 }, "fastMultiplier": 2 } ] }
+                      ]
+                    },
+                    "claude": {
+                      "source": "https://example.com", "checkedAt": "2026-09-25",
+                      "models": [
+                        { "id": "claude-opus-5", "periods": [ { "rates": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 } } ] }
+                      ]
+                    }
+                  }
+                }
+                """.utf8))
+        } catch {
+            fatalError("scanner fixture book threw: \(error)")
+        }
+    }()
+
+    private static let fixtureRateCard = RateCard(book: fixtureBook)
 
     private static func replacedCodexSessionIsReparsed() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -213,148 +244,6 @@ enum CostTests {
         }
     }
 
-    private static func pricingLookup() {
-        // CodexBar's table predates these two; they are the reason the built-in table was extended.
-        for model in ["claude-opus-5", "claude-sonnet-5"] {
-            Harness.expect(
-                RateCard().rates(for: model, provider: .claude, day: DayKey.today()) != nil,
-                "\(model) must have a built-in price"
-            )
-        }
-
-        // 1M input + 1M output on Opus 5 at $5/$25 per million.
-        let cost = RateCard().cost(
-            of: TokenTotals(input: 1_000_000, output: 1_000_000),
-            model: "claude-opus-5",
-            provider: .claude,
-            day: DayKey.today(),
-            longContext: false
-        )
-        Harness.expectEqual(cost, 30.0, "opus-5 cost for 1M in + 1M out")
-
-        // Cache read is a tenth of input; cache write is 1.25x.
-        let cacheCost = RateCard().cost(
-            of: TokenTotals(cacheWrite: 1_000_000, cacheRead: 1_000_000),
-            model: "claude-opus-5",
-            provider: .claude,
-            day: DayKey.today(),
-            longContext: false
-        )
-        Harness.expectEqual(cacheCost, 6.75, "opus-5 cache cost for 1M write + 1M read")
-
-        let codexMini = RateCard().rates(for: "codex-mini-latest", provider: .codex, day: DayKey.today())
-        Harness.expectClose(codexMini?.input, 1.5, "codex-mini-latest input rate")
-        Harness.expectClose(codexMini?.output, 6, "codex-mini-latest output rate")
-        Harness.expectClose(codexMini?.cacheRead, 0.375, "codex-mini-latest cached input rate")
-        Harness.expect(codexMini?.cacheWrite == nil, "codex-mini-latest has no separate cache-write rate")
-        Harness.expect(codexMini?.thresholdTokens == nil, "codex-mini-latest has no long-context tier")
-
-        let fastExpected: [String: ModelPricing] = [
-            "gpt-5.6-sol": ModelPricing(
-                input: 8, output: 40, cacheWrite: 10, cacheRead: 0.8,
-                thresholdTokens: 272_000,
-                inputAbove: 16, outputAbove: 60, cacheWriteAbove: 20, cacheReadAbove: 1.6
-            ),
-            "gpt-5.6-terra": ModelPricing(
-                input: 4, output: 24, cacheWrite: 5, cacheRead: 0.4,
-                thresholdTokens: 272_000,
-                inputAbove: 8, outputAbove: 36, cacheWriteAbove: 10, cacheReadAbove: 0.8
-            ),
-            "gpt-5.6-luna": ModelPricing(
-                input: 0.4, output: 2.4, cacheWrite: 0.5, cacheRead: 0.04,
-                thresholdTokens: 272_000,
-                inputAbove: 0.8, outputAbove: 3.6, cacheWriteAbove: 1, cacheReadAbove: 0.08
-            ),
-            "gpt-5.3-codex": ModelPricing(input: 3.5, output: 28, cacheRead: 0.35),
-        ]
-        for (model, expected) in fastExpected {
-            Harness.expectEqual(
-                RateCard().rates(
-                    for: model,
-                    provider: .codex,
-                    day: DayKey.today(),
-                    fast: true
-                ),
-                expected,
-                "\(model) Fast rates match the built-in table"
-            )
-        }
-        for model in ["gpt-5.6-cyber", "codex-mini-latest", "unknown-fast-model"] {
-            Harness.expect(
-                RateCard(overrides: [model: ModelPricing(input: 99, output: 99)]).rates(
-                    for: model,
-                    provider: .codex,
-                    day: DayKey.today(),
-                    fast: true
-                ) == nil,
-                "\(model) has no Fast price"
-            )
-        }
-
-        // Logs name models with a release date; the rate card prices them under their id.
-        func bundledRates(_ name: String, provider: Provider) -> ModelPricing? {
-            let card = RateCard()
-            return card.rates(for: card.modelID(for: name, provider: provider), provider: provider, day: DayKey.today())
-        }
-        let haiku = bundledRates("claude-3-5-haiku-20241022", provider: .claude)
-        Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
-        Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
-        Harness.expectClose(haiku?.cacheWrite, 1, "claude-3-5-haiku five-minute cache-write rate")
-        Harness.expectClose(haiku?.cacheRead, 0.08, "claude-3-5-haiku cache-read rate")
-        Harness.expectClose(
-            haiku?.cacheWrite1hRate(longContext: false),
-            1.6,
-            "claude-3-5-haiku one-hour cache-write rate is derived"
-        )
-
-        // The 5.1 pair is the one Anthropic family that breaks the 0.1x cache-read ratio, so
-        // its read rate is worth pinning rather than left to look like a typo.
-        let fable = bundledRates("claude-fable-5-1-20260101", provider: .claude)
-        Harness.expectClose(fable?.input, 10, "claude-fable-5-1 input rate")
-        Harness.expectClose(fable?.output, 50, "claude-fable-5-1 output rate")
-        Harness.expectClose(fable?.cacheWrite, 12.5, "claude-fable-5-1 five-minute cache-write rate")
-        Harness.expectClose(fable?.cacheRead, 0.25, "claude-fable-5-1 cache-read rate is 0.025x input")
-        Harness.expectClose(
-            fable?.cacheWrite1hRate(longContext: false),
-            20,
-            "claude-fable-5-1 one-hour cache-write rate is derived"
-        )
-        Harness.expectClose(
-            RateCard().rates(for: "claude-mythos-5-1", provider: .claude, day: DayKey.today())?.cacheRead,
-            0.25,
-            "claude-mythos-5-1 shares the 5.1 cache-read rate"
-        )
-        Harness.expectClose(
-            RateCard().rates(for: "claude-fable-5", provider: .claude, day: DayKey.today())?.cacheRead,
-            1,
-            "claude-fable-5 keeps the standard 0.1x cache-read rate"
-        )
-
-        // Opus 5.5 is the other break from 0.1x: its cache read is 0.05x input.
-        let opus55 = bundledRates("claude-opus-5-5-20260923", provider: .claude)
-        Harness.expectClose(opus55?.input, 4, "claude-opus-5-5 input rate")
-        Harness.expectClose(opus55?.output, 20, "claude-opus-5-5 output rate")
-        Harness.expectClose(opus55?.cacheWrite, 5, "claude-opus-5-5 five-minute cache-write rate")
-        Harness.expectClose(opus55?.cacheRead, 0.2, "claude-opus-5-5 cache-read rate is 0.05x input")
-        Harness.expectClose(
-            opus55?.cacheWrite1hRate(longContext: false),
-            8,
-            "claude-opus-5-5 one-hour cache-write rate is derived"
-        )
-
-        // An unknown model must return nil rather than silently costing zero.
-        Harness.expect(
-            RateCard().cost(
-                of: TokenTotals(input: 1_000_000),
-                model: "some-model-nobody-priced",
-                provider: .claude,
-                day: DayKey.today(),
-                longContext: false
-            ) == nil,
-            "unknown models must not be priced"
-        )
-    }
-
     private static func normalization() {
         Harness.expectEqual(
             RateCard().modelID(for: "claude-haiku-4-5-20251001", provider: .claude),
@@ -420,56 +309,6 @@ enum CostTests {
             ["cost-heavy", "token-heavy", "unpriced"],
             "cost labels rank the daily breakdown by cost"
         )
-    }
-
-    private static func longContextTiering() {
-        // The gpt-5.6 family charges its long-context rates only above 272k tokens in one request.
-        let below = TokenTotals(input: 100_000)
-        let above = TokenTotals(input: 300_000)
-        Harness.expect(
-            !RateCard().isLongContext(below, model: "gpt-5.6-sol", provider: .codex, day: DayKey.today()),
-            "100k tokens stays at the base tier"
-        )
-        Harness.expect(
-            RateCard().isLongContext(above, model: "gpt-5.6-sol", provider: .codex, day: DayKey.today()),
-            "300k tokens crosses into the long-context tier"
-        )
-        for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
-            Harness.expect(
-                !RateCard().isLongContext(
-                    TokenTotals(input: 272_000),
-                    model: model,
-                    provider: .codex,
-                    day: DayKey.today()
-                ),
-                "\(model) stays at the base tier at exactly 272k tokens"
-            )
-            Harness.expect(
-                RateCard().isLongContext(
-                    TokenTotals(input: 272_001),
-                    model: model,
-                    provider: .codex,
-                    day: DayKey.today()
-                ),
-                "\(model) crosses into the long-context tier above 272k tokens"
-            )
-        }
-        let baseCost = RateCard().cost(
-            of: TokenTotals(input: 1_000_000),
-            model: "gpt-5.6-sol",
-            provider: .codex,
-            day: DayKey.today(),
-            longContext: false
-        )
-        let longCost = RateCard().cost(
-            of: TokenTotals(input: 1_000_000),
-            model: "gpt-5.6-sol",
-            provider: .codex,
-            day: DayKey.today(),
-            longContext: true
-        )
-        Harness.expectEqual(baseCost, 4.0, "sol base input rate")
-        Harness.expectEqual(longCost, 8.0, "sol long-context input rate")
     }
 
     // MARK: - Scanning
@@ -661,7 +500,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "OPENCODE_DATA_HOME": openCodeHome.path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 150, "OpenCode maps output reasoning and cache buckets")
@@ -686,7 +525,7 @@ enum CostTests {
         )
         let completed = await service.refresh(.codex)
         Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its stored usage")
-        await service.useRateCard(RateCard(overrides: [
+        await service.useRateCard(RateCard(book: Self.fixtureBook, overrides: [
             "gpt-5.6-luna": ModelPricing(
                 input: 100,
                 output: 100,
@@ -933,7 +772,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
 
         let before = await service.refresh(.codex)
@@ -946,7 +785,7 @@ enum CostTests {
         )
 
         // What the settings pane does on Save: write the file, then drop the cached overrides.
-        await service.useRateCard(RateCard(overrides: [
+        await service.useRateCard(RateCard(book: Self.fixtureBook, overrides: [
             "gpt-5.6-luna": ModelPricing(input: 5, output: 5),
             "gpt-new-unlisted": ModelPricing(input: 1, output: 1),
         ]))
@@ -1005,7 +844,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: env,
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
 
         let codex = await service.refresh(.codex)
@@ -1095,7 +934,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("fast-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
         let modelUsage = await service.knownModelUsage(provider: .codex)
@@ -1164,7 +1003,7 @@ enum CostTests {
             let tierService = CostService(
                 databaseURL: root.appendingPathComponent("\(name)-cache.sqlite"),
                 env: ["CODEX_HOME": tierHome.path],
-                rateCard: RateCard()
+                rateCard: Self.fixtureRateCard
             )
             return await tierService.refresh(.codex)
         }
@@ -1179,6 +1018,76 @@ enum CostTests {
 
         let missing = await scanTier(nil, name: "missing")
         Harness.expectClose(missing?.windowCostUSD, 0.4, "a missing service tier stays Standard")
+    }
+
+    /// A Fast turn in one session is priced at the Fast rates and a vendor-prefixed name lands on
+    /// the same model, while the long-context tier still turns on only above the threshold.
+    private static func codexAstraTurnsKeepTheirTiers() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-astra-pricing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let log = codexHome.appendingPathComponent("sessions/rollout-astra.jsonl")
+        do {
+            try FileManager.default.createDirectory(
+                at: log.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let timestamp = formatter.string(from: Date())
+            let lines = [
+                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"default"}}}"#,
+                #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"openai/gpt-6-astra"}}"#,
+                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":272000,"cached_input_tokens":72000,"cache_write_input_tokens":0,"output_tokens":1000}}}}"#,
+                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
+                #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-6-astra"}}"#,
+                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":272001,"cached_input_tokens":72000,"cache_write_input_tokens":1,"output_tokens":1000}}}}"#,
+            ]
+            try (lines.joined(separator: "\n") + "\n")
+                .write(to: log, atomically: true, encoding: .utf8)
+        } catch {
+            Harness.expect(false, "Astra scanner fixture setup threw: \(error)")
+            return
+        }
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: [
+                "CODEX_HOME": codexHome.path,
+                "HOME": root.path,
+                "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
+                "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
+            ],
+            rateCard: Self.fixtureRateCard
+        )
+        let snapshot = await service.refresh(.codex)
+        let standardKey = ModelUsageKey(source: .codex, model: "gpt-6-astra")
+        let fastKey = ModelUsageKey(source: .codex, model: "gpt-6-astra", isFast: true)
+
+        Harness.expectEqual(snapshot?.windowTokens, 546_001, "Astra scanner keeps both turns")
+        Harness.expectEqual(snapshot?.days.first?.byModel.count, 2, "Astra scanner separates Standard and Fast")
+        Harness.expectEqual(
+            snapshot?.days.first?.byModel[standardKey]?.tokens,
+            TokenTotals(input: 200_000, output: 1_000, cacheRead: 72_000),
+            "Astra vendor-prefixed model id normalizes into the Standard row"
+        )
+        Harness.expectEqual(
+            snapshot?.days.first?.byModel[fastKey]?.tokens,
+            TokenTotals(input: 200_000, output: 1_000, cacheWrite: 1, cacheRead: 72_000),
+            "Astra priority usage stays in the Fast row"
+        )
+        Harness.expectClose(
+            snapshot?.days.first?.byModel[standardKey]?.costUSD,
+            2.122,
+            "Astra scanner keeps the 272K request on Standard rates"
+        )
+        Harness.expectClose(
+            snapshot?.days.first?.byModel[fastKey]?.costUSD,
+            8.43805,
+            "Astra scanner applies Fast long-context rates above 272K"
+        )
     }
 
     private static func openCodeFastUsageIsSeparate() async {
@@ -1281,7 +1190,7 @@ enum CostTests {
                 "OPENCODE_DATA_HOME": openCodeHome.path,
                 "PI_CODING_AGENT_DIR": root.appendingPathComponent("missing-pi").path,
             ],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
         let standardKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol")
@@ -1495,7 +1404,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("escaped-classifier-cache.sqlite"),
             env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         Harness.expectEqual(
             await service.refresh(.codex)?.windowTokens,
@@ -1527,7 +1436,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("bounded-resume-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 100, "bounded resume fixture scans its first turn")
@@ -1562,7 +1471,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("truncated-cache.sqlite"),
             env: ["CODEX_HOME": home.path],
-            rateCard: RateCard()
+            rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 100, "truncation fixture starts with cached usage")
