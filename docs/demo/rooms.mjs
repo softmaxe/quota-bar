@@ -5,7 +5,7 @@
 const W = 1920;
 const H = 1080;
 /** Where the table's far edge meets the wall. */
-export const TABLE_Y = 612;
+const TABLE_Y = 612;
 
 const grad = (id, stops, x2 = 0, y2 = 1) =>
   `<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops

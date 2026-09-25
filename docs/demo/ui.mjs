@@ -6,14 +6,13 @@
 import {clamp, lerp, ease, seg} from './motion.mjs';
 
 export const SCREEN_W = 1440;
-export const SCREEN_H = 900;
 export const MENU_H = 26;
 /** Centre of the robot in the menu bar, in screen points. */
 export const ROBOT = {x: 1142, y: MENU_H / 2};
 export const CARD = {x: ROBOT.x - 140, y: MENU_H + 6, w: 280};
 
 // `robot-excited` from Material Design Icons 7.4.47 (Apache-2.0), the app's menu bar mark.
-export const ROBOT_PATH = 'M22 14H21C21 10.13 17.87 7 14 7H13V5.73C13.6 5.39 14 4.74 14 4C14 2.9 13.11 2 12 2S10 2.9 10 4C10 4.74 10.4 5.39 11 5.73V7H10C6.13 7 3 10.13 3 14H2C1.45 14 1 14.45 1 15V18C1 18.55 1.45 19 2 19H3V20C3 21.11 3.9 22 5 22H19C20.11 22 21 21.11 21 20V19H22C22.55 19 23 18.55 23 18V15C23 14.45 22.55 14 22 14M8.68 17.04L7.5 15.86L6.32 17.04L5.14 15.86L7.5 13.5L9.86 15.86L8.68 17.04M17.68 17.04L16.5 15.86L15.32 17.04L14.14 15.86L16.5 13.5L18.86 15.86L17.68 17.04Z';
+const ROBOT_PATH = 'M22 14H21C21 10.13 17.87 7 14 7H13V5.73C13.6 5.39 14 4.74 14 4C14 2.9 13.11 2 12 2S10 2.9 10 4C10 4.74 10.4 5.39 11 5.73V7H10C6.13 7 3 10.13 3 14H2C1.45 14 1 14.45 1 15V18C1 18.55 1.45 19 2 19H3V20C3 21.11 3.9 22 5 22H19C20.11 22 21 21.11 21 20V19H22C22.55 19 23 18.55 23 18V15C23 14.45 22.55 14 22 14M8.68 17.04L7.5 15.86L6.32 17.04L5.14 15.86L7.5 13.5L9.86 15.86L8.68 17.04M17.68 17.04L16.5 15.86L15.32 17.04L14.14 15.86L16.5 13.5L18.86 15.86L17.68 17.04Z';
 
 export const ACCENT = {codex: '#49A3B0', claude: '#CC7C5E'};
 
@@ -38,7 +37,7 @@ export const USAGE = {
     models: {},
   },
 };
-export const DAYS = ['Sep 15', 'Sep 16', 'Sep 17', 'Sep 18', 'Sep 19', 'Sep 20', 'Sep 21', 'Sep 22', 'Sep 23', 'Sep 24'];
+const DAYS = ['Sep 15', 'Sep 16', 'Sep 17', 'Sep 18', 'Sep 19', 'Sep 20', 'Sep 21', 'Sep 22', 'Sep 23', 'Sep 24'];
 
 const money = value => `$${value.toFixed(2)}`;
 const tokens = value => `${value}M`;
@@ -115,6 +114,7 @@ const card = () => `
       <div class="disclosure mb-toggle"><span>Model breakdown</span>${CHEVRON_RIGHT}</div>
       <div class="mb-wrap"><div class="mb-inner">${[0, 1, 2].map(i => `<div class="mb-row" data-model="${i}"><span class="name"></span><span class="val"></span></div>`).join('')}</div></div>
       <div class="foot">API-rate estimate · Not a bill</div>
+      <div class="reset-menu"><span>Show reset date</span></div>
       <div class="credits"><div class="hr"></div><div class="cr-h">Credits</div><div class="bar"><i class="fill" style="width:64%"></i></div><div class="cr-sub"><span>640 left</span><span>1K tokens</span></div></div>
     </div>
   </div>`;
@@ -137,6 +137,7 @@ const settings = () => `
       </div>
       <div class="st-group">
         <div class="st-row export-row"><span class="status"><span class="s-idle">Choose a period, then export an offline report.</span><span class="s-busy"><i class="spinner"></i>Exporting report…</span><span class="s-saved">✓ Saved QuotaBar-Usage-2026-09-25.html</span></span><span class="btn">⇪ Export Report…</span></div>
+        <div class="st-row saved-actions"><span class="btn2">Open Report</span><span class="btn2">Show in Finder</span></div>
       </div>
     </div>
   </div>`;
@@ -147,7 +148,9 @@ const REPORT = {
   zh: {version: '用量趋势报告', local: '本地已存用量', headline: '本报告覆盖', total: 'Token 总用量', cost: '估算 API 费用', coverage: '定价覆盖', daily: '用量在哪天达到峰值', dailyNote: '一点代表一天，空心点表示周末。', models: '哪些模型费用最多', composition: 'Tokens 用在了哪里', peak: '单日峰值'},
 };
 
-const reportPoints = [0.34, 0.52, 0.41, 0.66, 0.58, 0.93, 0.72];
+/** Sep 19-25 across both providers, in millions: the chart's days plus Friday. Sep 19-20 are a weekend. */
+const reportDays = [26, 37, 7, 41, 25, 61, 30];
+const reportPoints = reportDays.map(value => (value / 61) * 0.93);
 const report = () => {
   const text = key => `<span class="i18n" data-en="${REPORT.en[key]}" data-zh="${REPORT.zh[key]}">${REPORT.en[key]}</span>`;
   const chartW = 900;
@@ -159,9 +162,9 @@ const report = () => {
       <div class="rp-top"><span>QuotaBar</span><span class="rp-lang"><i class="rp-lang-sel"></i><span data-l="zh">中文</span><span data-l="en">English</span></span></div>
       <div class="rp-hero"><div class="rp-side"><i></i><div>${text('version')}</div><div class="dot">${text('local')}</div></div>
         <div class="rp-head">${text('headline')}<br>2026-09-19 → 2026-09-25</div></div>
-      <div class="rp-kpis"><div><b class="gold">412.6M</b><div>${text('total')}</div></div><div><b>$468.20</b><div>${text('cost')}</div><small>${text('coverage')} · 100.00%</small></div></div>
+      <div class="rp-kpis"><div><b class="gold">227.0M</b><div>${text('total')}</div></div><div><b>$261.80</b><div>${text('cost')}</div><small>${text('coverage')} · 100.00%</small></div></div>
       <div class="rp-fig"><div class="rp-h">${text('daily')}</div><div class="rp-sub">${text('dailyNote')}</div>
-        <svg viewBox="0 0 ${chartW} 220" class="rp-line"><path d="M0 206 H${chartW}" stroke="#3A3F3C"/><polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#F2CF7E" stroke-width="2"/>${pts.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i === 5 ? 7 : 4.5}" fill="${i === 4 || i === 5 ? '#101412' : '#F2CF7E'}" stroke="#F2CF7E" stroke-width="2"/>`).join('')}<text x="${pts[5][0]}" y="${pts[5][1] - 16}" fill="#F2CF7E" font-size="15" text-anchor="middle">91.4M</text></svg></div>
+        <svg viewBox="0 0 ${chartW} 220" class="rp-line"><path d="M0 206 H${chartW}" stroke="#3A3F3C"/><polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#F2CF7E" stroke-width="2"/>${pts.map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i === 5 ? 7 : 4.5}" fill="${i < 2 ? '#101412' : '#F2CF7E'}" stroke="#F2CF7E" stroke-width="2"/>`).join('')}<text x="${pts[5][0]}" y="${pts[5][1] - 16}" fill="#F2CF7E" font-size="15" text-anchor="middle">61.0M</text></svg></div>
       <div class="rp-two"><div><div class="rp-h">${text('models')}</div><div class="rp-bars">${[['claude-opus-5', 1], ['gpt-6-astra', 0.82], ['claude-sonnet-5', 0.6], ['Other', 0.42]].map(([name, v], i) => `<div><i style="height:${v * 150}px;background:${['#F2CF7E', '#D8D3A2', '#D2CFA0', '#B5BF8F'][i]}"></i><span>${name}</span></div>`).join('')}</div></div>
         <div><div class="rp-h">${text('composition')}</div><div class="rp-dots">${Array.from({length: 60}, (_, i) => `<i style="background:${i < 44 ? '#F2CF7E' : i < 52 ? '#D8D3A2' : '#8FA37A'}"></i>`).join('')}</div></div></div>
     </div>
@@ -234,6 +237,8 @@ export function bindScreen(root) {
     mbInner: $('.mb-inner'),
     mbRows: $$('.mb-row'),
     credits: $('.credits'),
+    resetMenu: $('.reset-menu'),
+    savedActions: $('.saved-actions'),
     settings: $('.settings'),
     exportBtn: $('.btn'),
     export: {idle: $('.s-idle'), busy: $('.s-busy'), saved: $('.s-saved')},
@@ -255,7 +260,8 @@ export function targetOf(el, name) {
     cost: el.seg.children[2],
     'model-breakdown': el.mbToggle.querySelector('span'),
     'export-button': el.exportBtn,
-    'report-chinese': el.langs[0],
+    'report-language': el.langs[1],
+    'show-reset-date': el.resetMenu.firstElementChild,
     robot: el.robot,
   }[name];
   if (name.startsWith('col-')) return centreOf(el, el.cols[Number(name.slice(4))]);
@@ -307,12 +313,13 @@ export function renderScreen(el, s) {
   set(el.export.idle, 'opacity', String(s.settings.status === 'idle' ? 1 : 0));
   set(el.export.busy, 'opacity', String(s.settings.status === 'busy' ? 1 : 0));
   set(el.export.saved, 'opacity', String(s.settings.status === 'saved' ? 1 : 0));
+  set(el.savedActions, 'opacity', String(s.settings.status === 'saved' ? 1 : 0));
   el.export.busy.querySelector('.spinner').style.transform = `rotate(${s.settings.spin * 360}deg)`;
 
   set(el.report, 'opacity', String(s.report.open));
   set(el.report, 'visibility', s.report.open > 0 ? 'visible' : 'hidden');
   set(el.report, 'transform', `translate(-50%, ${lerp(30, 0, ease.out(s.report.open))}px) scale(${lerp(0.92, 1, ease.out(s.report.open))})`);
-  const zh = s.report.zh;
+  const zh = 1 - s.report.english;
   el.i18n.forEach(node => {
     text(node, zh >= 0.5 ? node.dataset.zh : node.dataset.en);
     set(node, 'opacity', String(Math.abs(zh - 0.5) * 2 * 0.999 + 0.001));
@@ -430,4 +437,12 @@ function renderCard(el, c) {
   set(el.mbInner, 'opacity', String(seg(c.breakdown, 0.3, 1)));
 
   set(el.credits, 'display', r.provider === 'codex' ? '' : 'none');
+
+  // The reset label's menu, opened under the session label.
+  const label = el.rows.session.reset;
+  set(el.resetMenu, 'opacity', String(c.menu));
+  set(el.resetMenu, 'visibility', c.menu > 0 ? 'visible' : 'hidden');
+  set(el.resetMenu, 'left', `${label.offsetLeft + label.offsetWidth - 150}px`);
+  set(el.resetMenu, 'top', `${label.offsetTop + label.offsetHeight + 4}px`);
+  el.resetMenu.firstElementChild.classList.toggle('on', c.menuHover);
 }

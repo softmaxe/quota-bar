@@ -54,9 +54,3 @@ export const fade = (time, inStart, inEnd, outStart, outEnd, curve = ease.inOut)
 /** A smooth pseudo-random wobble in -1...1, stable for a given time and seed. */
 export const wobble = (time, seed = 0, speed = 1) =>
   Math.sin(time * 1.3 * speed + seed * 12.9898) * 0.6 + Math.sin(time * 0.71 * speed + seed * 78.233) * 0.4;
-
-export const mixColor = (from, to, progress) => {
-  const parse = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
-  const [a, b] = [parse(from), parse(to)];
-  return `rgb(${a.map((channel, i) => Math.round(lerp(channel, b[i], progress))).join(',')})`;
-};

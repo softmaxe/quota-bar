@@ -76,16 +76,18 @@ const NO_PACE = {
 };
 
 const READINGS = {
+  // Reset times hold across the day: Codex's session ends 10:49 AM and 5:51 PM, its week Tue 6:49 AM;
+  // Claude's session ends 2:10 PM, 6:00 PM and 11:00 PM, its week Sat 2:30 PM.
   morning: reading('codex', 'Plus', q(88, 'Lasts until reset', 'in 2h 59m', '10:49 AM'), q(86, 'Lasts until reset', 'in 4d 23h', 'Tue 6:49 AM')),
-  cafeCodex: reading('codex', 'Plus', q(71, 'Lasts until reset', 'in 19m'), q(84, 'Lasts until reset', 'in 4d 20h')),
-  cafeClaude: reading('claude', 'Pro', q(62, 'Lasts until reset', 'in 3h 40m'), q(58, 'Runs out in 1d 18h', 'in 2d 4h', '', ORANGE), {
+  cafeCodex: reading('codex', 'Plus', q(71, 'Lasts until reset', 'in 19m', '10:49 AM'), q(84, 'Lasts until reset', 'in 4d 20h', 'Tue 6:49 AM')),
+  cafeClaude: reading('claude', 'Pro', q(62, 'Lasts until reset', 'in 3h 40m', '2:10 PM'), q(58, 'Runs out in 1d 18h', 'in 2d 4h', 'Sat 2:30 PM', ORANGE), {
     session: {title: 'Session · 12% in reserve', l1: 'Lasts until reset', l2: 'Expected 50% left now', l3: '1.6× headroom at current pace', expected: 50},
     weekly: {title: 'Weekly · 6% in deficit', l1: 'Runs out in 1d 18h', l2: 'Expected 64% left now', l3: '0.8× headroom at current pace', expected: 64},
   }),
-  lowClaude: reading('claude', 'Pro', q(0, 'Limit reached', 'in 2h 50m', '', RED), q(31, 'Runs out in 1d 2h', 'in 1d 23h', '', ORANGE)),
-  lowCodex: reading('codex', 'Plus', q(64, 'Lasts until reset', 'in 2h 41m'), q(79, 'Lasts until reset', 'in 4d 15h')),
-  reset: reading('claude', 'Pro', q(100, 'Lasts until reset', 'in 5h'), q(30, 'Lasts until reset', 'in 1d 23h')),
-  night: reading('claude', 'Pro', q(78, 'Lasts until reset', 'in 1h 20m'), q(27, 'Lasts until reset', 'in 1d 20h')),
+  lowClaude: reading('claude', 'Pro', q(0, 'Limit reached', 'in 2h 50m', '6:00 PM', RED), q(31, 'Runs out in 1d 2h', 'in 1d 23h', 'Sat 2:30 PM', ORANGE)),
+  lowCodex: reading('codex', 'Plus', q(64, 'Lasts until reset', 'in 2h 41m', '5:51 PM'), q(79, 'Lasts until reset', 'in 4d 15h', 'Tue 6:49 AM')),
+  reset: reading('claude', 'Pro', q(100, 'Lasts until reset', 'in 5h', '11:00 PM'), q(30, 'Lasts until reset', 'in 1d 20h', 'Sat 2:30 PM')),
+  night: reading('claude', 'Pro', q(78, 'Lasts until reset', 'in 1h 20m', '11:00 PM'), q(27, 'Lasts until reset', 'in 1d 16h', 'Sat 2:30 PM')),
 };
 
 const CLOCK = {
@@ -226,7 +228,10 @@ function providerSwitch(time, moment, before, after) {
 }
 
 function cardState(time) {
-  const base = {open: 0, tab: 0, bodyOpacity: 1, bodyShift: 0, resetMode: 0, pace: 0, mode: 0, day: 9, breakdown: 0, reading: READINGS.morning};
+  // The reset-time mode is saved, so once the morning picks the reset date every later card shows it.
+  const choose = cue('morning', 'show-reset-date');
+  const base = {open: 0, tab: 0, bodyOpacity: 1, bodyShift: 0, resetMode: ease.inOut(seg(time, choose, choose + 0.32)), pace: 0, mode: 0, day: 9, breakdown: 0,
+    menu: fade(time, cue('morning', 'reset-menu') + 0.05, cue('morning', 'reset-menu') + 0.15, choose + 0.05, choose + 0.2), menuHover: time > choose - 0.3, reading: READINGS.morning};
   const opened = (start, end) => fade(time, start, start + 0.28, end, end + 0.3, ease.out);
 
   if (time < S.cafe.start) {
@@ -236,7 +241,7 @@ function cardState(time) {
     const fill = ease.out(seg(time, open + 0.15, open + 1.05));
     r.session.pct *= fill;
     r.weekly.pct *= fill;
-    return {...base, open: opened(open, 15.2), reading: r, resetMode: ease.inOut(seg(time, cue('morning', 'reset-mode'), cue('morning', 'reset-mode') + 0.32))};
+    return {...base, open: opened(open, 15.2), reading: r};
   }
   if (time < S.low.start) {
     return {
@@ -257,7 +262,7 @@ function cardState(time) {
     r.session.sheenAt = seg(time, refill + 0.15, refill + 1.35);
     r.session.glow = fade(time, refill, refill + 0.25, refill + 0.9, refill + 1.8);
     const before = time < refill;
-    if (before) Object.assign(r.session, {summary: 'Limit reached', summaryColor: RED, reset: 'in 0m', barPct: 0});
+    if (before) Object.assign(r.session, {pct: 0, summary: 'Limit reached', summaryColor: RED, reset: 'in 0m', resetClock: '6:00 PM', barPct: 0});
     return {...base, open: opened(cue('reset', 'open-card'), 40.6), tab: 1, reading: r};
   }
   if (time < S.export.start) {
@@ -268,7 +273,8 @@ function cardState(time) {
       breakdown: seg(time, cue('night', 'model-breakdown'), cue('night', 'model-breakdown') + 0.5),
     };
   }
-  return base;
+  // ⌘, belongs to the card, so it is open when the shortcut is pressed; Settings then takes over.
+  return {...base, open: opened(50.9, cue('export', 'open-settings') + 0.05), tab: 1, reading: READINGS.night};
 }
 
 /** The chart day under the pointer while it sweeps the bars, then the pinned day. */
@@ -287,7 +293,7 @@ function pointerKeys() {
   return [
     [0, {x: 900, y: 460}],
     // Morning
-    [8.7, {x: 900, y: 460}], [10.12, click(r), ease.out], [11.35, click(r)], [12.5, click(T['reset-label']), ease.inOut], [13.7, {x: T['reset-label'].x - 50, y: T['reset-label'].y + 70}],
+    [8.7, {x: 900, y: 460}], [10.12, click(r), ease.out], [11.35, click(r)], [12.5, click(T['reset-label']), ease.inOut], [13.3, click(T['show-reset-date'], -20, 1), ease.inOut], [14.2, {x: T['reset-label'].x - 50, y: T['reset-label'].y + 80}],
     // Café
     [18.2, {x: T['pace-details'].x - 170, y: T['pace-details'].y + 150}], [20.2, {x: T['pace-details'].x - 170, y: T['pace-details'].y + 150}], [21.18, click(T['pace-details']), ease.out], [22.4, {x: T['pace-details'].x + 50, y: T['pace-details'].y + 30}],
     // Afternoon
@@ -300,7 +306,7 @@ function pointerKeys() {
     [48.02, click(T['model-breakdown']), ease.inOut], [49.1, {x: T['model-breakdown'].x - 30, y: T['model-breakdown'].y + 60}],
     // Friday
     [51.6, {x: 700, y: 640}], [52.75, click(T['export-button']), ease.out], [53.7, {x: T['export-button'].x - 90, y: T['export-button'].y + 90}],
-    [54.4, {x: T['export-button'].x - 90, y: T['export-button'].y + 90}], [55.12, click(T['report-chinese']), ease.inOut], [56.2, {x: T['report-chinese'].x - 60, y: T['report-chinese'].y + 70}],
+    [54.4, {x: T['export-button'].x - 90, y: T['export-button'].y + 90}], [55.12, click(T['report-language']), ease.inOut], [56.2, {x: T['report-language'].x - 60, y: T['report-language'].y + 70}],
   ];
 }
 let POINTER = null;
@@ -313,8 +319,8 @@ function pointerState(time) {
     fade(time, 8.7, 9.0, 14.6, 15.0), fade(time, 18.2, 18.5, 24.2, 24.6), fade(time, 28.7, 29.0, 33.8, 34.2),
     fade(time, 35.3, 35.6, 39.8, 40.2), fade(time, 42.9, 43.2, 49.5, 49.9), fade(time, 51.6, 51.9, 56.2, 56.6),
   );
-  const clicks = [cue('morning', 'open-card'), cue('morning', 'reset-mode'), cue('cafe', 'pace-details'), cue('low', 'open-card'), cue('reset', 'open-card'),
-    cue('night', 'cost-mode'), cue('night', 'pin-day'), cue('night', 'model-breakdown'), cue('export', 'export-report'), cue('export', 'report-chinese')];
+  const clicks = [cue('morning', 'open-card'), cue('morning', 'reset-menu'), cue('morning', 'show-reset-date'), cue('cafe', 'pace-details'), cue('low', 'open-card'), cue('reset', 'open-card'),
+    cue('night', 'cost-mode'), cue('night', 'pin-day'), cue('night', 'model-breakdown'), cue('export', 'export-report'), cue('export', 'report-language')];
   let press = 0;
   let ripple = 0;
   for (const moment of clicks) {
@@ -352,7 +358,7 @@ function screenState(time) {
       spin: time * 1.4,
       press: pulse(time, exportClick, 0.1),
     },
-    report: {open: fade(time, 53.8, 54.35, 57.6, 58.2, ease.out), zh: ease.inOut(seg(time, cue('export', 'report-chinese'), cue('export', 'report-chinese') + 0.28))},
+    report: {open: fade(time, 53.8, 54.35, 57.6, 58.2, ease.out), english: ease.inOut(seg(time, cue('export', 'report-language'), cue('export', 'report-language') + 0.28))},
     pointer: pointerState(time),
   };
 }
@@ -517,12 +523,12 @@ function animateHands(time) {
 function measure() {
   // Lay the screen out with every window open so each control has a position to aim at.
   const state = screenState(0);
-  state.card = {...cardState(22), open: 1, pace: 0, reading: READINGS.night, tab: 1, mode: 0, breakdown: 0};
+  state.card = {...cardState(22), open: 1, pace: 0, reading: READINGS.night, tab: 1, mode: 0, breakdown: 0, menu: 1};
   state.settings.open = 1;
   state.report.open = 1;
   state.theme = 'dark';
   renderScreen(screen, state);
-  const names = ['robot', 'reset-label', 'pace-details', 'cost', 'model-breakdown', 'export-button', 'report-chinese', ...Array.from({length: 10}, (_, i) => `col-${i}`)];
+  const names = ['robot', 'reset-label', 'show-reset-date', 'pace-details', 'cost', 'model-breakdown', 'export-button', 'report-language', ...Array.from({length: 10}, (_, i) => `col-${i}`)];
   // Measure at scale 1 so rects map straight to screen points.
   style(dom.camera, 'transform', 'none');
   T = Object.fromEntries(names.map(name => [name, targetOf(screen, name)]));
@@ -540,7 +546,6 @@ async function boot() {
   await Promise.all([...stage.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
   measure();
   window.seek = time => frame(clamp(time, 0, DURATION));
-  window.DEMO_DURATION = DURATION;
 
   if (params.has('render')) {
     window.seek(0);

@@ -124,6 +124,9 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 .mb-row .val { color: var(--secondary); font-variant-numeric: tabular-nums; }
 .foot { font-size: 10px; color: var(--tertiary); }
 .credits { margin-top: 10px; }
+.reset-menu { position: absolute; width: 150px; padding: 5px; border-radius: 7px; background: var(--card); box-shadow: 0 0 0 .5px rgba(0,0,0,.2), 0 10px 30px rgba(0,0,0,.22); font-size: 13px; z-index: 2; }
+.reset-menu span { display: block; padding: 3px 8px; border-radius: 4px; }
+.reset-menu span.on { background: #0a84ff; color: #fff; }
 .cr-h { font-size: 13px; font-weight: 600; margin-bottom: 7px; }
 .cr-sub { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary); margin-top: 6px; }
 
@@ -148,6 +151,8 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 .status > span { grid-area: 1 / 1; color: var(--secondary); display: flex; align-items: center; gap: 7px; }
 .s-saved { color: #32d74b !important; }
 .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--divider); border-top-color: var(--text); display: inline-block; }
+.saved-actions { justify-content: flex-start; gap: 8px; }
+.btn2 { padding: 4px 12px; border-radius: 6px; background: var(--segsel); font-size: 12px; }
 .btn { padding: 5px 14px; border-radius: 7px; background: #0a84ff; color: #fff; font-weight: 500; white-space: nowrap; }
 
 /* The exported report in a browser window. */
