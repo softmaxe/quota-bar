@@ -8,8 +8,8 @@ import {execFileSync} from 'node:child_process';
 
 const args=process.argv.slice(2);
 const option=(key,fallback)=>args.includes(key)?args[args.indexOf(key)+1]:fallback;
-const file=resolve(option('--file','build/report-c-review/usage-trends.html'));
-const output=resolve(option('--output','build/report-c-review/browser'));
+const file=resolve(option('--file','build/usage-report.html'));
+const output=resolve(option('--output','build/usage-report-browser'));
 mkdirSync(output,{recursive:true});
 const source=readFileSync(file,'utf8');
 const match=source.match(/const REPORT=(.*);\n\/\* Report runtime \*\//);
