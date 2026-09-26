@@ -225,6 +225,28 @@ package final class RecordedUsageReader {
         return String(cString: value)
     }
 
+    /// Pricing counts every recorded day and requires all of the provider's source tables.
+    /// Keep SQLite's existing numeric behavior, including promotion in the row expression.
+    package func modelUsage(provider: Provider) throws -> [ModelUsageTotal] {
+        var totals: [String: Int] = [:]
+        for source in Self.sourceTables where source.provider == provider {
+            try self.query("""
+                SELECT model, SUM(input + output + cache_write + cache_read) AS tokens
+                FROM \(source.table)
+                \(source.includedOnly ? "WHERE included = 1" : "")
+                GROUP BY model
+                ORDER BY tokens DESC
+                """) { statement in
+                guard let model = sqlite3_column_text(statement, 0) else {
+                    throw RecordedUsageReaderError.invalidData("model is NULL")
+                }
+                totals[String(cString: model), default: 0] += Int(sqlite3_column_int64(statement, 1))
+            }
+        }
+        return totals.map { ModelUsageTotal(model: $0.key, tokens: $0.value) }
+            .sorted { $0.tokens > $1.tokens }
+    }
+
     /// Results stay local to the read until every contributing statement completes.
     func query(
         _ sql: String,

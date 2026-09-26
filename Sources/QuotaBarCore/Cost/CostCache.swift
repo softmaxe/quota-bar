@@ -41,17 +41,7 @@ final class CostCache {
     /// thousands of times, and compiling the upserts cost more than executing them.
     private var statements: [String: OpaquePointer] = [:]
 
-    /// `readOnly` opens a second connection alongside the writer's. WAL lets it read while a
-    /// scan is running, which is how a query can skip the queue behind `CostService`'s actor.
-    /// Such a connection creates nothing: no directory or schema.
-    init(path: URL, readOnly: Bool = false) throws {
-        if readOnly {
-            guard sqlite3_open_v2(path.path, &self.db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-                throw CostCacheError.openFailed(self.lastErrorMessage)
-            }
-            return
-        }
-
+    init(path: URL) throws {
         try FileManager.default.createDirectory(
             at: path.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -462,47 +452,6 @@ final class CostCache {
 
     /// Borrows the writer connection after its scan has finished.
     var recordedUsageReader: RecordedUsageReader { RecordedUsageReader(database: self.db) }
-
-    /// The per-provider table. A `switch` rather than a ternary, so a third provider fails to
-    /// compile instead of being filed silently under Claude's.
-    private static func table(for provider: Provider) -> String {
-        switch provider {
-        case .codex: "codex_day"
-        case .claude: "claude_message"
-        }
-    }
-
-    /// Distinct model names and token totals recorded for a provider, most-used first.
-    func distinctModelUsage(provider: Provider) throws -> [(model: String, tokens: Int)] {
-        let table = Self.table(for: provider)
-        let stmt = try self.prepared("""
-            SELECT model, SUM(input + output + cache_write + cache_read) AS tokens
-            FROM \(table)
-            GROUP BY model
-            ORDER BY tokens DESC
-            """)
-        defer { sqlite3_finalize(stmt) }
-
-        var models: [(model: String, tokens: Int)] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            models.append((
-                model: String(cString: sqlite3_column_text(stmt, 0)),
-                tokens: Int(sqlite3_column_int64(stmt, 1))
-            ))
-        }
-        guard provider == .codex else { return models }
-        var totals = Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) })
-        for extraTable in ["opencode_part", "pi_message"] {
-            let extra = try self.prepared(
-                "SELECT model, SUM(input + output + cache_write + cache_read) FROM \(extraTable) WHERE included = 1 GROUP BY model"
-            )
-            defer { sqlite3_finalize(extra) }
-            while sqlite3_step(extra) == SQLITE_ROW {
-                totals[String(cString: sqlite3_column_text(extra, 0)), default: 0] += Int(sqlite3_column_int64(extra, 1))
-            }
-        }
-        return totals.map { ($0.key, $0.value) }.sorted { $0.tokens > $1.tokens }
-    }
 
     // MARK: - Helpers
 
