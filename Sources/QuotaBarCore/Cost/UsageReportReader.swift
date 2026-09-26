@@ -1,5 +1,4 @@
 import Foundation
-import SQLite3
 
 public struct UsageReportTotals: Codable, Sendable, Equatable {
     public let input: Int
@@ -161,7 +160,7 @@ public enum UsageReportReaderError: LocalizedError, Equatable {
 /// Reads recorded usage from the local scan cache without scanning logs or changing schema, and
 /// prices it the same way the popover does: each day at the rate card's rates for that day.
 public enum UsageReportReader {
-    fileprivate static let maximumSafeInteger: Int64 = 9_007_199_254_740_991
+    fileprivate static let maximumSafeInteger = RecordedUsageReader.reportMaximumSafeInteger
 
     public static func read(
         databaseURL: URL = CostService.defaultDatabaseURL,
@@ -169,6 +168,19 @@ public enum UsageReportReader {
         now: Date = Date(),
         calendar: Calendar = .current,
         rateCard: RateCard = RateCard()
+    ) throws -> UsageReportSnapshot {
+        try self.read(databaseURL: databaseURL, windowDays: windowDays, now: now, calendar: calendar,
+                      rateCard: rateCard, afterSchemaDiscovery: nil)
+    }
+
+    /// Observes the real read transaction for deterministic writer synchronization in tests.
+    package static func read(
+        databaseURL: URL,
+        windowDays: Int,
+        now: Date,
+        calendar: Calendar,
+        rateCard: RateCard,
+        afterSchemaDiscovery: (() throws -> Void)?
     ) throws -> UsageReportSnapshot {
         guard (1 ... 30).contains(windowDays) else {
             throw UsageReportReaderError.invalidWindowDays(windowDays)
@@ -178,27 +190,27 @@ public enum UsageReportReader {
         }
 
         let range = try self.dayRange(windowDays: windowDays, now: now, calendar: calendar)
-        let database = try ReadOnlyUsageDatabase(url: databaseURL)
-        try database.beginTransaction()
-        var transactionOpen = true
-        defer {
-            if transactionOpen { database.rollback() }
+        let rows: [RecordedUsageReader.DayUsage]
+        do {
+            let reader = try RecordedUsageReader(databaseURL: databaseURL)
+            rows = try reader.reportUsage(
+                fromDay: range.keys[0],
+                throughDay: range.keys[windowDays - 1],
+                afterSchemaDiscovery: afterSchemaDiscovery
+            )
+        } catch let error as RecordedUsageReaderError {
+            switch error {
+            case let .openFailed(message): throw UsageReportReaderError.openFailed(message)
+            case let .corruptSchema(message): throw UsageReportReaderError.corruptSchema(message)
+            case let .queryFailed(message): throw UsageReportReaderError.queryFailed(message)
+            case let .invalidData(message): throw UsageReportReaderError.invalidData(message)
+            }
         }
-
-        let tables = try database.supportedTables()
-        let rows = try database.readRows(
-            tables: tables,
-            fromDay: range.keys[0],
-            throughDay: range.keys[windowDays - 1],
-            rateCard: rateCard
-        )
-        try database.commit()
-        transactionOpen = false
 
         var total = CheckedUsage()
         var dayTotals: [String: CheckedUsage] = [:]
         var modelTotals: [String: CheckedUsage] = [:]
-        var sourceTotals: [String: CheckedUsage] = [:]
+        var sourceTotals: [CostUsageSource: CheckedUsage] = [:]
         var recordedDays: Set<String> = []
         let validDays = Set(range.keys)
 
@@ -206,10 +218,30 @@ public enum UsageReportReader {
             guard validDays.contains(row.day) else {
                 throw UsageReportReaderError.invalidData("unexpected day \(row.day)")
             }
-            try total.add(row.usage)
-            try dayTotals[row.day, default: CheckedUsage()].add(row.usage)
-            try modelTotals[row.model, default: CheckedUsage()].add(row.usage)
-            try sourceTotals[row.source, default: CheckedUsage()].add(row.usage)
+            var usage = CheckedUsage(
+                input: Int64(row.tokens.input),
+                output: Int64(row.tokens.output),
+                cacheRead: Int64(row.tokens.cacheRead),
+                cacheWrite: Int64(row.tokens.cacheWrite),
+                cacheWrite1h: Int64(row.tokens.cacheWrite1h)
+            )
+            if let cost = rateCard.cost(
+                of: row.tokens,
+                model: row.tier.model,
+                provider: row.tier.source.provider,
+                day: row.day,
+                fast: row.tier.isFast,
+                longContext: row.tier.longContext
+            ) {
+                usage.cost = cost
+            } else {
+                usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
+            }
+            _ = try usage.snapshot(label: "\(row.tier.source.displayName) \(row.day) \(row.tier.model)")
+            try total.add(usage)
+            try dayTotals[row.day, default: CheckedUsage()].add(usage)
+            try modelTotals[row.tier.model, default: CheckedUsage()].add(usage)
+            try sourceTotals[row.tier.source, default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
         }
 
@@ -228,16 +260,11 @@ public enum UsageReportReader {
             if $0.total != $1.total { return $0.total > $1.total }
             return $0.name < $1.name
         }
-        let sourceOrder = Dictionary(uniqueKeysWithValues: ReportTable.allCases.enumerated().map {
-            ($0.element.source, $0.offset)
-        })
-        let sources = try sourceTotals.map { name, usage in
-            UsageReportNamedUsage(name: name, totals: try usage.snapshot(label: "source \(name)"))
-        }.sorted {
-            let lhsOrder = sourceOrder[$0.name] ?? Int.max
-            let rhsOrder = sourceOrder[$1.name] ?? Int.max
-            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
-            return $0.name < $1.name
+        let sources = try sourceTotals.sorted {
+            $0.key.displayOrder < $1.key.displayOrder
+        }.map { source, usage in
+            UsageReportNamedUsage(name: source.displayName,
+                                  totals: try usage.snapshot(label: "source \(source.displayName)"))
         }
 
         var weekdayTotals = Array(repeating: CheckedUsage(), count: 7)
@@ -375,262 +402,5 @@ private struct CheckedUsage {
             throw UsageReportReaderError.invalidData("\(field) total is outside the safe integer range")
         }
         return sum
-    }
-}
-
-private enum ReportTable: String, CaseIterable {
-    case codexDay = "codex_day"
-    case claudeMessage = "claude_message"
-    case openCodePart = "opencode_part"
-    case piMessage = "pi_message"
-
-    var source: String {
-        switch self {
-        case .codexDay: "Codex"
-        case .claudeMessage: "Claude"
-        case .openCodePart: "OpenCode"
-        case .piMessage: "Pi Agent"
-        }
-    }
-
-    var supportsFast: Bool {
-        self == .codexDay || self == .openCodePart
-    }
-
-    /// Whose price list prices the table. The other agents run OpenAI models on Codex accounts.
-    var provider: Provider {
-        self == .claudeMessage ? .claude : .codex
-    }
-
-    var includedOnly: Bool {
-        self == .openCodePart || self == .piMessage
-    }
-
-    var requiredColumns: Set<String> {
-        var columns: Set<String> = [
-            "day", "model", "long_context", "input", "output", "cache_write",
-            "cache_write_1h", "cache_read",
-        ]
-        if self.supportsFast { columns.insert("is_fast") }
-        if self.includedOnly { columns.insert("included") }
-        return columns
-    }
-}
-
-private struct UsageReportRow {
-    let source: String
-    let day: String
-    let model: String
-    let usage: CheckedUsage
-}
-
-private final class ReadOnlyUsageDatabase {
-    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-    private var database: OpaquePointer?
-
-    init(url: URL) throws {
-        let result = sqlite3_open_v2(url.path, &self.database, SQLITE_OPEN_READONLY, nil)
-        guard result == SQLITE_OK, self.database != nil else {
-            let message = self.errorMessage(fallbackCode: result)
-            if let database = self.database { sqlite3_close(database) }
-            self.database = nil
-            throw UsageReportReaderError.openFailed(message)
-        }
-    }
-
-    deinit {
-        if let database = self.database { sqlite3_close(database) }
-    }
-
-    func beginTransaction() throws {
-        try self.execute("BEGIN TRANSACTION")
-    }
-
-    func commit() throws {
-        try self.execute("COMMIT")
-    }
-
-    func rollback() {
-        try? self.execute("ROLLBACK")
-    }
-
-    func supportedTables() throws -> [ReportTable] {
-        let statement = try self.prepare(
-            "SELECT name, type FROM sqlite_master WHERE name IN ('codex_day', 'claude_message', 'opencode_part', 'pi_message')"
-        )
-        defer { sqlite3_finalize(statement) }
-        var objects: [String: String] = [:]
-        var result = sqlite3_step(statement)
-        while result == SQLITE_ROW {
-            guard let name = self.text(statement, column: 0), let type = self.text(statement, column: 1) else {
-                throw UsageReportReaderError.corruptSchema("usage object has no name or type")
-            }
-            objects[name] = type
-            result = sqlite3_step(statement)
-        }
-        guard result == SQLITE_DONE else { throw self.queryError() }
-
-        var resultTables: [ReportTable] = []
-        for table in ReportTable.allCases {
-            guard let type = objects[table.rawValue] else { continue }
-            guard type == "table" else {
-                throw UsageReportReaderError.corruptSchema("\(table.rawValue) is a \(type), not a table")
-            }
-            let columns = try self.columns(in: table)
-            let missing = table.requiredColumns.subtracting(columns).sorted()
-            guard missing.isEmpty else {
-                throw UsageReportReaderError.corruptSchema(
-                    "\(table.rawValue) is missing columns: \(missing.joined(separator: ", "))"
-                )
-            }
-            resultTables.append(table)
-        }
-        return resultTables
-    }
-
-    func readRows(
-        tables: [ReportTable],
-        fromDay: String,
-        throughDay: String,
-        rateCard: RateCard
-    ) throws -> [UsageReportRow] {
-        guard !tables.isEmpty else { return [] }
-        let queries = tables.map { table in
-            let fast = table.supportsFast ? "is_fast" : "0"
-            let groupFast = table.supportsFast ? ", is_fast" : ""
-            let included = table.includedOnly ? "included = 1 AND " : ""
-            let invalid = """
-                typeof(input) != 'integer' OR input < 0 OR input > \(UsageReportReader.maximumSafeInteger)
-                OR typeof(output) != 'integer' OR output < 0 OR output > \(UsageReportReader.maximumSafeInteger)
-                OR typeof(cache_read) != 'integer' OR cache_read < 0 OR cache_read > \(UsageReportReader.maximumSafeInteger)
-                OR typeof(cache_write) != 'integer' OR cache_write < 0 OR cache_write > \(UsageReportReader.maximumSafeInteger)
-                OR typeof(cache_write_1h) != 'integer' OR cache_write_1h < 0
-                OR cache_write_1h > cache_write OR cache_write_1h > \(UsageReportReader.maximumSafeInteger)
-                """
-            return """
-                SELECT '\(table.rawValue)', day, model, \(fast), long_context,
-                       SUM(input), SUM(output), SUM(cache_read), SUM(cache_write), SUM(cache_write_1h),
-                       MAX(CASE WHEN \(invalid) THEN 1 ELSE 0 END)
-                FROM \(table.rawValue)
-                WHERE \(included)day BETWEEN ? AND ?
-                GROUP BY day, model, long_context\(groupFast)
-                """
-        }
-        let statement = try self.prepare(queries.joined(separator: " UNION ALL "))
-        defer { sqlite3_finalize(statement) }
-        var parameter: Int32 = 1
-        for _ in tables {
-            sqlite3_bind_text(statement, parameter, fromDay, -1, Self.transient)
-            sqlite3_bind_text(statement, parameter + 1, throughDay, -1, Self.transient)
-            parameter += 2
-        }
-
-        var rows: [UsageReportRow] = []
-        var result = sqlite3_step(statement)
-        while result == SQLITE_ROW {
-            guard let tableName = self.text(statement, column: 0),
-                  let table = ReportTable(rawValue: tableName),
-                  let day = self.text(statement, column: 1),
-                  let model = self.text(statement, column: 2)
-            else {
-                throw UsageReportReaderError.invalidData("source, day, or model is NULL")
-            }
-            guard sqlite3_column_int64(statement, 10) == 0 else {
-                throw UsageReportReaderError.invalidData("\(table.source) contains invalid values on \(day)")
-            }
-            var usage = CheckedUsage(
-                input: try self.integer(statement, column: 5, field: "input"),
-                output: try self.integer(statement, column: 6, field: "output"),
-                cacheRead: try self.integer(statement, column: 7, field: "cacheRead"),
-                cacheWrite: try self.integer(statement, column: 8, field: "cacheWrite"),
-                cacheWrite1h: try self.integer(statement, column: 9, field: "cacheWrite1h")
-            )
-            let tokens = TokenTotals(
-                input: Int(usage.input),
-                output: Int(usage.output),
-                cacheWrite: Int(usage.cacheWrite),
-                cacheWrite1h: Int(usage.cacheWrite1h),
-                cacheRead: Int(usage.cacheRead)
-            )
-            if let cost = rateCard.cost(
-                of: tokens,
-                model: model,
-                provider: table.provider,
-                day: day,
-                fast: sqlite3_column_int64(statement, 3) != 0,
-                longContext: sqlite3_column_int64(statement, 4) != 0
-            ) {
-                usage.cost = cost
-            } else {
-                usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
-            }
-            _ = try usage.snapshot(label: "\(table.source) \(day) \(model)")
-            rows.append(UsageReportRow(source: table.source, day: day, model: model, usage: usage))
-            result = sqlite3_step(statement)
-        }
-        guard result == SQLITE_DONE else { throw self.queryError() }
-        return rows
-    }
-
-    private func columns(in table: ReportTable) throws -> Set<String> {
-        let statement = try self.prepare("PRAGMA table_info(\(table.rawValue))")
-        defer { sqlite3_finalize(statement) }
-        var columns: Set<String> = []
-        var result = sqlite3_step(statement)
-        while result == SQLITE_ROW {
-            if let name = self.text(statement, column: 1) { columns.insert(name) }
-            result = sqlite3_step(statement)
-        }
-        guard result == SQLITE_DONE else { throw self.queryError() }
-        return columns
-    }
-
-    private func integer(_ statement: OpaquePointer?, column: Int32, field: String) throws -> Int64 {
-        guard sqlite3_column_type(statement, column) == SQLITE_INTEGER else {
-            throw UsageReportReaderError.invalidData("aggregated \(field) is not an integer")
-        }
-        let value = sqlite3_column_int64(statement, column)
-        guard value >= 0, value <= UsageReportReader.maximumSafeInteger else {
-            throw UsageReportReaderError.invalidData("aggregated \(field) is outside the safe integer range")
-        }
-        return value
-    }
-
-    private func text(_ statement: OpaquePointer?, column: Int32) -> String? {
-        guard sqlite3_column_type(statement, column) == SQLITE_TEXT,
-              let value = sqlite3_column_text(statement, column)
-        else { return nil }
-        return String(cString: value)
-    }
-
-    private func prepare(_ sql: String) throws -> OpaquePointer? {
-        var statement: OpaquePointer?
-        let result = sqlite3_prepare_v2(self.database, sql, -1, &statement, nil)
-        guard result == SQLITE_OK else {
-            sqlite3_finalize(statement)
-            throw self.queryError()
-        }
-        return statement
-    }
-
-    private func execute(_ sql: String) throws {
-        var error: UnsafeMutablePointer<CChar>?
-        let result = sqlite3_exec(self.database, sql, nil, nil, &error)
-        guard result == SQLITE_OK else {
-            let message = error.map { String(cString: $0) } ?? self.errorMessage(fallbackCode: result)
-            sqlite3_free(error)
-            throw UsageReportReaderError.queryFailed(message)
-        }
-    }
-
-    private func queryError() -> UsageReportReaderError {
-        .queryFailed(self.errorMessage(fallbackCode: sqlite3_errcode(self.database)))
-    }
-
-    private func errorMessage(fallbackCode: Int32) -> String {
-        if let database = self.database, let message = sqlite3_errmsg(database) {
-            return String(cString: message)
-        }
-        return String(cString: sqlite3_errstr(fallbackCode))
     }
 }

@@ -98,6 +98,29 @@ enum RecordedUsageTests {
         Harness.expectEqual(first?.days.first(where: { $0.dayKey == fixture.day(-3) })?.tokens.total, 0,
                             "menu retains a recorded zero day")
 
+        let claude = await service.refresh(.claude)
+        let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, windowDays: 30,
+                                               now: fixture.now, calendar: fixture.calendar,
+                                               rateCard: try RecordedUsageFixture.rateCard())
+        let codexSources = report.sources.filter { $0.name != CostUsageSource.claude.displayName }
+        Harness.expectEqual(codexSources.reduce(0) { $0 + $1.total }, 82,
+                            "export's matching Codex sources exclude the menu's 1,000 future tokens")
+        Harness.expectClose(codexSources.reduce(0) { $0 + $1.cost }, first?.windowCostUSD ?? -1,
+                            "matching priced records use the same Rate card in menu and export")
+        Harness.expectEqual(report.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"],
+                            "shared source identities preserve export display order")
+        for day in report.days {
+            let matchingDays = [first, claude].compactMap { $0?.days.first { $0.dayKey == day.day } }
+            Harness.expectEqual(day.total, matchingDays.reduce(0) { $0 + $1.tokens.total },
+                                "menu and export agree on all-source tokens for overlapping day \(day.day)")
+            Harness.expectEqual(day.unpricedTokens, matchingDays.reduce(0) { $0 + $1.unpricedTokens },
+                                "menu and export agree on Unpriced usage for overlapping day \(day.day)")
+            Harness.expectClose(day.cost, matchingDays.reduce(0) { $0 + ($1.costUSD ?? 0) },
+                                "menu and export agree on cost for overlapping day \(day.day)")
+            Harness.expectEqual(day.recorded, !matchingDays.isEmpty,
+                                "export distinguishes missing and recorded zero days from shared records")
+        }
+
         try fixture.addOverflow(source: .piAgent)
         let failed = await service.refresh(.codex)
         Harness.expect(failed == nil, "CostService reports late query failure instead of a partial success")

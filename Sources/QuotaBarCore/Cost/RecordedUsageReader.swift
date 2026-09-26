@@ -11,13 +11,26 @@ package final class RecordedUsageReader {
         package let isFast: Bool
     }
 
+    package struct DayUsage {
+        package let day: String
+        package let tier: ModelTier
+        package let tokens: TokenTotals
+    }
+
     struct SourceTable {
         let source: CostUsageSource
         let table: String
         let supportsFast: Bool
         let includedOnly: Bool
 
-        var provider: Provider { self.source == .claude ? .claude : .codex }
+        var provider: Provider { self.source.provider }
+
+        var requiredColumns: Set<String> {
+            var columns = Set(["day", "model", "long_context"] + RecordedUsageReader.tokenColumns)
+            if self.supportsFast { columns.insert("is_fast") }
+            if self.includedOnly { columns.insert("included") }
+            return columns
+        }
     }
 
     static let sourceTables: [SourceTable] = [
@@ -27,6 +40,8 @@ package final class RecordedUsageReader {
         SourceTable(source: .piAgent, table: "pi_message", supportsFast: false, includedOnly: true),
     ]
 
+    package static let reportMaximumSafeInteger: Int64 = 9_007_199_254_740_991
+    private static let tokenColumns = ["input", "output", "cache_write", "cache_write_1h", "cache_read"]
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private let database: OpaquePointer?
     private let ownsConnection: Bool
@@ -61,36 +76,153 @@ package final class RecordedUsageReader {
         provider: Provider,
         fromDay: String
     ) throws -> [String: [ModelTier: TokenTotals]] {
+        let rows = try self.readDailyUsage(
+            tables: Self.sourceTables.filter { $0.provider == provider },
+            fromDay: fromDay,
+            throughDay: nil,
+            validateForReport: false
+        )
         var days: [String: [ModelTier: TokenTotals]] = [:]
-        for source in Self.sourceTables where source.provider == provider {
+        for row in rows {
+            days[row.day, default: [:]][row.tier, default: TokenTotals()] += row.tokens
+        }
+        return days
+    }
+
+    /// Export tolerates absent source tables, validates safe integers, and bounds both ends.
+    /// Schema discovery pins the same committed snapshot used by every source query.
+    package func reportUsage(
+        fromDay: String,
+        throughDay: String,
+        afterSchemaDiscovery: (() throws -> Void)? = nil
+    ) throws -> [DayUsage] {
+        try self.query("BEGIN TRANSACTION") { _ in }
+        var transactionOpen = true
+        defer {
+            if transactionOpen { try? self.query("ROLLBACK") { _ in } }
+        }
+        let tables = try self.supportedTables()
+        // A synchronous observation point lets real writer tests commit between schema and rows.
+        try afterSchemaDiscovery?()
+        let rows = try self.readDailyUsage(
+            tables: tables,
+            fromDay: fromDay,
+            throughDay: throughDay,
+            validateForReport: true
+        )
+        try self.query("COMMIT") { _ in }
+        transactionOpen = false
+        return rows
+    }
+
+    private func supportedTables() throws -> [SourceTable] {
+        var objects: [String: String] = [:]
+        let placeholders = Self.sourceTables.map { _ in "?" }.joined(separator: ", ")
+        try self.query(
+            "SELECT name, type FROM sqlite_master WHERE name IN (\(placeholders))",
+            bindings: Self.sourceTables.map(\.table)
+        ) { statement in
+            guard let name = self.text(statement, column: 0, strict: true),
+                  let type = self.text(statement, column: 1, strict: true) else {
+                throw RecordedUsageReaderError.corruptSchema("usage object has no name or type")
+            }
+            objects[name] = type
+        }
+        var tables: [SourceTable] = []
+        for source in Self.sourceTables {
+            guard let type = objects[source.table] else { continue }
+            guard type == "table" else {
+                throw RecordedUsageReaderError.corruptSchema("\(source.table) is a \(type), not a table")
+            }
+            var columns: Set<String> = []
+            try self.query("PRAGMA table_info(\(source.table))") { statement in
+                if let name = self.text(statement, column: 1, strict: true) { columns.insert(name) }
+            }
+            let missing = source.requiredColumns.subtracting(columns).sorted()
+            guard missing.isEmpty else {
+                throw RecordedUsageReaderError.corruptSchema(
+                    "\(source.table) is missing columns: \(missing.joined(separator: ", "))"
+                )
+            }
+            tables.append(source)
+        }
+        return tables
+    }
+
+    private func readDailyUsage(
+        tables: [SourceTable],
+        fromDay: String,
+        throughDay: String?,
+        validateForReport: Bool
+    ) throws -> [DayUsage] {
+        var rows: [DayUsage] = []
+        let sums = Self.tokenColumns.map { "SUM(\($0))" }.joined(separator: ", ")
+        let validation = validateForReport ? ", MAX(CASE WHEN \(Self.invalidReportTokens) THEN 1 ELSE 0 END)" : ""
+        for source in tables {
             let fast = source.supportsFast ? "is_fast" : "FALSE"
+            let bounds = throughDay == nil ? "day >= ?" : "day BETWEEN ? AND ?"
+            let bindings = [fromDay] + (throughDay.map { [$0] } ?? [])
             try self.query("""
-                SELECT day, model, long_context, \(fast),
-                       SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read)
+                SELECT day, model, long_context, \(fast), \(sums)\(validation)
                 FROM \(source.table)
-                WHERE \(source.includedOnly ? "included = 1 AND " : "")day >= ?
+                WHERE \(source.includedOnly ? "included = 1 AND " : "")\(bounds)
                 GROUP BY day, model, long_context, \(fast)
-                """, bindings: [fromDay]) { statement in
-                guard let day = sqlite3_column_text(statement, 0),
-                      let model = sqlite3_column_text(statement, 1) else {
-                    throw RecordedUsageReaderError.invalidData("day or model is NULL")
+                """, bindings: bindings) { statement in
+                guard let day = self.text(statement, column: 0, strict: validateForReport),
+                      let model = self.text(statement, column: 1, strict: validateForReport) else {
+                    throw RecordedUsageReaderError.invalidData("day or model is NULL or not text")
+                }
+                if validateForReport, sqlite3_column_int64(statement, 9) != 0 {
+                    throw RecordedUsageReaderError.invalidData(
+                        "\(source.source.displayName) contains invalid values on \(day)"
+                    )
                 }
                 let tier = ModelTier(
                     source: source.source,
-                    model: String(cString: model),
+                    model: model,
                     longContext: sqlite3_column_int64(statement, 2) != 0,
                     isFast: sqlite3_column_int64(statement, 3) != 0
                 )
-                days[String(cString: day), default: [:]][tier, default: TokenTotals()] += TokenTotals(
-                    input: Int(sqlite3_column_int64(statement, 4)),
-                    output: Int(sqlite3_column_int64(statement, 5)),
-                    cacheWrite: Int(sqlite3_column_int64(statement, 6)),
-                    cacheWrite1h: Int(sqlite3_column_int64(statement, 7)),
-                    cacheRead: Int(sqlite3_column_int64(statement, 8))
-                )
+                rows.append(DayUsage(day: day, tier: tier,
+                                     tokens: try self.tokens(statement, validateForReport: validateForReport)))
             }
         }
-        return days
+        return rows
+    }
+
+    private static var invalidReportTokens: String {
+        let fields = Self.tokenColumns.map { column in
+            "typeof(\(column)) != 'integer' OR \(column) < 0 OR \(column) > \(Self.reportMaximumSafeInteger)"
+        }
+        return (fields + ["cache_write_1h > cache_write"]).joined(separator: " OR ")
+    }
+
+    private func tokens(_ statement: OpaquePointer, validateForReport: Bool) throws -> TokenTotals {
+        let values = try Self.tokenColumns.enumerated().map { offset, name -> Int in
+            let column = Int32(offset + 4)
+            let value = sqlite3_column_int64(statement, column)
+            if validateForReport {
+                guard sqlite3_column_type(statement, column) == SQLITE_INTEGER else {
+                    throw RecordedUsageReaderError.invalidData("aggregated \(name) is not an integer")
+                }
+                guard value >= 0, value <= Self.reportMaximumSafeInteger else {
+                    throw RecordedUsageReaderError.invalidData("aggregated \(name) is outside the safe integer range")
+                }
+            }
+            return Int(value)
+        }
+        // Validate before TokenTotals normalizes the one-hour subset.
+        if validateForReport, values[3] > values[2] {
+            throw RecordedUsageReaderError.invalidData("aggregated cacheWrite1h exceeds cacheWrite")
+        }
+        return TokenTotals(input: values[0], output: values[1], cacheWrite: values[2],
+                           cacheWrite1h: values[3], cacheRead: values[4])
+    }
+
+    private func text(_ statement: OpaquePointer, column: Int32, strict: Bool) -> String? {
+        if strict, sqlite3_column_type(statement, column) != SQLITE_TEXT { return nil }
+        guard let value = sqlite3_column_text(statement, column) else { return nil }
+        return String(cString: value)
     }
 
     /// Results stay local to the read until every contributing statement completes.
@@ -123,12 +255,14 @@ package final class RecordedUsageReader {
 
 package enum RecordedUsageReaderError: LocalizedError {
     case openFailed(String)
+    case corruptSchema(String)
     case queryFailed(String)
     case invalidData(String)
 
     package var errorDescription: String? {
         switch self {
         case let .openFailed(message): "Could not open recorded usage: \(message)"
+        case let .corruptSchema(message): "Recorded usage schema is incomplete or corrupt: \(message)"
         case let .queryFailed(message): "Recorded usage query failed: \(message)"
         case let .invalidData(message): "Recorded usage is invalid: \(message)"
         }

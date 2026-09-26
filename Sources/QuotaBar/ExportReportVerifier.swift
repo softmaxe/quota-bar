@@ -69,6 +69,11 @@ enum ExportReportVerifier {
             failure.openAfterExport = false
             expect(!(await failure.export(to: emptyURL)), "read failure should not report success")
             expect(failure.status == .failed(CheckError.unavailable.localizedDescription), "read failure should expose its actionable reason")
+            expect(!failure.isExporting && !FileManager.default.fileExists(atPath: emptyURL.path),
+                   "read failure should release its busy state without creating a destination")
+            expect(!(await failure.export(to: destination)), "retrying a failed read should still report failure")
+            expect(try String(contentsOf: destination, encoding: .utf8) == html,
+                   "read failure should preserve an existing destination unchanged")
 
             let gate = DispatchSemaphore(value: 0)
             let duplicate = ExportSettingsModel(operations: .init(
