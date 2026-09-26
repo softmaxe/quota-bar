@@ -9,26 +9,26 @@
   <a href="README.zh-CN.md"><kbd>简体中文</kbd></a>
 </p>
 
-A macOS menu bar app for checking Codex and Claude quota, reset times, local token usage, and estimated cost.
+Check Codex and Claude quota, reset times, local token usage, and estimated API cost from the macOS menu bar.
 
 [Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
 https://github.com/user-attachments/assets/f46bd989-6a1d-4de5-a88a-94dbd85d790f
 
-The demo film, screenshots, and animations use sample data. The app interface is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
+The video, screenshots, and animations use sample data. The app is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
 ## Features
 
-- Track session and weekly quota, reset times, usage pace, and available credits. Failed refreshes keep the last good reading.
-- View local tokens and estimated cost by day and model, including matching OpenCode and Pi Agent OAuth usage under Codex.
-- Estimate Standard, Fast, and long-context costs, including GPT-6 Astra. Edit Standard rates in Settings.
-- Export 7 or 30 days of saved usage as an offline HTML report with Chinese and English views.
+- Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
+- View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
+- Estimate Standard, Fast, and long-context costs with the bundled price book. Edit Standard rates in Settings.
+- Export the last 7 or 30 days of saved usage as an offline HTML report with Chinese and English views.
 
 ## Install
 
-Requires **macOS 14+**. Prebuilt releases and the Homebrew cask support **Apple Silicon** and do not require Xcode or Swift.
+Requires macOS 14 or later. Prebuilt releases and the Homebrew cask support Apple Silicon. They do not require Xcode or Swift.
 
-Quota tracking uses OAuth credentials created by Codex CLI, Claude Code, or both on the same Mac. API-key-only sessions are not supported.
+Quota tracking requires an OAuth login through Codex CLI or Claude Code on the same Mac. An API key cannot provide quota readings.
 
 ### Homebrew
 
@@ -57,7 +57,7 @@ brew uninstall --zap --cask quota-bar
 
 Download the `arm64` ZIP from [GitHub Releases](https://github.com/softmaxe/quota-bar/releases), unzip it, and move `QuotaBar.app` to `/Applications`.
 
-Each ZIP has a matching `.sha256` file. Verify it before unzipping:
+Download the matching `.sha256` file into the same directory as the ZIP. Run this command there before unzipping:
 
 ```bash
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
@@ -73,16 +73,18 @@ xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 
 ## First launch
 
-QuotaBar reuses OAuth credentials created by the official CLIs. It has no separate login flow. Sign in through each CLI you want to track:
+Sign in through each CLI you want to track. QuotaBar reuses its credentials and has no separate login flow:
 
 ```bash
 codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select **Codex** or **Claude**. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
+Open QuotaBar, click its menu bar icon, and select Codex or Claude. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
 
-If a provider is not signed in, choose **Copy command**, run the copied command in Terminal, then return and choose **Check sign-in**. Copying the command does not run it.
+If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
+
+QuotaBar reads Codex credentials from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` by default. It reads Claude credentials from the `Claude Code-credentials` entry in macOS Keychain.
 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 
@@ -94,11 +96,11 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 ### Quota windows and usage pace
 
-Each limited quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** in the reset-time control to update both limited windows. Unlimited sessions show **Session ∞** and **No limit**. A window with no quota left shows **Limit reached** in place of its pace summary. Expand **Usage pace details** for reserve, deficit, and headroom.
+Each quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** to change the reset-time display for both windows. Unlimited sessions show **Session ∞** and **No limit**. An empty window shows **Limit reached**.
 
-QuotaBar compares consumption with time elapsed. After at least three comparable recorded weekly windows, history also informs the weekly pace. Samples are kept for 56 days.
+Expand **Usage pace details** for reserve, deficit, and headroom. QuotaBar compares usage with time elapsed. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
 
-After QuotaBar detects a session or weekly reset, the next open plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
+After QuotaBar detects a reset, opening the card plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
 
 <details>
 <summary>Quota reset animation</summary>
@@ -134,13 +136,13 @@ A failed refresh keeps the last good quota and shows its age and recovery instru
 
 ### Menu bar and shortcuts
 
-The menu bar robot reflects the selected provider's quota and refresh status. It turns red when either the session or weekly window has 10% or less left. It dims after a failed refresh and fades further when no data is available.
+The menu bar robot shows the selected provider's status. It turns red when either quota window has 10% or less left, unless that window's reset time has passed. It dims after a failed refresh and fades further when no data is available.
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
 </p>
 
-The icon is Material Design Icons' `robot-excited`. The card scrolls when needed, keeps its bottom actions visible, and reopens with details collapsed. Shortcuts apply while the card is open:
+The icon is Material Design Icons' `robot-excited`. The card scrolls when needed and reopens with details collapsed. These shortcuts work while the card is open:
 
 | Shortcut | Action |
 | --- | --- |
@@ -150,31 +152,26 @@ The icon is Material Design Icons' `robot-excited`. The card scrolls when needed
 | ⌘Q | Quit, with a prompt for unsaved price edits |
 | Esc | Close the card |
 
-<details>
-<summary>Mouse, tab, and motion behavior</summary>
-
-Provider tabs have equal widths and fixed label positions. The selected tab has a highlighted background and bold name; hover adds a lighter highlight. Left clicks toggle the card on mouse-down, right clicks on mouse-up. Buttons respond on press, and expanded rows appear together. Reduce Motion removes custom transitions while keeping pressed and selected states visible.
-
-</details>
-
 ## How cost tracking works
 
-QuotaBar calculates token and cost totals from local session data. It does not use a billing API.
+QuotaBar counts tokens in local session logs and estimates what that usage would cost at API rates. These estimates are not subscription charges or billing statements.
 
 ### Reading the chart
 
-Choose **Tokens** or **Cost** above the chart. The chart covers ten calendar days; totals cover the last 30 days. Hover to preview a day, click to pin it, or use Left and Right Arrow when a date is focused. **Model breakdown** lists that day's models and keeps the date fixed. Reopen the card to resume hover previews. Switching units preserves the selected date.
+Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows today and the last 30 days.
 
-Missing information has a separate display from zero usage:
+Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Reopen the card to resume hover previews. Switching units keeps the selected date.
+
+The chart distinguishes zero usage from missing data:
 
 | Display | Meaning |
 | --- | --- |
-| **0** or **$0.00** | The scanned value is zero at the displayed precision. The chart shows a solid gray stub for the date. Missing prices have a separate status. |
-| **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage yet. The chart shows a dashed stub for the date. |
-| **—**, **Unpriced** | Usage is recorded, but no cost can be estimated from its model rates. In Cost view, the chart shows a dashed stub for the date. |
+| **0** or **$0.00** | The value rounds to zero. The chart shows a solid gray stub. Missing prices are marked separately. |
+| **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage. The chart shows a dashed stub. |
+| **—**, **Unpriced** | Usage is recorded, but no rate applies. Cost view shows a dashed stub. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
-Add missing rates in **Settings → Pricing**. Costs are recalculated for all recorded usage of that model.
+For missing Standard rates, use **Settings → Pricing**. Fast usage needs a multiplier in the bundled price book and cannot be priced with a manual override.
 
 <details>
 <summary>Chart date previews</summary>
@@ -194,16 +191,18 @@ Add missing rates in **Settings → Pricing**. Costs are recalculated for all re
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`, `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions`, or `~/.pi/agent/sessions` |
 
-OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage count toward Codex totals only when they use OAuth with the current Codex account. Other providers, API-key sessions, and account mismatches are excluded. These local totals do not affect quota bars.
+For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBar checks each app's current OAuth credentials against the Codex account. Matching usage counts toward Codex totals. Other providers, API-key credentials, and account mismatches are excluded. These totals do not affect quota bars. See [Limitations](#limitations) for historical OpenCode authentication changes.
 
 ### Saved history
 
-The first scan of a large history may take time. QuotaBar saves dates, models, sources, tokens, and estimated costs in SQLite, with identifiers and scan positions for deduplication. Saved usage survives source-session deletion and app restarts, including records outside the chart and totals windows. Sessions deleted before scanning cannot be recovered.
+The first scan of a large history may take time. QuotaBar saves token counts, dates, models, sources, and pricing tiers in SQLite, along with record IDs and scan positions. It calculates costs when reading or exporting that usage.
+
+Saved usage survives source-session deletion and app restarts, including records older than 30 days. Sessions deleted before scanning cannot be recovered.
 
 <details>
 <summary>Incremental scanning and database migration</summary>
 
-Codex and Claude resume from the last byte read. OpenCode and Pi Agent deduplicate records by stable IDs. Standard Codex rollout UUIDs prevent archive moves and copies from counting twice. Codex also caches the active model, service tier, and last token totals, so appending to a long session does not replay earlier records.
+Codex and Claude resume from the last byte read. OpenCode and Pi Agent deduplicate records by stable IDs. Codex rollout UUIDs prevent archive moves and copies from counting twice.
 
 Scanner upgrades preserve recorded history instead of rebuilding it from source logs.
 
@@ -211,13 +210,12 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 ### Pricing rules
 
-- Standard rates use manual overrides first, then the built-in [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json).
-- The price book stores each model's rates in dated periods. Each day of usage is priced at the rates in force on that day, so price changes and promotions keep past days at their own rates.
-- Codex Fast usage uses the price book's Fast multiplier for that period and ignores manual overrides. A model without a Fast multiplier stays unpriced in Fast mode.
+- Standard usage uses your saved override, if any. Otherwise, it uses the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json).
+- The price book stores rates in dated periods. Each day's usage uses that day's rates. An override replaces Standard rates for every recorded day of its model.
+- Codex Fast usage multiplies the price book's rates by that period's Fast multiplier. It ignores overrides. Without a Fast multiplier, usage stays unpriced.
+- Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
-Costs are calculated from recorded tokens whenever they are shown or exported. A manual rate applies to every recorded day of its model, including usage that was unpriced before. See [Maintaining the price book](docs/pricing.md) to update rates.
-
-Cost totals are estimates. Provider billing rules, cache accounting, and price changes can make them differ from an invoice.
+Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates.
 
 ## Exporting a usage report
 
@@ -230,15 +228,15 @@ Cost totals are estimates. Provider billing rules, cache accounting, and price c
   <img src="docs/images/report-export.png" width="760" alt="English view of the offline usage report, with a Chinese/English switch and sample data">
 </p>
 
-The report is a single offline HTML file with a Chinese/English switch. It includes all eligible Codex, Claude, OpenCode, and Pi Agent usage already saved in SQLite, with daily usage, cost by model, token and cache composition, and expandable data tables.
+The report is a single offline HTML file with a Chinese/English switch. It includes saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage, for the selected period. Charts and expandable tables show daily usage, cost by model, and token and cache composition.
 
-Export reads saved data without refreshing quota, rescanning logs, or making network requests. It prices saved tokens with the same rates as the menu; unpriced tokens are excluded from costs and pricing gaps are marked. Cache costs are part of the totals; the report shows cache token counts rather than a separate cache cost.
+Export reads saved data without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage. Totals include cache costs; the report lists cache token counts without a separate cache cost.
 
-The file includes the period, capture time, timezone, sources, models, token counts, unpriced-token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the data contract and developer checks.
+The file includes the period, capture time, timezone, sources, models, token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the full data format and checks.
 
 ## Editing model prices
 
-Open **Settings → Pricing**. Rates are in USD per million tokens. Expand a model row to edit its one-hour cache write rate, long-context threshold, and rates above that threshold.
+Open **Settings → Pricing** to override Standard rates in USD per million tokens. Expand a model row for one-hour cache write rates, the long-context threshold, and rates above it.
 
 The table lists supported API models and unpriced models found locally. Click a column heading to sort; reset the order to restore the API model list and sort **Others** by usage.
 
@@ -246,7 +244,7 @@ The table lists supported API models and unpriced models found locally. Click a 
   <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable rates, expanded long-context fields, and per-model action menus">
 </p>
 
-- Rates must be finite and nonnegative; an optional long-context threshold must be a positive whole token count and is required once any rate above it is set. Invalid fields disable **Save**.
+- Rates must be finite and nonnegative. A long-context threshold must be a positive whole token count. You must set it before saving any rates above the threshold. Invalid fields disable **Save**.
 - **Save** shows progress and its result. Drafts survive failed saves, tab switches, and closing Settings while the app is running. **Discard** restores the last saved rates.
 - To remove an override, choose **Restore default rate** or **Clear custom rate** in the model's **…** menu, then save.
 - Quitting with a valid draft offers **Save**, **Discard**, or **Cancel**. Invalid drafts must be corrected before saving.
@@ -260,11 +258,13 @@ The table lists supported API models and unpriced models found locally. Click a 
 
 </details>
 
-Saved rates apply to all recorded usage of the model, including usage that was previously unpriced. Restoring the default returns every day to the price book's dated rates. A threshold change affects only requests scanned after it is saved; recorded requests keep the long-context classification from their scan.
+Saving reprices the model's recorded Standard usage, including previously unpriced usage. Restoring the default returns it to the price book's dated rates. Fast usage keeps using the price book. Threshold changes affect only newly scanned requests.
 
 ## Privacy and network access
 
-QuotaBar reads CLI credentials and parses local session records, but it does not write to CLI credential stores itself. A manual Claude credential recovery can launch Claude Code, which may update its own credentials. QuotaBar uses timestamps, model names, token counts, stable record IDs, and the account IDs needed to match OAuth sessions. Prompt, response, and reasoning text are not stored in QuotaBar's usage history or uploaded.
+QuotaBar reads CLI credentials and local session records. It does not write to CLI credential stores. Manual Claude recovery can launch Claude Code, which may update its own credentials.
+
+QuotaBar uses timestamps, models, token counts, record IDs, and account IDs needed to match OAuth sessions. It does not store prompts, responses, or reasoning text in its usage history or upload them.
 
 <details>
 <summary>Local storage paths</summary>
@@ -282,7 +282,9 @@ Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if
 
 ## Build and develop
 
-Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager and has no Xcode project. Build commands use `Scripts/swift.sh`, which defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
+Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager. `Scripts/swift.sh` defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
+
+The release workflow requires the macOS 27 SDK for native menu bar sessions on macOS 27. Local builds with older SDKs use the legacy menu bar handling. The minimum runtime remains macOS 14.
 
 ```bash
 git clone https://github.com/softmaxe/quota-bar.git
@@ -313,7 +315,7 @@ make app
 | `make benchmark-cost PROVIDER=claude` | Benchmark Claude with the same offline pricing. |
 | `make logs` | Stream logs for `com.quotabar.app`. |
 | `make readme-assets` | Rebuild screenshots, state examples, and GIFs. |
-| `make demo-video` | Render the README demo films and their score. |
+| `make demo-video` | Render the README demo videos with music. |
 | `make clean` | Remove build output. |
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
@@ -330,13 +332,13 @@ make build
 .build/debug/QuotaBar --preview-interface loaded
 ```
 
-Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history, with no credential access, provider requests, or real log scans. Choose **Quit** in the preview to clear its temporary data. It can run alongside the installed app, so an additional menu bar icon is expected.
+Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
 
-`make demo-video` renders the demo film in [docs/demo](docs/demo) to `build/demo/quotabar-demo-en.mp4` and `quotabar-demo-zh.mp4`, each under GitHub's 10 MB attachment limit. It needs ffmpeg, Node.js, `playwright-cli`, and Brave (or `CHROMIUM_PATH`), and downloads its instrument samples once. Upload new renders as attachments in a GitHub comment and replace the video links at the top of both READMEs.
+`make demo-video` renders [docs/demo](docs/demo) to `build/demo/quotabar-demo-en.mp4` and `build/demo/quotabar-demo-zh.mp4`. It requires ffmpeg, Node.js, `playwright-cli`, and Brave. Set `CHROMIUM_PATH` to use another Chromium browser. The first run downloads instrument samples. Upload new videos as attachments in a GitHub comment and replace the links at the top of both READMEs.
 
-Asset generation requires ffmpeg. The HTML report image also needs Node.js, Playwright, and a Chromium browser; see [report development checks](docs/usage-report-export.md#verification). The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
+Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report-export.md#verification) and [rendering notes](docs/design-implementation.md).
 
 </details>
 
@@ -345,7 +347,9 @@ Asset generation requires ffmpeg. The HTML report image also needs Node.js, Play
 
 To create a test package, run **Build and Release** from the repository's **Actions** tab and select the branch to build. Manual runs upload a development ZIP and SHA-256 file as workflow artifacts without publishing a release.
 
-To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version, so no version bump commit is needed; local `make app` builds use the latest release tag. The workflow tests and packages an `arm64` ZIP, verifies its signature, version, architecture, and checksum, publishes the GitHub Release, and then updates `softmaxe/homebrew-tap`. Tagged runs require the repository's `TAP_GITHUB_TOKEN` secret. Check both **Release** and **Update Homebrew tap** before treating the release process as complete.
+To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. Local `make app` builds use the nearest reachable release tag, or `0.0.0` if none exists. Set `VERSION` to override it.
+
+The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs require the repository's `TAP_GITHUB_TOKEN` secret. Both **Release** and **Update Homebrew tap** must succeed.
 
 </details>
 
@@ -356,7 +360,7 @@ To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows Unpriced or Partial estimate | Add missing model rates in **Settings → Pricing**. Recorded usage of that model is priced as well. |
+| Cost shows Unpriced or Partial estimate | Add missing Standard rates in **Settings → Pricing**. Fast usage needs a multiplier in the bundled price book. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | Price changes cannot be saved | Correct the marked fields. If saving failed, the draft remains available to retry or discard. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |

@@ -9,7 +9,7 @@
   <a href="README.zh-CN.md"><kbd>简体中文</kbd></a>
 </p>
 
-一个 macOS 菜单栏应用，用来查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估成本。
+在 macOS 菜单栏查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估 API 成本。
 
 [安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#编辑模型费率) · [开发](#构建与开发) · [排查](#排查)
 
@@ -19,16 +19,16 @@ https://github.com/user-attachments/assets/282deb0c-982c-4ec2-a60f-85b9e319e09f
 
 ## 功能
 
-- 查看会话与每周额度、重置时间、使用节奏和可用 Credits 余额，刷新失败时保留上次有效读数。
-- 按日期和模型查看本地 token 用量与预估成本，将同一账号的 OpenCode 和 Pi Agent OAuth 用量计入 Codex。
-- 估算 Standard、Fast 和长上下文成本，支持 GPT-6 Astra，可在设置中编辑 Standard 费率。
+- 查看会话与每周额度、重置时间、使用节奏和 Codex Credits 余额。刷新失败时保留上次有效读数。
+- 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode 和 Pi Agent OAuth 用量计入总计。
+- 用内置价格表估算 Standard、Fast 和长上下文成本，在设置中编辑 Standard 费率。
 - 将最近 7 天或 30 天的已保存用量导出为离线 HTML 报告，支持中英文切换。
 
 ## 安装
 
-要求 **macOS 14+**。预编译版本和 Homebrew cask 支持 **Apple Silicon**，无需安装 Xcode 或 Swift。
+要求 macOS 14 或更新版本。预编译版本和 Homebrew cask 支持 Apple Silicon，无需安装 Xcode 或 Swift。
 
-额度统计使用同一台 Mac 上由 Codex CLI、Claude Code 或两者创建的 OAuth 凭据，不支持仅使用 API key 的会话。
+额度统计需要在同一台 Mac 上通过 Codex CLI 或 Claude Code 完成 OAuth 登录。API key 无法提供额度读数。
 
 ### Homebrew
 
@@ -57,7 +57,7 @@ brew uninstall --zap --cask quota-bar
 
 从 [GitHub Releases](https://github.com/softmaxe/quota-bar/releases) 下载 `arm64` ZIP，解压后将 `QuotaBar.app` 移到 `/Applications`。
 
-每个 ZIP 都有对应的 `.sha256` 文件。解压前请先校验：
+将对应的 `.sha256` 文件下载到 ZIP 所在目录。解压前在该目录运行：
 
 ```bash
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
@@ -73,16 +73,18 @@ xattr -dr com.apple.quarantine /Applications/QuotaBar.app
 
 ## 首次使用
 
-QuotaBar 复用官方 CLI 创建的 OAuth 凭据，没有单独的登录流程。请通过需要统计的 CLI 登录：
+通过需要统计的 CLI 登录。QuotaBar 复用其凭据，没有单独的登录流程：
 
 ```bash
 codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 **Codex** 或 **Claude**。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔或[编辑模型费率](#编辑模型费率)。
+打开 QuotaBar，点击菜单栏图标，选择 Codex 或 Claude。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔或[编辑模型费率](#编辑模型费率)。
 
-未登录时，点击 **Copy command**，在终端中执行复制的命令，登录后返回并点击 **Check sign-in**。复制命令不会自动执行它。
+未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
+
+QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.codex/auth.json`。Claude 凭据来自 macOS 钥匙串中的 `Claude Code-credentials` 条目。
 
 读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 
@@ -94,11 +96,11 @@ claude
 
 ### 额度窗口与使用节奏
 
-每个有限额的窗口显示剩余百分比和重置时间。在重置时间控件中选择 **Countdown** 或 **Clock time**，可同时切换两个有限额窗口的显示方式。无限额会话显示 **Session ∞** 和 **No limit**。额度用尽的窗口会在使用节奏摘要的位置显示 **Limit reached**。展开 **Usage pace details**，可查看额度储备、缺口和使用余量。
+每个额度窗口显示剩余百分比和重置时间。选择 **Countdown** 或 **Clock time**，可同时切换两个窗口的重置时间显示方式。无限额会话显示 **Session ∞** 和 **No limit**，额度用尽时显示 **Limit reached**。
 
-QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，每周节奏也会结合历史记录。额度采样保留 56 天。
+展开 **Usage pace details**，可查看额度储备、缺口和使用余量。QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
 
-检测到会话或每周额度重置后，下次打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
+检测到额度重置后，打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
 
 <details>
 <summary>额度重置动画</summary>
@@ -134,13 +136,13 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 
 ### 菜单栏与快捷键
 
-菜单栏机器人显示当前供应商的状态。会话或每周额度任一剩余 10% 或更少时，机器人变红。刷新失败时图标变淡，还没有数据时更淡。
+菜单栏机器人显示当前供应商的状态。任一额度窗口剩余 10% 或更少时，机器人变红，已过重置时间的窗口除外。刷新失败时图标变淡，还没有数据时更淡。
 
 <p align="center">
   <img src="docs/images/menu-bar-icons.png" width="440" alt="菜单栏机器人的几种状态：正常、快用完、刷新失败、无数据">
 </p>
 
-图标来自 Material Design Icons 的 `robot-excited`。卡片内容过长时可滚动，底部操作保持可见，重新打开时详情收起。以下快捷键在卡片打开时生效：
+图标来自 Material Design Icons 的 `robot-excited`。卡片内容过长时可滚动，重新打开时详情收起。以下快捷键在卡片打开时生效：
 
 | 快捷键 | 操作 |
 | --- | --- |
@@ -150,31 +152,26 @@ QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗�
 | ⌘Q | 退出，有未保存的费率修改时先询问 |
 | Esc | 关闭卡片 |
 
-<details>
-<summary>鼠标、标签切换与动效细节</summary>
-
-供应商标签等宽，文字位置固定。选中项使用高亮底色和加粗名称，悬停时显示较浅的高亮。左键在按下时开关卡片，右键在松开时开关。按钮在按下时响应，展开的多行内容同时出现。减弱动态效果会关闭自定义过渡，保留按下和选中状态。
-
-</details>
-
 ## 成本统计方式
 
-QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
+QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率计价的成本。这些数字不代表订阅费用或实际账单。
 
 ### 查看图表
 
-在图表上方选择 **Tokens** 或 **Cost**。图表覆盖十个日历日，总计覆盖最近 30 天。悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可查看当天的模型明细，并固定日期。重新打开卡片可恢复悬停预览，切换单位会保留选中日期。
+在图表上方选择 **Tokens** 或 **Cost**。图表显示最近 10 个日历日，摘要显示当天和最近 30 天的总计。
 
-缺失信息与零用量会分别显示：
+悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可查看当天的模型明细，并固定日期。重新打开卡片可恢复悬停预览，切换单位会保留选中日期。
+
+图表区分零用量和缺失数据：
 
 | 显示 | 含义 |
 | --- | --- |
-| **0** 或 **$0.00** | 已扫描的数值在当前显示精度下为零，图表中该日期显示为实心灰色短条。缺失费率会另行标注。 |
-| **—**、**Not scanned yet** | 该日期晚于最后一次完成扫描的日期，且还没有记录到用量。图表中该日期显示为虚线短条。 |
-| **—**、**Unpriced** | 已记录用量，但无法根据模型费率估算成本。在 Cost 视图中，图表里该日期显示为虚线短条。 |
+| **0** 或 **$0.00** | 数值在当前显示精度下为零，图表显示实心灰色短条。缺失费率会另行标注。 |
+| **—**、**Not scanned yet** | 该日期晚于最后一次完成扫描的日期，且没有记录到用量。图表显示虚线短条。 |
+| **—**、**Unpriced** | 已记录用量，但没有适用的费率。Cost 视图显示虚线短条。 |
 | **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
 
-在 **Settings → Pricing** 中补充费率后，该模型的所有已记录用量都会重新计算成本。
+缺失的 Standard 费率可在 **Settings → Pricing** 中补充。Fast 用量需要内置价格表提供倍率，不能通过手动覆盖费率补充。
 
 <details>
 <summary>图表日期预览</summary>
@@ -194,16 +191,18 @@ QuotaBar 从本地会话数据计算 token 和成本，不使用计费 API。
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`、`$XDG_DATA_HOME/opencode/opencode.db`，或 `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions`，或 `~/.pi/agent/sessions` |
 
-OpenCode 的 `openai` 用量和 Pi Agent 的 `openai-codex` 助手用量，仅在通过 OAuth 使用当前 Codex 账号时计入 Codex 总计。其他供应商、API key 会话和账号不匹配的数据不计入。这些本地用量不会改变额度条。
+对于 OpenCode 的 `openai` 用量和 Pi Agent 的 `openai-codex` 助手用量，QuotaBar 会将各应用当前的 OAuth 凭据与 Codex 账号匹配，匹配成功后计入 Codex 总计。其他供应商、API key 凭据和账号不匹配的数据不计入。这些总计不会改变额度条。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
 
 ### 历史记录
 
-首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存日期、模型、来源、token 数量和预估成本，以及去重标识和扫描位置。删除源会话或重启应用不会丢失已保存用量，超出图表和总计时间范围的记录也会保留。扫描前就被删除的会话无法恢复。
+首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存 token 数量、日期、模型、来源和计价档位，以及记录 ID 和扫描位置。成本在读取或导出用量时计算。
+
+删除源会话或重启应用不会丢失已保存用量，超过 30 天的记录也会保留。扫描前就被删除的会话无法恢复。
 
 <details>
 <summary>增量扫描与数据库迁移</summary>
 
-Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent 按稳定 ID 去重。Codex 标准 rollout UUID 能避免归档移动或复制后被重复计算。QuotaBar 还会缓存 Codex 的当前模型、服务层级和最后一次 token 总计，所以长会话追加内容时不会重新处理前面的记录。
+Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent 按稳定 ID 去重。Codex rollout UUID 能避免归档移动或复制后被重复计算。
 
 扫描器升级时保留已记录的历史，不会从源日志重建。
 
@@ -211,13 +210,12 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ### 计价规则
 
-- Standard 费率依次使用手动覆盖和内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。
-- 价格表按生效日期分段记录每个模型的费率。每天的用量按当天生效的费率计价，调价和促销结束后，过去的日期仍使用当时的费率。
-- Codex Fast 用量使用价格表中该时段的 Fast 倍率，不受手动覆盖影响；没有 Fast 倍率的模型在 Fast 模式下不计价。
+- Standard 用量优先使用已保存的覆盖费率，否则使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。
+- 价格表按生效日期分段记录费率，每天的用量使用当天的费率。覆盖费率会替换该模型所有已记录日期的 Standard 费率。
+- Codex Fast 用量使用价格表中的费率乘以该时段的 Fast 倍率，不受手动覆盖影响。没有 Fast 倍率时，用量保持未计价状态。
+- 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。QuotaBar 在扫描时记录这一归类，之后修改阈值不会重新归类已保存的用量。
 
-成本在显示或导出时根据已记录的 token 计算。手动费率作用于该模型的所有已记录日期，包括之前未计价的用量。更新费率的方法见[维护价格表](docs/pricing.md)。
-
-成本是估算值。供应商计费规则、缓存计算方式和价格变化，都可能让结果与账单不同。
+供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法见[维护价格表](docs/pricing.md)。
 
 ## 导出用量报告
 
@@ -230,15 +228,15 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/report-export.png" width="760" alt="离线用量报告的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-报告是一个可离线打开、切换中英文的 HTML 文件。它包含 SQLite 中所有符合条件的 Codex、Claude、OpenCode 和 Pi Agent 用量，展示每日用量、按模型汇总的成本、token 与缓存构成，以及可展开的数据表。
+报告是一个可离线打开、切换中英文的 HTML 文件，包含所选时段已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。图表和可展开的数据表展示每日用量、按模型汇总的成本，以及 token 与缓存构成。
 
-导出只读取已保存的数据，不刷新额度、重扫日志或请求网络。它用与菜单相同的费率为已保存的 token 计价；未计价 token 不计入成本，费率缺失会明确标注。缓存成本已计入总额，报告只显示缓存 token 数量，不单独列出缓存成本。
+导出只读取已保存的数据，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。总额包含缓存成本，报告列出缓存 token 数量，不单独列出缓存成本。
 
-文件包含时段、生成时间、时区、来源、模型、token 数量、未计价 token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。数据格式与开发验证见[用量报告导出](docs/usage-report-export.md)。
+文件包含时段、生成时间、时区、来源、模型、token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。完整的数据格式与验证方法见[用量报告导出](docs/usage-report-export.md)。
 
 ## 编辑模型费率
 
-打开 **Settings → Pricing**。费率单位是每百万 token 的美元价格。展开模型行，可以编辑一小时缓存写入费率、长上下文阈值，以及超过阈值后的费率。
+打开 **Settings → Pricing**，覆盖 Standard 费率，单位为美元/百万 token。展开模型行，可以编辑一小时缓存写入费率、长上下文阈值及超过阈值后的费率。
 
 列表显示受支持的 API 模型和本地发现的未计价模型。点击列标题排序；恢复默认顺序后，API 模型回到固定顺序，**Others** 按用量排序。
 
@@ -246,7 +244,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/settings-pricing.png" width="620" alt="价格设置，包含可编辑费率、展开的长上下文字段和各模型的操作菜单">
 </p>
 
-- 费率须为非负有限数值，可选的长上下文阈值须为正整数 token 数量；填写了任一超过阈值后的费率时，阈值为必填项。无效字段会禁用 **Save**。
+- 费率须为非负有限数值，长上下文阈值须为正整数 token 数量。保存超过阈值后的费率前，须先填写阈值。无效字段会禁用 **Save**。
 - **Save** 显示进度和结果。应用运行期间，保存失败、切换标签页或关闭设置窗口都会保留草稿。**Discard** 恢复上次保存的费率。
 - 移除覆盖费率时，在模型的 **…** 菜单选择 **Restore default rate** 或 **Clear custom rate**，然后保存。
 - 有有效草稿时退出，可选择 **Save**、**Discard** 或 **Cancel**。无效草稿须修正后才能保存。
@@ -260,11 +258,13 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 </details>
 
-保存后的费率作用于该模型的所有已记录用量，包括之前未计价的用量。恢复默认后，每一天都回到价格表中对应日期的费率。修改阈值只影响保存后扫描的请求；已记录的请求保留扫描时判定的长上下文归类。
+保存后，该模型已记录的 Standard 用量会重新计价，包括之前未计价的部分。恢复默认后，重新使用价格表中对应日期的费率。Fast 用量始终使用价格表。修改阈值只影响新扫描的请求。
 
 ## 隐私与网络
 
-QuotaBar 会读取 CLI 凭据并解析本地会话记录，但不会直接写入 CLI 的凭据存储。手动恢复 Claude 凭据时，QuotaBar 可以启动 Claude Code，由后者更新自己的凭据。统计会使用时间、模型、token 数量、稳定记录 ID，以及匹配 OAuth 会话所需的账号 ID。提示词、回复和推理文本不会写入 QuotaBar 用量历史或上传。
+QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据存储。手动恢复 Claude 凭据时，QuotaBar 可以启动 Claude Code，由后者更新自己的凭据。
+
+统计会使用时间、模型、token 数量、记录 ID，以及匹配 OAuth 会话所需的账号 ID。QuotaBar 不会将提示词、回复和推理文本写入用量历史或上传。
 
 <details>
 <summary>本地存储路径</summary>
@@ -282,7 +282,9 @@ Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`�
 
 ## 构建与开发
 
-构建需要完整的 Xcode 及 Swift 6 工具链。项目使用 Swift Package Manager，没有 Xcode 工程。构建命令通过 `Scripts/swift.sh` 执行，默认使用 `/Applications/Xcode.app/Contents/Developer`，不会修改全局 `xcode-select` 设置。
+构建需要完整的 Xcode 及 Swift 6 工具链。项目使用 Swift Package Manager。`Scripts/swift.sh` 默认使用 `/Applications/Xcode.app/Contents/Developer`，不会修改全局 `xcode-select` 设置。
+
+发布工作流要求 macOS 27 SDK，以支持 macOS 27 的原生菜单栏会话。使用较旧 SDK 的本地构建会采用旧版菜单栏处理方式。最低运行系统仍为 macOS 14。
 
 ```bash
 git clone https://github.com/softmaxe/quota-bar.git
@@ -330,13 +332,13 @@ make build
 .build/debug/QuotaBar --preview-interface loaded
 ```
 
-将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。预览可以与已安装的应用同时运行，因此菜单栏会多出一个图标。
+将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
 
-`make demo-video` 将 [docs/demo](docs/demo) 中的演示片渲染为 `build/demo/quotabar-demo-en.mp4` 和 `quotabar-demo-zh.mp4`，每个都小于 GitHub 附件的 10 MB 上限。渲染需要 ffmpeg、Node.js、`playwright-cli` 和 Brave（或设置 `CHROMIUM_PATH`），首次运行会下载乐器采样。新渲染的视频需作为附件上传到 GitHub 评论中，再替换两版 README 顶部的视频链接。
+`make demo-video` 将 [docs/demo](docs/demo) 渲染为 `build/demo/quotabar-demo-en.mp4` 和 `build/demo/quotabar-demo-zh.mp4`。渲染需要 ffmpeg、Node.js、`playwright-cli` 和 Brave。设置 `CHROMIUM_PATH` 可使用其他 Chromium 浏览器。首次运行会下载乐器采样。新视频需作为附件上传到 GitHub 评论中，再替换两版 README 顶部的链接。
 
-生成素材需要 ffmpeg。HTML 报告截图还需要 Node.js、Playwright 和 Chromium 浏览器，详见[报告开发验证](docs/usage-report-export.md#verification)。[实施记录](docs/design-implementation.md)列出了渲染命令和验证范围。
+生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report-export.md#verification)和[渲染说明](docs/design-implementation.md)。
 
 </details>
 
@@ -345,7 +347,9 @@ make build
 
 如需生成测试包，在仓库的 **Actions** 页面手动运行 **Build and Release**，并选择要构建的分支。手动运行会将开发版 ZIP 和 SHA-256 文件上传为工作流产物，不会发布 Release。
 
-发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，标签决定应用版本号，无需另外提交版本号改动；本地 `make app` 构建使用最新的发布标签。工作流会运行测试、打包 `arm64` ZIP、校验签名、版本、架构和校验和，发布 GitHub Release，然后更新 `softmaxe/homebrew-tap`。标签发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。确认 **Release** 和 **Update Homebrew tap** 都完成后，发布流程才算结束。
+发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
+
+工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 
@@ -356,7 +360,7 @@ make build
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充模型费率，该模型的已记录用量也会一并计价。 |
+| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充 Standard 费率。Fast 用量需要内置价格表提供倍率。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 费率修改无法保存 | 修正标记的字段。保存失败时草稿仍会保留，可以重试或放弃修改。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
@@ -367,7 +371,7 @@ make build
 - 预编译 Release 和 Homebrew cask 仅支持 Apple Silicon。Release ZIP 使用 ad hoc 签名，且未经过公证。
 - Claude 凭据恢复只会在手动 **Refresh** 后运行。如果仍需交互式登录，需要自行打开 Claude Code。
 - 成本来自本地日志，不是账单。
-- OpenCode 不记录每条历史请求的认证方式。QuotaBar 无法还原它未运行期间发生的 OAuth → API key → OAuth 切换。
+- OpenCode 不记录每条历史请求的认证方式。QuotaBar 无法还原它未运行期间从 OAuth 改为 API key、再改回 OAuth 的切换。
 
 ## 许可证与致谢
 
