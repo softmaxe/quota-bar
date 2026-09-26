@@ -45,11 +45,11 @@ struct PricingRow: Identifiable, Equatable {
     let group: PricingGroup
     let model: String
     /// True when the model appears in the local logs, which is what makes a row worth editing.
-    let seenInLogs: Bool
+    var seenInLogs: Bool
     /// True when the price book already prices this model.
     let hasDefault: Bool
     /// Total tokens seen in local logs. The settings list uses this to put active models first.
-    let usageTokens: Int
+    var usageTokens: Int
     /// Position among the models the rate card lists for settings, which the default order keeps.
     var settingsRank: Int?
 
@@ -165,6 +165,9 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var rows: [PricingRow] = []
     @Published private(set) var isLoading = true
     @Published private(set) var saveError: String?
+    @Published private(set) var usageReadError: String?
+    @Published private(set) var hasLoadedUsage = false
+    @Published private(set) var isReadingUsage = false
     @Published private(set) var externalScanStatuses: [String] = []
     @Published private(set) var hasUnsavedChanges = false
     @Published private(set) var validationErrors: [String: [PricingField: String]] = [:]
@@ -185,6 +188,7 @@ final class PricingEditorModel: ObservableObject {
     private var defaults: [String: ModelPricing] = [:]
     /// User overrides loaded with the current rate card, including models hidden from the table.
     private var loadedUserOverrides: [String: ModelPricing] = [:]
+    private var loadedBook: PriceBook = .bundled
     private var pendingRestores: Set<String> = []
     private var draftRevision = 0
     private let costService: CostService
@@ -196,22 +200,24 @@ final class PricingEditorModel: ObservableObject {
     /// Called after a successful save so the cards can re-price without waiting for a poll.
     var onSaved: (() -> Void)?
 
-    /// Stands in for the two things `load()` reads off the machine it is running on: the local
-    /// scan cache and the override file. Only `--dump-settings` passes one, so the pane it
-    /// renders shows made-up models at the built-in rates rather than whoever ran it.
+    /// Supplies usage and rates for settings dumps and app-model verification. The optional
+    /// read controls completion and failure without replacing the concrete SQLite adapter.
     struct PreviewFixtures {
         let usage: [Provider: [ModelUsageTotal]]
         let rateCard: RateCard
         let beforeCommit: (@MainActor () async -> Void)?
+        let readUsage: (@MainActor () async throws -> [Provider: [ModelUsageTotal]])?
 
         init(
             usage: [Provider: [ModelUsageTotal]],
             rateCard: RateCard = RateCard(),
-            beforeCommit: (@MainActor () async -> Void)? = nil
+            beforeCommit: (@MainActor () async -> Void)? = nil,
+            readUsage: (@MainActor () async throws -> [Provider: [ModelUsageTotal]])? = nil
         ) {
             self.usage = usage
             self.rateCard = rateCard
             self.beforeCommit = beforeCommit
+            self.readUsage = readUsage
         }
     }
 
@@ -232,47 +238,71 @@ final class PricingEditorModel: ObservableObject {
         guard !self.hasUnsavedChanges, self.saveStatus != .saving else { return }
 
         if let fixtures = self.fixtures {
-            await self.rebuild(rateCard: fixtures.rateCard)
+            await self.readUsage(reloading: fixtures.rateCard)
             return
         }
 
-        await self.rebuild(rateCard: RateCard.onDisk())
+        await self.readUsage(reloading: RateCard.onDisk())
         self.externalScanStatuses = await [
             self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
             self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
         ].compactMap { $0 }
     }
 
-    private func rebuild(rateCard: RateCard) async {
-        let startedAtRevision = self.draftRevision
-        // A reload behind an already-drawn table replaces it in place; only a first fill has
-        // nothing to show meanwhile.
-        self.isLoading = self.rows.isEmpty
+    /// A retry refreshes only usage, so editing and saving remain independent of its result.
+    func retryUsage() async {
+        await self.readUsage(reloading: nil)
+    }
 
-        // The book alone is what a row would fall back to if its override were removed, which
-        // is what the Reset button has to restore.
+    private func readUsage(reloading rateCard: RateCard?) async {
+        guard !self.isReadingUsage else { return }
+        self.isReadingUsage = true
+        self.isLoading = self.rows.isEmpty
+        defer {
+            self.isReadingUsage = false
+            self.isLoading = false
+        }
+        let startedAtRevision = self.draftRevision
+        do {
+            let usageByProvider: [Provider: [ModelUsageTotal]]
+            if let fixtures = self.fixtures {
+                usageByProvider = try await fixtures.readUsage?() ?? fixtures.usage
+            } else {
+                let databaseURL = self.costService.databaseURL
+                usageByProvider = try await Task.detached {
+                    var usage: [Provider: [ModelUsageTotal]] = [:]
+                    for provider in Provider.allCases {
+                        usage[provider] = try CostUsageReader.knownModelUsage(
+                            provider: provider, databaseURL: databaseURL
+                        )
+                    }
+                    return usage
+                }.value
+            }
+            if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
+            if let rateCard, self.draftRevision == startedAtRevision,
+               !self.hasUnsavedChanges, self.saveStatus != .saving {
+                self.replaceRows(usage: usageByProvider, rateCard: rateCard)
+            } else {
+                self.mergeUsage(usageByProvider)
+            }
+            self.hasLoadedUsage = true
+            self.usageReadError = nil
+        } catch {
+            // A failed refresh leaves both the table and the last successful counts intact.
+            if self.rows.isEmpty, let rateCard {
+                self.replaceRows(usage: [:], rateCard: rateCard)
+            }
+            self.usageReadError = error.localizedDescription
+        }
+    }
+
+    private static func buildRows(
+        usage usageByProvider: [Provider: [ModelUsageTotal]],
+        rateCard: RateCard
+    ) -> (rows: [PricingRow], defaults: [String: ModelPricing]) {
         let fallback = rateCard.withoutOverrides
         let today = DayKey.today()
-
-        // Read on a connection of its own rather than through the service's actor, which a log
-        // scan can hold for seconds at a time.
-        let databaseURL = self.costService.databaseURL
-        let usageByProvider: [Provider: [ModelUsageTotal]]
-        if let fixtures = self.fixtures {
-            usageByProvider = fixtures.usage
-        } else {
-            usageByProvider = await Task.detached {
-                var usage: [Provider: [ModelUsageTotal]] = [:]
-                for provider in Provider.allCases {
-                    usage[provider] = CostUsageReader.knownModelUsage(
-                        provider: provider,
-                        databaseURL: databaseURL
-                    )
-                }
-                return usage
-            }.value
-        }
-
         var built: [PricingRow] = []
         var defaults: [String: ModelPricing] = [:]
 
@@ -323,18 +353,61 @@ final class PricingEditorModel: ObservableObject {
         // Provider sections stay stable; active models rise within their section by actual usage.
         built.sort(by: PricingSortPolicy.defaultOrder)
 
-        // The usage query suspends this task. A keystroke during that wait owns the visible draft.
-        if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
-        guard self.draftRevision == startedAtRevision, !self.hasUnsavedChanges,
-              self.saveStatus != .saving else { return }
+        return (built, defaults)
+    }
+
+    private func replaceRows(usage: [Provider: [ModelUsageTotal]], rateCard: RateCard) {
+        let built = Self.buildRows(usage: usage, rateCard: rateCard)
+        self.loadedBook = rateCard.book
         self.loadedUserOverrides = rateCard.overrides
-        self.defaults = defaults
-        self.setRows(built)
-        self.originalRows = Dictionary(uniqueKeysWithValues: built.map { ($0.id, $0) })
+        self.defaults = built.defaults
+        self.setRows(built.rows)
+        self.originalRows = Dictionary(uniqueKeysWithValues: built.rows.map { ($0.id, $0) })
         self.pendingRestores.removeAll()
         self.validationErrors = [:]
         self.hasUnsavedChanges = false
-        self.isLoading = false
+    }
+
+    private func mergeUsage(_ usage: [Provider: [ModelUsageTotal]]) {
+        // A Save may have completed while the read waited. Use the current override layer.
+        let rateCard = RateCard(book: self.loadedBook, overrides: self.loadedUserOverrides)
+        let built = Self.buildRows(usage: usage, rateCard: rateCard)
+        var merged: [PricingRow] = []
+        var originals: [String: PricingRow] = [:]
+        for row in built.rows {
+            if let index = self.indexByID[row.id], var original = self.originalRows[row.id] {
+                var draft = self.rows[index]
+                draft.seenInLogs = row.seenInLogs
+                draft.usageTokens = row.usageTokens
+                original.seenInLogs = row.seenInLogs
+                original.usageTokens = row.usageTokens
+                merged.append(draft)
+                originals[row.id] = original
+            } else {
+                merged.append(row)
+                originals[row.id] = row
+            }
+        }
+        for var row in self.rows where originals[row.id] == nil {
+            guard var original = self.originalRows[row.id],
+                  original != row || self.pendingRestores.contains(row.id) else { continue }
+            // A model may no longer be visible, but its pending edit or Restore still belongs
+            // to the user. Retain it and its saved rates while updating the usage metadata.
+            let matching = (usage[row.provider] ?? []).filter {
+                rateCard.modelID(for: $0.model, provider: row.provider) == row.model
+            }
+            row.seenInLogs = !matching.isEmpty
+            row.usageTokens = matching.reduce(0) { $0 + $1.tokens }
+            original.seenInLogs = row.seenInLogs
+            original.usageTokens = row.usageTokens
+            merged.append(row)
+            originals[row.id] = original
+        }
+        self.defaults.merge(built.defaults) { _, new in new }
+        self.originalRows = originals
+        self.setRows(merged.sorted(by: PricingSortPolicy.defaultOrder))
+        // Rates, validation, pending Restores, and save feedback have not changed. In
+        // particular, metadata recovery must not clear a separate save error or Saved state.
     }
 
     /// Rows and the id lookup move together: the table asks for a row by id once per field, so
@@ -376,6 +449,7 @@ final class PricingEditorModel: ObservableObject {
         self.hasUnsavedChanges = false
         self.saveStatus = .idle
         self.isLoading = false
+        self.hasLoadedUsage = true
     }
 #endif
 
@@ -501,7 +575,9 @@ final class PricingEditorModel: ObservableObject {
             self.hasUnsavedChanges = false
             self.lastSavedAt = Date()
             self.loadedUserOverrides = overrides
-            self.originalRows = Dictionary(uniqueKeysWithValues: savedRows.map { ($0.id, $0) })
+            // Editing is blocked while saving, but usage recovery may have updated metadata
+            // or added a clean row during invalidation. Preserve that current baseline.
+            self.originalRows = Dictionary(uniqueKeysWithValues: self.rows.map { ($0.id, $0) })
             self.pendingRestores.removeAll()
             self.validationErrors = [:]
             self.saveStatus = .saved

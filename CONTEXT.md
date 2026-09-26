@@ -4,6 +4,10 @@ A macOS menu bar app that shows Codex and Claude quota and estimates API cost fr
 
 ## Pricing
 
+**Recorded usage**:
+Token usage saved from local sessions, attributed to its producing tool, model, and local-calendar day. Its Fast and Long-context tier attributes are retained, while cost is derived from the Rate card when read.
+_Avoid_: stored cost, cached cost
+
 **Price book**:
 The list of published model rates that ships with the app, each model's rates split into dated periods.
 _Avoid_: pricing table, catalog, built-in table

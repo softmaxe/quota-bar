@@ -8,16 +8,22 @@ import Foundation
 /// the same rows concurrently with the writer.
 public enum CostUsageReader {
     /// Models seen in local logs with their cumulative token totals, most-used first.
-    /// Returns nothing when no scan has ever run, which is also what an absent cache means.
+    /// An absent cache means no recorded usage. Existing but unreadable caches throw.
     public static func knownModelUsage(
         provider: Provider,
         databaseURL: URL = CostService.defaultDatabaseURL
-    ) -> [ModelUsageTotal] {
-        guard let cache = try? CostCache(path: databaseURL, readOnly: true),
-              let models = try? cache.distinctModelUsage(provider: provider) else { return [] }
-        return models.compactMap { entry in
-            guard entry.model != CostPricing.unknownModel else { return nil }
-            return ModelUsageTotal(model: entry.model, tokens: entry.tokens)
+    ) throws -> [ModelUsageTotal] {
+        do {
+            _ = try FileManager.default.attributesOfItem(atPath: databaseURL.path)
+        } catch {
+            let error = error as NSError
+            if error.domain == NSCocoaErrorDomain,
+               [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
+                return []
+            }
+            throw error
         }
+        return try RecordedUsageReader(databaseURL: databaseURL).modelUsage(provider: provider)
+            .filter { $0.model != CostPricing.unknownModel }
     }
 }

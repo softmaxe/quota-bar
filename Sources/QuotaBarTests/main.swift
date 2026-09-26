@@ -201,6 +201,7 @@ do {
 
 PriceBookTests.run()
 await CostTests.run()
+await RecordedUsageTests.run()
 await ScannerRegressionTests.run()
 await RateLimitTests.run()
 await ClaudeRefreshTests.run()

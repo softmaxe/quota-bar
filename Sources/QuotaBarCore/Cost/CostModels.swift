@@ -50,6 +50,18 @@ public enum CostUsageSource: String, Sendable, Hashable {
     case piAgent
     case claude
 
+    /// External agents use the Codex provider's rates and usage grouping.
+    package var provider: Provider { self == .claude ? .claude : .codex }
+
+    package var displayOrder: Int {
+        switch self {
+        case .codex: 0
+        case .claude: 1
+        case .openCode: 2
+        case .piAgent: 3
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .codex: "Codex"

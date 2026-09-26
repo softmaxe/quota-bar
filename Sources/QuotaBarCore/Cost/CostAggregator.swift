@@ -5,14 +5,14 @@ import Foundation
 enum CostAggregator {
     static func snapshot(
         provider: Provider,
-        cache: CostCache,
+        reader: RecordedUsageReader,
         rateCard: RateCard,
         windowDays: Int = 30,
         now: Date = Date(),
         calendar: Calendar = .current
     ) throws -> CostSnapshot {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
-        let rows = try cache.aggregate(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar))
+        let rows = try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar))
 
         var days: [CostDay] = []
         // Cost and token totals per model across the whole window, for picking the top model.

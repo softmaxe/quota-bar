@@ -71,6 +71,25 @@ struct PricingSettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let error = self.model.usageReadError {
+                HStack(alignment: .top, spacing: 8) {
+                    Label(
+                        self.model.hasLoadedUsage
+                            ? "Usage refresh failed. Showing the last available usage."
+                            : "Local usage is unavailable. Rates can still be edited.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(error)
+                    Spacer(minLength: 0)
+                    Button(self.model.isReadingUsage ? "Retrying…" : "Retry") {
+                        Task { await self.model.retryUsage() }
+                    }
+                    .disabled(self.model.isReadingUsage)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
             // Three equal columns split by the panel's own margin, so the air between the buttons
             // and at either end of the row is the same. The row keeps the header's own symmetric
             // margins rather than the table's reserved scroller gutter, because the copy above it
@@ -314,7 +333,9 @@ struct PricingSettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     HStack(spacing: 6) {
-                        if row.usageTokens > 0 {
+                        if !self.model.hasLoadedUsage {
+                            Text("Usage unavailable")
+                        } else if row.usageTokens > 0 {
                             Text("\(Formatters.tokens(row.usageTokens)) tokens")
                         } else {
                             Text("Not used locally")

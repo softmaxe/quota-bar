@@ -19,6 +19,18 @@ enum UsageReportTests {
         self.check("usage report validates bounded numeric data") {
             try self.validatesInputsAndNumbers()
         }
+        self.check("usage report keeps committed WAL data visible and uncommitted writes invisible") {
+            try self.readsCommittedWAL()
+        }
+        self.check("usage report uses one snapshot for schema and all source rows") {
+            try self.keepsSchemaAndRowsInOneSnapshot()
+        }
+        self.check("usage report preserves raw and aggregate validation") {
+            try self.validatesRawAndAggregatedTokens()
+        }
+        self.check("usage report propagates execution failure after earlier source rows") {
+            try self.rejectsPartialReads()
+        }
     }
 
     private static func aggregatesSupportedSources() throws {
@@ -283,6 +295,106 @@ enum UsageReportTests {
                 )
             }
         }
+    }
+
+    private static func readsCommittedWAL() throws {
+        let fixture = try RecordedUsageFixture()
+        let walURL = URL(fileURLWithPath: fixture.databaseURL.path + "-wal")
+        let attributes = try FileManager.default.attributesOfItem(atPath: walURL.path)
+        Harness.expect((attributes[.size] as? NSNumber)?.intValue ?? 0 > 0,
+                       "committed fixture data remains in a nonempty WAL with its writer open")
+        try fixture.execute("""
+            BEGIN IMMEDIATE;
+            INSERT INTO codex_day VALUES ('uncommitted', '\(fixture.day())', 'pending', 0, 0, 700, 0, 0, 0, 0);
+            """)
+        let report = try self.read(fixture)
+        Harness.expectEqual(report.totals.total, 102, "export sees committed usage from the open writer's WAL")
+        Harness.expect(!report.models.contains { $0.name == "pending" }, "uncommitted writes remain invisible")
+        try fixture.execute("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
+        Harness.expectEqual(try self.read(fixture).totals.total, 103,
+                            "the writer remains usable after the read-only export")
+    }
+
+    private static func keepsSchemaAndRowsInOneSnapshot() throws {
+        let fixture = try RecordedUsageFixture()
+        let report = try UsageReportReader.read(
+            databaseURL: fixture.databaseURL, windowDays: 4, now: fixture.now,
+            calendar: fixture.calendar, rateCard: try RecordedUsageFixture.rateCard(),
+            afterSchemaDiscovery: {
+                // This writer commits after production schema discovery and before its token queries.
+                try fixture.execute("""
+                    BEGIN IMMEDIATE;
+                    UPDATE codex_day SET input = input + 100 WHERE path = 'codex-a';
+                    DROP TABLE pi_message;
+                    COMMIT;
+                    """)
+            }
+        )
+        Harness.expectEqual(report.totals.total, 102, "one report retains the pre-commit values from every source")
+        Harness.expectEqual(report.sources.first { $0.name == "Pi Agent" }?.total, 6,
+                            "schema discovery and token queries see the same version of a dropped source")
+        let next = try self.read(fixture)
+        Harness.expectEqual(next.totals.total, 196, "a later export sees the complete new committed state")
+        Harness.expect(!next.sources.contains { $0.name == "Pi Agent" }, "a later export sees the dropped source")
+    }
+
+    private static func validatesRawAndAggregatedTokens() throws {
+        let fixtures: [(String, String)] = [
+            ("negative raw values cannot cancel", "('a', -1, 0, 0, 0, 0), ('b', 2, 0, 0, 0, 0)"),
+            ("one-hour violations cannot cancel or be clamped", "('a', 0, 0, 1, 2, 0), ('b', 0, 0, 2, 0, 0)"),
+            ("fractional values cannot aggregate to a valid integer", "('a', 0.5, 0, 0, 0, 0), ('b', 0.5, 0, 0, 0, 0)"),
+            ("nonnumeric values cannot decode as zero", "('a', 'invalid', 0, 0, 0, 0)"),
+            ("group sums must stay within the safe integer range", "('a', 9007199254740991, 0, 0, 0, 0), ('b', 1, 0, 0, 0, 0)"),
+            ("disjoint bucket totals must stay within the safe integer range", "('a', 9007199254740991, 1, 0, 0, 0)"),
+        ]
+        for (label, values) in fixtures {
+            let fixture = try RecordedUsageFixture(seed: false)
+            try fixture.execute("""
+                WITH raw(path, input, output, cache_write, cache_write_1h, cache_read) AS (VALUES \(values))
+                INSERT INTO codex_day SELECT path, '\(fixture.day())', 'bad', 0, 0,
+                    input, output, cache_write, cache_write_1h, cache_read FROM raw;
+                """)
+            Harness.expectThrows(label) { _ = try self.read(fixture) }
+        }
+
+        let fixture = try RecordedUsageFixture(seed: false)
+        try fixture.execute("""
+            INSERT INTO codex_day VALUES
+                ('safe', '\(fixture.day())', 'safe', 0, 0, 9007199254740991, 0, 0, 0, 0),
+                ('old-invalid', '\(fixture.day(-4))', 'bad', 0, 0, -1, 0, 0, 0, 0),
+                ('future-invalid', '\(fixture.day(1))', 'bad', 0, 0, -1, 0, 0, 0, 0);
+            INSERT INTO opencode_part VALUES
+                ('excluded-invalid', 0, 0, '\(fixture.day())', 'bad', 0, 0, -1, 0, 0, 0, 0);
+            """)
+        Harness.expectEqual(try self.read(fixture).totals.total, 9_007_199_254_740_991,
+                            "export validates only included rows in its bounded date window")
+        try fixture.execute("""
+            INSERT INTO pi_message VALUES ('one-more', 1, '\(fixture.day())', 'other', 0, 1, 0, 0, 0, 0);
+            """)
+        Harness.expectThrows("cross-source presentation totals retain safe integer checks") { _ = try self.read(fixture) }
+
+        let malformed = try RecordedUsageFixture(seed: false)
+        try malformed.execute("DROP TABLE pi_message; CREATE VIEW pi_message AS SELECT * FROM codex_day;")
+        Harness.expectThrows("supported views fail even without rows in the window") { _ = try self.read(malformed) }
+    }
+
+    private static func rejectsPartialReads() throws {
+        let fixture = try RecordedUsageFixture()
+        try fixture.addOverflow(source: .piAgent)
+        do {
+            _ = try self.read(fixture)
+            Harness.expect(false, "SQLite execution failure must not return earlier source results")
+        } catch UsageReportReaderError.queryFailed(let message) {
+            Harness.expect(message.contains("integer overflow"), "export propagates the SQLite stepping error")
+        }
+        try fixture.execute("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
+        Harness.expectEqual(try self.read(fixture).totals.total, 102, "export recovers after the failed source is repaired")
+    }
+
+    private static func read(_ fixture: RecordedUsageFixture) throws -> UsageReportSnapshot {
+        try UsageReportReader.read(databaseURL: fixture.databaseURL, windowDays: 4,
+                                   now: fixture.now, calendar: fixture.calendar,
+                                   rateCard: try RecordedUsageFixture.rateCard())
     }
 
     private static var calendar: Calendar {
