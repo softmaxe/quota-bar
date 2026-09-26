@@ -23,7 +23,7 @@ VERIFIERS := \
 	pricing-model-filter \
 	report-export
 
-.PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
+.PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets demo-video clean
 
 build:
 	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)
@@ -63,6 +63,10 @@ kill:
 ## Re-render every image the README links to. Needs ffmpeg.
 readme-assets:
 	Scripts/readme_assets.sh
+
+## Render the README demo films with their score into build/demo/. Needs ffmpeg and Brave.
+demo-video:
+	Scripts/demo_video.sh
 
 ## Assemble a double-clickable QuotaBar.app under build/.
 app:

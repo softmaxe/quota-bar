@@ -13,11 +13,9 @@
 
 [安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#编辑模型费率) · [开发](#构建与开发) · [排查](#排查)
 
-<p align="center">
-  <img src="docs/images/hero.png" width="620" alt="使用示例数据渲染的 Claude 和 Codex 额度卡片">
-</p>
+https://github.com/user-attachments/assets/282deb0c-982c-4ec2-a60f-85b9e319e09f
 
-截图和动画使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
+演示视频、截图和动画使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
 
 ## 功能
 
@@ -89,6 +87,10 @@ claude
 读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
 
 ## 额度统计方式
+
+<p align="center">
+  <img src="docs/images/hero.png" width="620" alt="使用示例数据渲染的 Claude 和 Codex 额度卡片">
+</p>
 
 ### 额度窗口与使用节奏
 
@@ -311,6 +313,7 @@ make app
 | `make benchmark-cost PROVIDER=claude` | 使用相同的离线价格测试 Claude 扫描性能。 |
 | `make logs` | 持续显示 `com.quotabar.app` 的日志。 |
 | `make readme-assets` | 重新生成截图、状态示例和 GIF。 |
+| `make demo-video` | 渲染 README 演示视频及其配乐。 |
 | `make clean` | 删除构建产物。 |
 
 `make probe` 会输出账号和用量元数据，分享前请先检查内容。
@@ -330,6 +333,8 @@ make build
 将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。预览可以与已安装的应用同时运行，因此菜单栏会多出一个图标。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
+
+`make demo-video` 将 [docs/demo](docs/demo) 中的演示片渲染为 `build/demo/quotabar-demo-en.mp4` 和 `quotabar-demo-zh.mp4`，每个都小于 GitHub 附件的 10 MB 上限。渲染需要 ffmpeg、Node.js、`playwright-cli` 和 Brave（或设置 `CHROMIUM_PATH`），首次运行会下载乐器采样。新渲染的视频需作为附件上传到 GitHub 评论中，再替换两版 README 顶部的视频链接。
 
 生成素材需要 ffmpeg。HTML 报告截图还需要 Node.js、Playwright 和 Chromium 浏览器，详见[报告开发验证](docs/usage-report-export.md#verification)。[实施记录](docs/design-implementation.md)列出了渲染命令和验证范围。
 

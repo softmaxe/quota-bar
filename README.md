@@ -13,11 +13,9 @@ A macOS menu bar app for checking Codex and Claude quota, reset times, local tok
 
 [Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
-<p align="center">
-  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards rendered with sample data">
-</p>
+https://github.com/user-attachments/assets/f46bd989-6a1d-4de5-a88a-94dbd85d790f
 
-Screenshots and animations use sample data. The app interface is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
+The demo film, screenshots, and animations use sample data. The app interface is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
 ## Features
 
@@ -89,6 +87,10 @@ If a provider is not signed in, choose **Copy command**, run the copied command 
 Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
 
 ## How quota tracking works
+
+<p align="center">
+  <img src="docs/images/hero.png" width="620" alt="Claude and Codex quota cards rendered with sample data">
+</p>
 
 ### Quota windows and usage pace
 
@@ -311,6 +313,7 @@ make app
 | `make benchmark-cost PROVIDER=claude` | Benchmark Claude with the same offline pricing. |
 | `make logs` | Stream logs for `com.quotabar.app`. |
 | `make readme-assets` | Rebuild screenshots, state examples, and GIFs. |
+| `make demo-video` | Render the README demo films and their score. |
 | `make clean` | Remove build output. |
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
@@ -330,6 +333,8 @@ make build
 Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history, with no credential access, provider requests, or real log scans. Choose **Quit** in the preview to clear its temporary data. It can run alongside the installed app, so an additional menu bar icon is expected.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
+
+`make demo-video` renders the demo film in [docs/demo](docs/demo) to `build/demo/quotabar-demo-en.mp4` and `quotabar-demo-zh.mp4`, each under GitHub's 10 MB attachment limit. It needs ffmpeg, Node.js, `playwright-cli`, and Brave (or `CHROMIUM_PATH`), and downloads its instrument samples once. Upload new renders as attachments in a GitHub comment and replace the video links at the top of both READMEs.
 
 Asset generation requires ffmpeg. The HTML report image also needs Node.js, Playwright, and a Chromium browser; see [report development checks](docs/usage-report-export.md#verification). The [implementation notes](docs/design-implementation.md) describe the rendering commands and verification limits.
 
