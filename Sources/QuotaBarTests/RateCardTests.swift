@@ -68,6 +68,11 @@ enum RateCardTests {
     private static func datedRates(_ book: PriceBook) {
         let card = RateCard(book: book)
         Harness.expectEqual(
+            card.cost(of: Self.million, model: "ox-dated", provider: .codex, day: "2020-01-01", longContext: false),
+            4,
+            "the opening period covers every day before the next one"
+        )
+        Harness.expectEqual(
             card.cost(of: Self.million, model: "ox-dated", provider: .codex, day: "2026-11-21", longContext: false),
             4,
             "the day before a new period keeps the old rates"

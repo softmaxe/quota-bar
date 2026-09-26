@@ -7,7 +7,6 @@ enum PriceBookTests {
     static func run() {
         Self.bundledBookIsComplete()
         Self.reportsStaleSources()
-        Self.datedLookup()
         Self.publishedRates()
         Self.rejectsMalformedBooks()
     }
@@ -63,64 +62,6 @@ enum PriceBookTests {
                   age > limit else { continue }
             print("note: \(provider.rawValue) prices were last checked \(age) days ago against \(section.source)")
         }
-    }
-
-    private static func datedLookup() {
-        let book: PriceBook
-        do {
-            book = try PriceBook(data: Data("""
-                {
-                  "schemaVersion": 1,
-                  "providers": {
-                    "codex": {
-                      "source": "https://example.com", "checkedAt": "2026-09-01",
-                      "models": [
-                        {
-                          "id": "dated-model",
-                          "aliases": ["dated"],
-                          "periods": [
-                            { "rates": { "input": 4, "output": 20, "thresholdTokens": 100, "inputAbove": 8 }, "fastMultiplier": 2 },
-                            { "from": "2026-11-22", "rates": { "input": 5, "output": 30 } }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-                """.utf8))
-        } catch {
-            Harness.expect(false, "dated fixture book threw: \(error)")
-            return
-        }
-        Harness.expectEqual(
-            book.rates(for: "dated-model", provider: .codex, day: "2020-01-01")?.input,
-            4,
-            "the opening period covers every day before the next one"
-        )
-        Harness.expectEqual(
-            book.rates(for: "dated-model", provider: .codex, day: "2026-11-21")?.input,
-            4,
-            "the day before a new period keeps the old rates"
-        )
-        Harness.expectEqual(
-            book.rates(for: "dated-model", provider: .codex, day: "2026-11-22")?.input,
-            5,
-            "a period applies from its first day"
-        )
-        Harness.expectEqual(
-            book.rates(for: "dated-model", provider: .codex, day: "2026-11-21", fast: true),
-            ModelPricing(input: 8, output: 40, thresholdTokens: 100, inputAbove: 16),
-            "Fast multiplies every rate and keeps the threshold"
-        )
-        Harness.expect(
-            book.rates(for: "dated-model", provider: .codex, day: "2026-11-22", fast: true) == nil,
-            "a period without a Fast multiplier leaves Fast unpriced"
-        )
-        Harness.expect(
-            book.rates(for: "dated-model", provider: .claude, day: "2026-11-22") == nil,
-            "models are looked up within their own provider"
-        )
-        Harness.expectEqual(book.canonicalID(for: "dated", provider: .codex), "dated-model", "aliases resolve")
     }
 
     /// The published rates in force on a fixed day. A price change adds a period instead of
