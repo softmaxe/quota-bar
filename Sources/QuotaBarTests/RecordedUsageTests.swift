@@ -5,11 +5,61 @@ enum RecordedUsageTests {
     static func run() async {
         do {
             try self.dailyUsage()
+            try self.modelUsage()
             try self.queryFailures()
             try self.menuNumericPolicy()
             try await self.menuProjectionAndRecovery()
         } catch {
             Harness.expect(false, "recorded usage tests threw: \(error)")
+        }
+    }
+
+    private static func modelUsage() throws {
+        let fixture = try RecordedUsageFixture()
+        let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+        let models = try reader.modelUsage(provider: .codex)
+        Harness.expectEqual(Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) }), [
+            "priced-model": 68, "old-model": 1_000, "future-model": 1_000,
+            "unpriced-model": 14, "zero-model": 0,
+        ], "model usage includes all history, eligible sources, both tiers, and recorded zero")
+        Harness.expectEqual(try reader.modelUsage(provider: .claude), [ModelUsageTotal(model: "claude-model", tokens: 20)],
+                            "Claude cumulative usage stays separate")
+        Harness.expectEqual(models.map(\.tokens), models.map(\.tokens).sorted(by: >),
+                            "model usage remains ordered by cumulative tokens")
+        try fixture.execute("""
+            INSERT INTO pi_message VALUES
+            ('unknown', 1, '\(fixture.day())', '\(CostPricing.unknownModel)', 0, 99, 0, 0, 0, 0);
+            """)
+        let visible = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL)
+        Harness.expectEqual(Dictionary(uniqueKeysWithValues: visible.map { ($0.model, $0.tokens) }),
+                            Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) }),
+                            "Pricing excludes the unknown-model sentinel")
+
+        let absent = fixture.directory.appendingPathComponent("absent/usage.sqlite")
+        Harness.expectEqual(try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: absent), [],
+                            "a genuinely absent database is normal empty Pricing usage")
+        Harness.expect(!FileManager.default.fileExists(atPath: absent.path), "Pricing does not create its absent database")
+        Harness.expectThrows("an existing path that cannot open as SQLite must not become empty success") {
+            _ = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.directory)
+        }
+        let corrupt = fixture.directory.appendingPathComponent("corrupt.sqlite")
+        try Data("not a database".utf8).write(to: corrupt)
+        Harness.expectThrows("corrupt Pricing usage must not become empty success") {
+            _ = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: corrupt)
+        }
+        for (source, seed) in [(CostUsageSource.codex, false), (.piAgent, true)] {
+            let failing = try RecordedUsageFixture(seed: seed)
+            try failing.addOverflow(source: source)
+            do {
+                _ = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: failing.databaseURL)
+                Harness.expect(false, "model query stepping failure returned empty or partial success")
+            } catch RecordedUsageReaderError.queryFailed(let message) {
+                Harness.expect(message.contains("integer overflow"), "model usage propagates SQLite stepping failures")
+            }
+        }
+        try fixture.execute("DROP TABLE pi_message")
+        Harness.expectThrows("Pricing continues to require every provider source table") {
+            _ = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL)
         }
     }
 
@@ -80,6 +130,9 @@ enum RecordedUsageTests {
             .dailyUsage(provider: .codex, fromDay: fixture.day())
         Harness.expectEqual(rows[fixture.day()]?.values.first?.input, large,
                             "menu reads do not inherit export's JavaScript safe-integer limit")
+        Harness.expectEqual(try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL),
+                            [ModelUsageTotal(model: "large", tokens: large)],
+                            "Pricing does not inherit export's JavaScript safe-integer limit")
     }
 
     private static func menuProjectionAndRecovery() async throws {
