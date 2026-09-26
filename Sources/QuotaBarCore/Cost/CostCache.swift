@@ -460,13 +460,8 @@ final class CostCache {
 
     // MARK: - Reads
 
-    /// Identifies one priced bucket: a source/model pair at either pricing tier.
-    struct ModelTier: Hashable {
-        let source: CostUsageSource
-        let model: String
-        let longContext: Bool
-        let isFast: Bool
-    }
+    /// Borrows the writer connection after its scan has finished.
+    var recordedUsageReader: RecordedUsageReader { RecordedUsageReader(database: self.db) }
 
     /// The per-provider table. A `switch` rather than a ternary, so a third provider fails to
     /// compile instead of being filed silently under Claude's.
@@ -474,77 +469,6 @@ final class CostCache {
         switch provider {
         case .codex: "codex_day"
         case .claude: "claude_message"
-        }
-    }
-
-    /// Day -> (model, tier) -> tokens, for days at or after `fromDay`. Pricing them is the
-    /// reader's job, so the stored rows never go stale when a rate changes.
-    func aggregate(provider: Provider, fromDay: String) throws -> [String: [ModelTier: TokenTotals]] {
-        var result: [String: [ModelTier: TokenTotals]] = [:]
-        try self.readUsage(
-            table: Self.table(for: provider),
-            source: provider == .codex ? .codex : .claude,
-            supportsFast: provider == .codex,
-            includedOnly: false,
-            fromDay: fromDay,
-            into: &result
-        )
-        // The other agents write into Codex's column, so their tables fold into the same days.
-        guard provider == .codex else { return result }
-        for extra in [
-            (table: "opencode_part", source: CostUsageSource.openCode, supportsFast: true),
-            (table: "pi_message", source: CostUsageSource.piAgent, supportsFast: false),
-        ] {
-            try self.readUsage(
-                table: extra.table,
-                source: extra.source,
-                supportsFast: extra.supportsFast,
-                includedOnly: true,
-                fromDay: fromDay,
-                into: &result
-            )
-        }
-        return result
-    }
-
-    /// One day/model/tier rollup of a usage table, summed into `result`. Every usage table has the
-    /// same shape; `supportsFast` covers the ones without a fast tier and `includedOnly` the ones
-    /// whose rows can be excluded from the total.
-    private func readUsage(
-        table: String,
-        source: CostUsageSource,
-        supportsFast: Bool,
-        includedOnly: Bool,
-        fromDay: String,
-        into result: inout [String: [ModelTier: TokenTotals]]
-    ) throws {
-        let fastExpression = supportsFast ? "is_fast" : "FALSE"
-        let stmt = try self.prepared("""
-            SELECT day, model, long_context, \(fastExpression),
-                   SUM(input), SUM(output), SUM(cache_write), SUM(cache_write_1h), SUM(cache_read)
-            FROM \(table)
-            WHERE \(includedOnly ? "included = 1 AND " : "")day >= ?
-            GROUP BY day, model, long_context, \(fastExpression)
-            """)
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, fromDay, -1, sqliteTransient)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let day = String(cString: sqlite3_column_text(stmt, 0))
-            let tier = ModelTier(
-                source: source,
-                model: String(cString: sqlite3_column_text(stmt, 1)),
-                longContext: sqlite3_column_int64(stmt, 2) != 0,
-                isFast: sqlite3_column_int64(stmt, 3) != 0
-            )
-            let tokens = TokenTotals(
-                input: Int(sqlite3_column_int64(stmt, 4)),
-                output: Int(sqlite3_column_int64(stmt, 5)),
-                cacheWrite: Int(sqlite3_column_int64(stmt, 6)),
-                cacheWrite1h: Int(sqlite3_column_int64(stmt, 7)),
-                cacheRead: Int(sqlite3_column_int64(stmt, 8))
-            )
-            // One tier can land in more than one table, so the day's figure is their sum.
-            result[day, default: [:]][tier, default: TokenTotals()] += tokens
         }
     }
 

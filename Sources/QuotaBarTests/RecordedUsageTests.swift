@@ -1,0 +1,110 @@
+import Foundation
+import QuotaBarCore
+
+enum RecordedUsageTests {
+    static func run() async {
+        do {
+            try self.dailyUsage()
+            try self.queryFailures()
+            try self.menuNumericPolicy()
+            try await self.menuProjectionAndRecovery()
+        } catch {
+            Harness.expect(false, "recorded usage tests threw: \(error)")
+        }
+    }
+
+    private static func dailyUsage() throws {
+        let fixture = try RecordedUsageFixture()
+        let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+        let codex = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3))
+        Harness.expectEqual(Set(codex.keys), Set([fixture.day(-3), fixture.day(-2), fixture.day(), fixture.day(1)]),
+                            "daily usage keeps recorded zero and future days but does not invent missing days")
+        let earlier = codex[fixture.day(-2)]?.values.first
+        Harness.expectEqual(earlier, TokenTotals(input: 15, output: 3, cacheWrite: 6, cacheWrite1h: 2, cacheRead: 4),
+                            "daily usage sums every token column in matching buckets")
+        let today = codex[fixture.day()] ?? [:]
+        Harness.expectEqual(Set(today.keys.map(\.source)), Set([.codex, .openCode, .piAgent]),
+                            "Codex groups eligible sources while retaining their identity")
+        Harness.expectEqual(today.count, 4, "Standard and Fast retain separate recorded buckets")
+        Harness.expectEqual(today.first { $0.key.source == .codex && $0.key.isFast }?.value.total, 33,
+                            "Fast recorded tokens survive grouping")
+        Harness.expect(today.keys.contains { $0.source == .codex && $0.isFast && $0.longContext },
+                       "the recorded Long-context tier survives even below the current threshold")
+        Harness.expectEqual(today.values.reduce(0) { $0 + $1.total }, 54,
+                            "excluded external rows do not count")
+        Harness.expectEqual(codex[fixture.day(-3)]?.values.first?.total, 0, "recorded zero usage survives")
+
+        let claude = try reader.dailyUsage(provider: .claude, fromDay: fixture.day(-3))
+        Harness.expectEqual(Set(claude.values.flatMap { $0.keys.map(\.source) }), Set([.claude]),
+                            "Claude stays in its own provider grouping")
+        Harness.expectEqual(claude.values.flatMap { $0.values }.reduce(0) { $0 + $1.total }, 20,
+                            "Claude includes both stored tiers")
+        Harness.expect(claude.values.flatMap { $0.keys }.allSatisfy { !$0.isFast },
+                       "sources without Fast keep their Standard attribute")
+    }
+
+    private static func queryFailures() throws {
+        for (source, seed) in [(CostUsageSource.codex, false), (.codex, true), (.piAgent, true)] {
+            let fixture = try RecordedUsageFixture(seed: seed)
+            try fixture.addOverflow(source: source)
+            let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+            do {
+                _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3))
+                Harness.expect(false, "\(source) execution failure returned empty or partial daily usage")
+            } catch RecordedUsageReaderError.queryFailed(let message) {
+                Harness.expect(message.contains("integer overflow"),
+                               "SQLite stepping failure propagates, including after prior sources completed")
+            }
+        }
+
+        let fixture = try RecordedUsageFixture(seed: false)
+        try fixture.execute("DROP TABLE pi_message")
+        let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+        Harness.expectThrows("menu reads continue to require every provider source table") {
+            _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day())
+        }
+        let absent = fixture.directory.appendingPathComponent("absent.sqlite")
+        Harness.expectThrows("the shared reader propagates open failures") {
+            _ = try RecordedUsageReader(databaseURL: absent)
+        }
+        Harness.expect(!FileManager.default.fileExists(atPath: absent.path), "a read does not create a database")
+    }
+
+    private static func menuNumericPolicy() throws {
+        let fixture = try RecordedUsageFixture(seed: false)
+        let large = 9_007_199_254_740_992
+        try fixture.execute("""
+            INSERT INTO codex_day VALUES ('large', '\(fixture.day())', 'large', 0, 0, \(large), 0, 0, 0, 0);
+            """)
+        let rows = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+            .dailyUsage(provider: .codex, fromDay: fixture.day())
+        Harness.expectEqual(rows[fixture.day()]?.values.first?.input, large,
+                            "menu reads do not inherit export's JavaScript safe-integer limit")
+    }
+
+    private static func menuProjectionAndRecovery() async throws {
+        let fixture = try RecordedUsageFixture(now: Date(), calendar: .current)
+        let service = CostService(databaseURL: fixture.databaseURL, env: fixture.environment,
+                                  rateCard: try RecordedUsageFixture.rateCard())
+        let first = await service.refresh(.codex)
+        Harness.expectEqual(first?.windowTokens, 1_082, "menu retains its lower date bound and future-day usage")
+        Harness.expectEqual(first?.latestTokens, 1_000, "future usage remains the latest menu day")
+        Harness.expectClose(first?.windowCostUSD, 695, "menu prices Standard, Fast, and recorded Long-context usage")
+        Harness.expectClose(first?.todayCostUSD, 667, "menu prices today's matching source grouping")
+        Harness.expectEqual(first?.topModel, "priced-model", "menu ranks models by priced usage")
+        Harness.expectEqual(first?.hasUnpricedTokens, true, "menu retains Unpriced usage")
+        Harness.expectEqual(first?.days.first(where: { $0.dayKey == fixture.day() })?.unpricedTokens, 14,
+                            "unpriced external usage contributes tokens without a cost")
+        Harness.expectEqual(first?.days.first(where: { $0.dayKey == fixture.day(-3) })?.tokens.total, 0,
+                            "menu retains a recorded zero day")
+
+        try fixture.addOverflow(source: .piAgent)
+        let failed = await service.refresh(.codex)
+        Harness.expect(failed == nil, "CostService reports late query failure instead of a partial success")
+        try fixture.execute("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
+        try fixture.execute("UPDATE pi_message SET input = 7 WHERE key = 'pi-a'")
+        let recovered = await service.refresh(.codex)
+        Harness.expectEqual(recovered?.windowTokens, 1_083, "CostService can read again after query failure")
+        Harness.expectClose(recovered?.windowCostUSD, 696, "a successful retry returns the current complete snapshot")
+    }
+}

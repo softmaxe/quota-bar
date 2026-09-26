@@ -68,7 +68,7 @@ public actor CostService {
 
             return try CostAggregator.snapshot(
                 provider: provider,
-                cache: cache,
+                reader: cache.recordedUsageReader,
                 rateCard: rateCard
             )
         } catch {
