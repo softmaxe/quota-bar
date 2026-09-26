@@ -34,7 +34,7 @@ The export does not contain prompts, responses, reasoning text, credentials, acc
 
 The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. Export does not scan the original session files or reassess eligibility.
 
-The export prices each saved row the same way the menu does: at the price book's rates for that row's day, under any manual overrides. Changing a manual rate therefore changes the cost of every recorded day of that model. The result remains an estimate and may differ from the provider's bill.
+The export uses the same pricing rules as the menu. Standard usage uses the price book's rates for each recorded day, unless a manual override replaces them. An override applies to every recorded day of its model. Codex Fast usage ignores overrides and uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
 
 Rows without a usable price contribute tokens but no cost. The report labels a fully unpriced total as **Unpriced** and a mixed total as a partial estimate. Cache-read and cache-write costs are part of each cost total, but the report does not break them out as separate USD values. It shows cache token counts instead.
 
