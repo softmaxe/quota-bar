@@ -5,8 +5,8 @@ import { RoughDrawing } from "../../rough/RoughDrawing";
 import { PALETTE } from "../../theme";
 
 /** A paper ledger beside the app, not an invented app window or control. */
-export const PriceBookLedger: React.FC<{language: Language; progress: number; textProgress: number}> =
-  ({language, progress, textProgress}) => <g transform="translate(95 254) scale(0.84) rotate(-2 330 175)">
+export const PriceBookLedger: React.FC<{language: Language; progress: number; textProgress: number; markerProgress: number}> =
+  ({language, progress, textProgress, markerProgress}) => <g transform="translate(95 254) scale(0.84) rotate(-2 330 175)">
     <path d="M 26 18 L 630 8 L 641 335 L 14 345 Z" fill={PALETTE.cream} opacity={progress} />
     <RoughDrawing seed={8340} progress={progress}
       options={{stroke: PALETTE.pencil, strokeWidth: 2.2, roughness: 1.15}}
@@ -24,4 +24,7 @@ export const PriceBookLedger: React.FC<{language: Language; progress: number; te
       </g>)}
       <text x={85} y={306} fontSize={27}>{COST_NOTES.note[language]}</text>
     </g>
+    <RoughDrawing seed={8314} progress={markerProgress}
+      options={{stroke: "#b13c35", strokeWidth: 3.5, roughness: 0.8}}
+      build={(g, o) => [g.line(83, 272, 597, 272, o)]} />
   </g>;
