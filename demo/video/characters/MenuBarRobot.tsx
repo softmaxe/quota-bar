@@ -49,10 +49,10 @@ export const MenuBarRobot: React.FC<MenuBarRobotProps> = ({
 
   const block = (bx: number, by: number, w: number, h: number, partSeed: number) => <>
     <rect x={bx + 1} y={by + 1} width={w - 2} height={h - 2} fill={PALETTE.paper} opacity={outlineP} />
-    <RoughDrawing seed={partSeed} progress={fillP}
+    <RoughDrawing seed={partSeed} progress={fillP} deps={[bx, by, w, h]}
       options={{stroke: "none", fill: hatch, fillStyle: "hachure", hachureGap: 5.5, fillWeight: 2.2, roughness: 1.2}}
       build={(g, o) => [g.rectangle(bx, by, w, h, o)]} />
-    <RoughDrawing seed={partSeed} options={options} progress={outlineP}
+    <RoughDrawing seed={partSeed} options={options} progress={outlineP} deps={[bx, by, w, h]}
       build={(g, o) => [g.rectangle(bx, by, w, h, o)]} />
   </>;
 
