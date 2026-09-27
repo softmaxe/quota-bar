@@ -22,3 +22,10 @@ DerivedData/
 # Secrets
 .env
 .env.*
+
+# Demo dependencies and local output
+demo/node_modules/
+demo/audio/.venv/
+demo/**/__pycache__/
+demo/**/.pytest_cache/
+demo/out/
