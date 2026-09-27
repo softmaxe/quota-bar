@@ -42,7 +42,15 @@ def render_layers(timeline: Timeline, sr: int) -> dict[str, np.ndarray]:
 
 def render_mix(timeline: Timeline, sr: int) -> np.ndarray:
     n = film_samples(timeline, sr)
-    return master(sum(render_layers(timeline, sr).values(), np.zeros((n, 2))))
+    mixed = master(sum(render_layers(timeline, sr).values(), np.zeros((n, 2))))
+    # Leave blank paper quiet even when a late cue has a long decay.
+    end = float(timeline["durationSeconds"])
+    fade_end = max(0.0, end - 1)
+    fade_start = max(0.0, fade_end - 0.75)
+    if fade_end > fade_start:
+        progress = np.clip((np.arange(n) / sr - fade_start) / (fade_end - fade_start), 0, 1)
+        mixed *= (0.5 + 0.5 * np.cos(np.pi * progress))[:, None]
+    return mixed
 
 
 def master(mix: np.ndarray, ceiling: float = 0.89) -> np.ndarray:
