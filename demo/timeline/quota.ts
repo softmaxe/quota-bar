@@ -1,4 +1,6 @@
 /** Quota readings use the existing demo fixtures; all percentages are remaining. */
+import { compactDuration, paceSummary } from "./pace";
+
 export type Provider = "Codex" | "Claude";
 export type RobotPose = "coding" | "alarmed" | "sweating" | "relieved" | "proud" | "waving";
 
@@ -92,13 +94,7 @@ export function storyNow(t: number): number {
 
 function countdown(resetsAt: number | null, now: number): string {
   if (resetsAt === null) return "";
-  const minutes = Math.max(0, Math.floor((resetsAt - now) / 60_000));
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor(minutes % 1440 / 60);
-  const rest = minutes % 60;
-  if (days) return `in ${days}d ${hours}h`;
-  if (hours) return `in ${hours}h ${rest}m`;
-  return `in ${rest}m`;
+  return `in ${compactDuration((resetsAt - now) / 1000)}`;
 }
 
 function atClock(reading: QuotaReading, nowMs: number): QuotaReading {
@@ -107,15 +103,13 @@ function atClock(reading: QuotaReading, nowMs: number): QuotaReading {
 }
 
 function afternoonClaude(t: number): QuotaReading {
-  if (t >= QUOTA_MOMENTS.exhausted) return QUOTA_READINGS.lowClaude;
   const session = t <= QUOTA_MOMENTS.runningLow
     ? mix(62, 10, t, QUOTA_MOMENTS.drainStart, QUOTA_MOMENTS.runningLow)
     : mix(10, 0, t, QUOTA_MOMENTS.runningLow, QUOTA_MOMENTS.exhausted);
   const weekly = mix(58, 31, t, QUOTA_MOMENTS.drainStart, QUOTA_MOMENTS.exhausted);
-  // Intermediate readings illustrate drainage; they do not invent a precise pace forecast.
   return {...QUOTA_READINGS.lowClaude,
-    session: {...QUOTA_READINGS.lowClaude.session, remainingPercent: session, summary: "Estimating usage pace…"},
-    weekly: {...QUOTA_READINGS.lowClaude.weekly, remainingPercent: weekly, summary: "Estimating usage pace…"}};
+    session: {...QUOTA_READINGS.lowClaude.session, remainingPercent: session},
+    weekly: {...QUOTA_READINGS.lowClaude.weekly, remainingPercent: weekly}};
 }
 
 export interface QuotaState {
@@ -134,12 +128,15 @@ export function quotaAt(t: number): QuotaState {
   const nowMs = storyNow(t);
   const codex = t < 12 ? QUOTA_READINGS.morning :
     t < QUOTA_MOMENTS.afternoon ? QUOTA_READINGS.cafeCodex : QUOTA_READINGS.lowCodex;
-  const claude = t < QUOTA_MOMENTS.afternoon ? QUOTA_READINGS.cafeClaude :
+  let claude: QuotaReading = t < QUOTA_MOMENTS.afternoon ? QUOTA_READINGS.cafeClaude :
     t < QUOTA_MOMENTS.reset ? afternoonClaude(t) :
-    t < QUOTA_MOMENTS.night ? {
-      ...QUOTA_READINGS.reset,
-      session: {...QUOTA_READINGS.reset.session, summary: "Estimating usage pace…"},
-    } : QUOTA_READINGS.night;
+    t < QUOTA_MOMENTS.night ? QUOTA_READINGS.reset : QUOTA_READINGS.night;
+  if (t >= QUOTA_MOMENTS.afternoon && t < QUOTA_MOMENTS.night) {
+    claude = {...claude,
+      session: claude.session && {...claude.session, summary: paceSummary(claude.session, "session", nowMs)},
+      weekly: claude.weekly && {...claude.weekly, summary: paceSummary(claude.weekly, "weekly", nowMs)},
+    };
+  }
   const readings: Record<Provider, QuotaReading> = {Codex: atClock(codex, nowMs), Claude: atClock(claude, nowMs)};
   const provider = providerAt(t);
   const reading = readings[provider];

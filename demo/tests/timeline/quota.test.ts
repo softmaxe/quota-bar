@@ -4,6 +4,7 @@ import path from "node:path";
 import {afterAll, describe, expect, it} from "vitest";
 import {exportTimeline} from "../../scripts/export-timeline";
 import {FILM} from "../../timeline";
+import {paceSummary} from "../../timeline/pace";
 import {
   isRunningLow, providerAt, QUOTA_MOMENTS, QUOTA_READINGS, quotaAt, tightestRemaining,
   type QuotaReading, type QuotaState, type QuotaWindow,
@@ -76,6 +77,32 @@ describe("the exported quota story", () => {
     expect(quotaAt(45).reading.session?.countdown).toBe("in 1h 20m");
     expect(quotaAt(37).reading.weekly?.countdown).toBe("in 1d 23h");
     expect(quotaAt(40).nowMs).toBe(Date.parse("2026-09-24T18:00:00+08:00"));
+  });
+
+  it("exports real pace summaries for consumed afternoon windows and a fresh reset", () => {
+    const samples = exported.quota.samples as QuotaState[];
+    const at = (time: number) => samples.find((sample) => sample.t === time)!.reading;
+    expect(at(QUOTA_MOMENTS.drainStart).session?.summary).toBe("Lasts until reset");
+    expect(at(QUOTA_MOMENTS.runningLow).session).toMatchObject({remainingPercent: 10, summary: "Empty in about 14m"});
+    expect(at(QUOTA_MOMENTS.exhausted - 1 / FILM.fps).session?.summary).toBe("Empty in about 0m");
+    expect(at(QUOTA_MOMENTS.exhausted).session?.summary).toBe("Limit reached");
+    for (const sample of samples.filter((sample) => sample.t >= 30 && sample.t < 40)) {
+      expect(sample.reading.session?.summary).not.toBe("Estimating usage pace…");
+      expect(sample.reading.weekly?.summary).toBe("Lasts until reset");
+    }
+    expect(at(QUOTA_MOMENTS.reset).session).toMatchObject({remainingPercent: 100, summary: "Estimating usage pace…"});
+    expect(at(QUOTA_MOMENTS.reset).weekly?.summary).toBe("Lasts until reset");
+    expect(exported.quota.readings.lowClaude.weekly.summary).toBe("Runs out in 1d 2h");
+  });
+
+  it("ends warming-up when either consumption or elapsed time reaches the app threshold", () => {
+    const now = Date.parse("2026-09-24T18:00:00+08:00");
+    const fresh = {...QUOTA_READINGS.reset.session, remainingPercent: 99, resetsAt: now + 299 * 60_000};
+    expect(paceSummary(fresh, "session", now)).toBe("Estimating usage pace…");
+    expect(paceSummary({...fresh, remainingPercent: 96}, "session", now)).toBe("Empty in about 24m");
+    expect(paceSummary({...fresh, resetsAt: now + 291 * 60_000}, "session", now)).toBe("Lasts until reset");
+    const week = {...QUOTA_READINGS.night.weekly, remainingPercent: 10, resetsAt: now + 3 * 86400_000};
+    expect(paceSummary(week, "weekly", now)).toBe("Runs out in 10h 40m");
   });
 });
 
