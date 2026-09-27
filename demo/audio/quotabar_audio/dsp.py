@@ -9,10 +9,6 @@ def seconds(n: float, sr: int) -> int:
     return int(round(n * sr))
 
 
-def exp_decay(length: int, tau_samples: float) -> np.ndarray:
-    return np.exp(-np.arange(length) / max(tau_samples, 1.0))
-
-
 def attack_release(length: int, attack: int, release: int) -> np.ndarray:
     env = np.ones(length)
     attack = min(attack, length)
@@ -22,20 +18,6 @@ def attack_release(length: int, attack: int, release: int) -> np.ndarray:
     if release:
         env[length - release :] = np.linspace(1.0, 0.0, release)
     return env
-
-
-def fade(x: np.ndarray, sr: int, attack: float = 0.0, release: float = 0.0) -> np.ndarray:
-    """`x` with a linear fade-in over `attack` seconds and fade-out over `release` seconds.
-
-    A short attack avoids a click at the start of a clip; a release lets it end in silence.
-    """
-    return x * attack_release(x.shape[0], seconds(attack, sr), seconds(release, sr))
-
-
-def normalise(x: np.ndarray, peak: float = 1.0) -> np.ndarray:
-    """`x` scaled so its largest absolute sample is `peak` (an all-zero `x` is returned scaled by `peak`)."""
-    current = float(np.max(np.abs(x))) if x.size else 0.0
-    return peak * x / (current or 1.0)
 
 
 def place(buffer: np.ndarray, clip: np.ndarray, at_sample: int, pan: float = 0.0) -> None:

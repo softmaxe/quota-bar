@@ -1,14 +1,12 @@
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { QUOTA_MOMENTS, QUOTA_READINGS, quotaAt } from "../../timeline/quota";
 import { Paper } from "../components/Paper";
 import { HAND_FONT } from "../fonts";
 import { RedPenArrow, RedPenCircle, RedPenStrike, RedPenTick } from "../annotations";
-import { CostCard, EditorWindow, ExportSettings, MenuBar, QuotaCard, ReportPage, type InterfaceQuotaReading } from ".";
+import { CostCard, EditorWindow, ExportSettings, MenuBar, QuotaCard, ReportPage } from ".";
 
-/** Sample quota fixtures used by the isolated interface preview. */
-const codex: InterfaceQuotaReading = { provider: "Codex", plan: "Plus", session: { remainingPercent: 71, summary: "Lasts until reset", countdown: "in 19m", resetLabel: "10:49 AM" }, weekly: { remainingPercent: 84, summary: "Lasts until reset", countdown: "in 4d 20h", resetLabel: "Tue 6:49 AM" } };
-const claude: InterfaceQuotaReading = { provider: "Claude", plan: "Pro", session: { remainingPercent: 62, summary: "Lasts until reset", countdown: "in 3h 40m", resetLabel: "2:10 PM", pace: { title: "Session · 12% in reserve", expected: "Expected 50% left now", headroom: "1.6× headroom at current pace" } }, weekly: { remainingPercent: 58, summary: "Runs out in 1d 18h", countdown: "in 2d 4h", resetLabel: "Sat 2:30 PM", pace: { title: "Weekly · 6% in deficit", expected: "Expected 64% left now", headroom: "0.8× headroom at current pace" } } };
-const exhausted: InterfaceQuotaReading = { provider: "Claude", plan: "Pro", session: { remainingPercent: 0, summary: "Limit reached", countdown: "in 2h 50m", resetLabel: "6:00 PM" }, weekly: { remainingPercent: 31, summary: "Runs out in 1d 2h", countdown: "in 1d 23h", resetLabel: "Sat 2:30 PM" } };
-const reset: InterfaceQuotaReading = { provider: "Claude", plan: "Pro", session: { remainingPercent: 100, summary: "Lasts until reset", countdown: "in 5h", resetLabel: "11:00 PM" }, weekly: { remainingPercent: 30, summary: "Lasts until reset", countdown: "in 1d 20h", resetLabel: "Sat 2:30 PM" } };
+const {cafeCodex: codex, cafeClaude: claude, lowClaude: exhausted} = QUOTA_READINGS;
+const reset = quotaAt(QUOTA_MOMENTS.reset).reading;
 
 export const INTERFACE_PREVIEW_STATES = [
   "Editor and menu bar", "Codex quota", "Claude pace details", "Reset date menu", "Limit reached", "Reset fill",

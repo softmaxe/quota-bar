@@ -18,13 +18,6 @@ def all_cues(timeline: Timeline) -> list[dict[str, Any]]:
     return sorted(cues, key=lambda c: c["at"])
 
 
-def beat(timeline: Timeline, key: str) -> dict[str, Any]:
-    for b in timeline["beats"]:
-        if b["key"] == key:
-            return b
-    raise KeyError(key)
-
-
 def film_samples(timeline: Timeline, sr: int) -> int:
     """Length of the Film in samples; every layer renders exactly this many."""
     return int(round(timeline["durationSeconds"] * sr))
