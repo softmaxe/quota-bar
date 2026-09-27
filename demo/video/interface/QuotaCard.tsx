@@ -32,7 +32,7 @@ const QuotaRow: React.FC<{ name: string; row: InterfaceQuotaWindow | null; y: nu
     const fill = 590 * Math.min(1, Math.max(0, (fillPercent ?? row.remainingPercent) / 100)) * Math.min(1, Math.max(0, barProgress));
     return <g>
       <Label x={30} y={y} size={26} weight={600}>{name}</Label>
-      <Label x={620} y={y} size={34} weight={600} anchor="end">{row.remainingPercent}% left</Label>
+      <Label x={620} y={y} size={34} weight={600} anchor="end">{Math.round(row.remainingPercent)}% left</Label>
       <rect x={30} y={y + 23} width={590} height={23} rx={5} fill="#e9e2d5" />
       {fill > 0 && <rect x={30} y={y + 23} width={fill} height={23} rx={5} fill={color} />}
       <RoughDrawing seed={seed} options={{ stroke: color, strokeWidth: 1.4, roughness: 0.7 }} deps={[y]}
