@@ -336,7 +336,7 @@ make build
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
 
-`make demo-video` 将 [docs/demo](docs/demo) 渲染为 `build/demo/quotabar-demo-en.mp4` 和 `build/demo/quotabar-demo-zh.mp4`。渲染需要 ffmpeg、Node.js、`playwright-cli` 和 Brave。设置 `CHROMIUM_PATH` 可使用其他 Chromium 浏览器。首次运行会下载乐器采样。新视频需作为附件上传到 GitHub 评论中，再替换两版 README 顶部的链接。
+`make demo-video` renders the [hand-drawn Film](demo/README.md) to `demo/out/quotabar-demo-en.mp4` and `demo/out/quotabar-demo-zh.mp4`, with PNG review frames in `demo/out/frames/`. It requires Node.js 22 or newer, `uv`, and ffmpeg. Install dependencies once with `npm ci --prefix demo` and `uv sync --project demo/audio`. Remotion provisions its own headless browser; all music and sound effects are synthesised in code. See the Film documentation for previews and checks. Upload approved videos as GitHub comment attachments before replacing the links at the top of both READMEs.
 
 生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report-export.md#verification)和[渲染说明](docs/design-implementation.md)。
 

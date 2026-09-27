@@ -1,4 +1,4 @@
-/** Preserved from docs/demo/ui.mjs before the old renderer is retired. */
+/** Sample local usage and offline-report data shared by both films. */
 export const USAGE_FIXTURES = {
   Claude: {
     tokens: [3, 5, 21, 33, 17, 26, 2, 33, 15, 37],

@@ -37,6 +37,17 @@ The menu bar robot in `Sources/QuotaBar/IconRenderer.swift` is the `robot-excite
 transcribed from its SVG path. Material Design Icons is distributed under the Apache License,
 Version 2.0: <https://www.apache.org/licenses/LICENSE-2.0>.
 
+The Film's Menu bar robot in `demo/video/characters/MenuBarRobot.tsx` is a hand-drawn
+adaptation of the same icon.
+
+## LXGW WenKai
+
+The Film embeds a web-font subset of [LXGW WenKai](https://github.com/lxgw/LxgwWenKai),
+copyright 2021-2026 LXGW and 2020 The Klee Project Authors. It is distributed under
+the SIL Open Font License, Version 1.1. The full copyright notices, license and
+additional permission for web-font subsets are retained in
+[`demo/video/public/fonts/OFL.txt`](demo/video/public/fonts/OFL.txt).
+
 ## Chart.js
 
 Offline usage reports embed [Chart.js](https://www.chartjs.org/) 4.5.1, distributed under the

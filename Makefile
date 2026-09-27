@@ -64,9 +64,9 @@ kill:
 readme-assets:
 	Scripts/readme_assets.sh
 
-## Render the README demo films with their score into build/demo/. Needs ffmpeg and Brave.
+## Render both README demo films and review frames into demo/out/. Needs Node.js, uv, and ffmpeg.
 demo-video:
-	Scripts/demo_video.sh
+	npm --prefix demo run build
 
 ## Assemble a double-clickable QuotaBar.app under build/.
 app:

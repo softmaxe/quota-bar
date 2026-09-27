@@ -31,7 +31,7 @@ const window = (remainingPercent: number, summary: string, countdown: string, re
   ({remainingPercent, summary, countdown, resetLabel, resetsAt, ...(pace ? {pace} : {})});
 const lasts = "Lasts until reset";
 
-/** Original sample facts, retained after the old browser demo is removed. */
+/** Sample quota readings shared by the story and interface previews. */
 export const QUOTA_READINGS = {
   morning: {provider: "Codex", plan: "Plus",
     session: window(88, lasts, "in 2h 59m", "10:49 AM", date(24, "10:49")),

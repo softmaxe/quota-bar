@@ -336,7 +336,7 @@ Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
 
-`make demo-video` renders [docs/demo](docs/demo) to `build/demo/quotabar-demo-en.mp4` and `build/demo/quotabar-demo-zh.mp4`. It requires ffmpeg, Node.js, `playwright-cli`, and Brave. Set `CHROMIUM_PATH` to use another Chromium browser. The first run downloads instrument samples. Upload new videos as attachments in a GitHub comment and replace the links at the top of both READMEs.
+`make demo-video` renders the [hand-drawn Film](demo/README.md) to `demo/out/quotabar-demo-en.mp4` and `demo/out/quotabar-demo-zh.mp4`, with PNG review frames in `demo/out/frames/`. It requires Node.js 22 or newer, `uv`, and ffmpeg. Install dependencies once with `npm ci --prefix demo` and `uv sync --project demo/audio`. Remotion provisions its own headless browser; all music and sound effects are synthesised in code. See the Film documentation for previews and checks. Upload approved videos as GitHub comment attachments before replacing the links at the top of both READMEs.
 
 Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report-export.md#verification) and [rendering notes](docs/design-implementation.md).
 
