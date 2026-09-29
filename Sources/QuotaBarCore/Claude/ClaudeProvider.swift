@@ -35,15 +35,8 @@ public enum ClaudeProvider {
         let credentials: ClaudeCredentials
         do {
             credentials = try credentialLoader()
-        } catch let error as ClaudeCredentialsError {
-            switch error {
-            case .keychainItemMissing, .missingOAuth, .missingAccessToken:
-                return .signedOut(error.localizedDescription)
-            case .keychainReadFailed, .decodeFailed:
-                return .failed(error.localizedDescription)
-            }
         } catch {
-            return .failed(error.localizedDescription)
+            return Self.credentialFailure(error)
         }
 
         if credentials.isExpired {
@@ -98,7 +91,7 @@ public enum ClaudeProvider {
         do {
             preRetryCredentials = try credentialLoader()
         } catch {
-            return .failed("Claude credential recovery could not reread credentials.")
+            return Self.credentialFailure(error)
         }
 
         if preRetryCredentials.accessToken != originalCredentials.accessToken {
@@ -128,7 +121,9 @@ public enum ClaudeProvider {
         do {
             postRefreshCredentials = try credentialLoader()
         } catch {
-            return .failed(Self.recoveryFailure(delegatedError))
+            // The current credential state takes precedence over the CLI's exit or timeout.
+            // If Claude Code cleared its credentials, another recovery attempt cannot sign in.
+            return Self.credentialFailure(error)
         }
 
         guard postRefreshCredentials.accessToken != originalCredentials.accessToken else {
@@ -171,6 +166,18 @@ public enum ClaudeProvider {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    private static func credentialFailure(_ error: Error) -> ProviderState {
+        if let error = error as? ClaudeCredentialsError {
+            switch error {
+            case .keychainItemMissing, .missingOAuth, .missingAccessToken:
+                return .signedOut(error.localizedDescription)
+            case .keychainReadFailed, .decodeFailed:
+                return .failed(error.localizedDescription)
+            }
+        }
+        return .failed(error.localizedDescription)
     }
 
     private static func recoveryFailure(_ delegatedError: Error?) -> String {
