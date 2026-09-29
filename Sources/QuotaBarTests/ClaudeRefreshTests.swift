@@ -95,6 +95,9 @@ enum ClaudeRefreshTests {
         await Self.manualRefreshDelegatesAfterUnauthorized()
         await Self.automaticRefreshDoesNotDelegate()
         await Self.manualRefreshStopsWhenDelegationDoesNotChangeCredentials()
+        await Self.manualRefreshReportsCredentialsClearedDuringDelegation()
+        await Self.credentialReloadErrors()
+        await Self.manualRefreshUsesCredentialsUpdatedBeforeTimeout()
         await Self.manualRefreshReportsCLIUnavailable()
         await Self.manualRefreshStopsAfterRetryUnauthorized()
         await Self.coordinatorPolicy()
@@ -234,6 +237,104 @@ enum ClaudeRefreshTests {
             reason.contains("did not update credentials"),
             "unchanged credentials explain that recovery did not update credentials"
         )
+    }
+
+    private static func manualRefreshReportsCredentialsClearedDuringDelegation() async {
+        let credentials = Self.credentials(accessToken: "stale-token", expiresIn: -60)
+        let fixture = ClaudeRefreshFixture(credentials: credentials)
+        let state = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: fixture),
+            gate: UsageRateLimitGate(),
+            interaction: .userInitiated,
+            credentialLoader: {
+                if fixture.delegatedRefreshCount > 0 {
+                    return try ClaudeCredentialsStore.parse(data: Data(
+                        #"{"claudeAiOauth":{"accessToken":""}}"#.utf8
+                    ))
+                }
+                return fixture.loadCredentials()
+            },
+            delegatedRefresher: {
+                fixture.recordDelegatedRefresh(to: credentials)
+                throw ClaudeDelegatedRefreshError.timedOut
+            }
+        )
+
+        Harness.expectEqual(fixture.delegatedRefreshCount, 1, "cleared credentials stop after one recovery attempt")
+        Harness.expectEqual(fixture.tokens, ["Bearer stale-token"], "cleared credentials are never retried")
+        guard case let .signedOut(reason) = state else {
+            if case let .failed(reason) = state {
+                Harness.expect(false, "cleared credentials must request sign-in instead of: \(reason)")
+            } else {
+                Harness.expect(false, "cleared credentials must request sign-in")
+            }
+            return
+        }
+        Harness.expect(reason.contains("sign in"), "cleared credentials explain how to sign in again")
+    }
+
+    private static func credentialReloadErrors() async {
+        let errors: [(ClaudeCredentialsError, Bool)] = [
+            (.keychainItemMissing, true),
+            (.missingOAuth, true),
+            (.missingAccessToken, true),
+            (.keychainReadFailed("test read failure"), false),
+            (.decodeFailed, false),
+        ]
+        // Credentials can disappear while the usage request or the delegated CLI is running.
+        for failedLoad in [2, 3] {
+            for (error, expectsSignedOut) in errors {
+                let credentials = Self.credentials(accessToken: "stale-token", expiresIn: -60)
+                let fixture = ClaudeRefreshFixture(credentials: credentials)
+                let state = await ClaudeProvider.fetch(
+                    transport: ClaudeRefreshTransport(fixture: fixture),
+                    gate: UsageRateLimitGate(),
+                    interaction: .userInitiated,
+                    credentialLoader: {
+                        let value = fixture.loadCredentials()
+                        if fixture.loadCount == failedLoad { throw error }
+                        return value
+                    },
+                    delegatedRefresher: {
+                        fixture.recordDelegatedRefresh(to: credentials)
+                        throw ClaudeDelegatedRefreshError.timedOut
+                    }
+                )
+
+                switch (state, expectsSignedOut) {
+                case let (.signedOut(reason), true), let (.failed(reason), false):
+                    Harness.expectEqual(reason, error.localizedDescription, "credential reload \(failedLoad) preserves \(error)")
+                default:
+                    Harness.expect(false, "credential reload \(failedLoad) misclassified \(error)")
+                }
+                Harness.expectEqual(
+                    fixture.delegatedRefreshCount, failedLoad == 2 ? 0 : 1,
+                    "a failed credential reload stops recovery immediately"
+                )
+                Harness.expectEqual(fixture.tokens.count, 1, "a failed credential reload never retries usage")
+            }
+        }
+    }
+
+    private static func manualRefreshUsesCredentialsUpdatedBeforeTimeout() async {
+        let fixture = ClaudeRefreshFixture(credentials: Self.credentials(accessToken: "stale-token", expiresIn: -60))
+        let fresh = Self.credentials(accessToken: "fresh-token", expiresIn: 3_600)
+        let state = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: fixture),
+            gate: UsageRateLimitGate(),
+            interaction: .userInitiated,
+            credentialLoader: { fixture.loadCredentials() },
+            delegatedRefresher: {
+                fixture.recordDelegatedRefresh(to: fresh)
+                throw ClaudeDelegatedRefreshError.timedOut
+            }
+        )
+
+        guard case .loaded = state else {
+            Harness.expect(false, "credentials updated before a CLI timeout still recover usage")
+            return
+        }
+        Harness.expectEqual(fixture.tokens, ["Bearer stale-token", "Bearer fresh-token"], "a CLI timeout does not discard new credentials")
     }
 
     private static func manualRefreshReportsCLIUnavailable() async {
