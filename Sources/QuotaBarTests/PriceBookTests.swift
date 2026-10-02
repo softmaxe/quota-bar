@@ -147,6 +147,30 @@ enum PriceBookTests {
         Harness.expectClose(opus55?.cacheWrite, 5, "claude-opus-5-5 five-minute cache-write rate")
         Harness.expectClose(opus55?.cacheRead, 0.2, "claude-opus-5-5 cache-read rate is 0.05x input")
         Harness.expectClose(opus55?.cacheWrite1hRate(longContext: false), 8, "claude-opus-5-5 one-hour cache-write rate is derived")
+
+        // Fast mode is 2x Standard, with the prompt-caching multipliers applied on top.
+        let claudeFast: [(id: String, rates: ModelPricing)] = [
+            ("claude-opus-5-5", ModelPricing(input: 8, output: 40, cacheWrite: 10, cacheRead: 0.4)),
+            ("claude-opus-5", ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1)),
+            ("claude-opus-4-8", ModelPricing(input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1)),
+            // Opus 4.6 accepts Fast requests but runs and bills them at Standard.
+            ("claude-opus-4-6", ModelPricing(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5)),
+        ]
+        for entry in claudeFast {
+            Harness.expectEqual(
+                rates(entry.id, .claude, fast: true),
+                entry.rates,
+                "\(entry.id) Fast rates match the published table"
+            )
+        }
+        Harness.expectClose(
+            rates("claude-opus-5-5", .claude, fast: true)?.cacheWrite1hRate(longContext: false),
+            16,
+            "claude-opus-5-5 Fast one-hour cache-write rate is 2x Fast input"
+        )
+        for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-4-5"] {
+            Harness.expect(rates(id, .claude, fast: true) == nil, "\(id) has no Fast price")
+        }
     }
 
     private static func rejectsMalformedBooks() {

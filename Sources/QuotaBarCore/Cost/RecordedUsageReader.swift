@@ -35,7 +35,7 @@ package final class RecordedUsageReader {
 
     static let sourceTables: [SourceTable] = [
         SourceTable(source: .codex, table: "codex_day", supportsFast: true, includedOnly: false),
-        SourceTable(source: .claude, table: "claude_message", supportsFast: false, includedOnly: false),
+        SourceTable(source: .claude, table: "claude_message", supportsFast: true, includedOnly: false),
         SourceTable(source: .openCode, table: "opencode_part", supportsFast: true, includedOnly: true),
         SourceTable(source: .piAgent, table: "pi_message", supportsFast: false, includedOnly: true),
     ]

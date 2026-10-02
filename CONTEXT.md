@@ -33,5 +33,5 @@ The higher rates a model charges when one request's input and cache tokens excee
 _Avoid_: above-threshold pricing
 
 **Fast**:
-Codex's priority service tier, billed as a multiple of the period's Standard rates.
+Codex's priority service tier or Claude's Fast mode, billed as a multiple of the period's Standard rates.
 _Avoid_: priority tier

@@ -47,8 +47,8 @@ enum UsageReportTests {
                       ('future', '2026-09-16', 'future-model', 0, 0, 1000, 0, 0, 0, 0);
 
                     INSERT INTO claude_message VALUES
-                      ('secret-key-a', 'private-path-c', '2026-09-14', 'claude/model', 0, 7, 1, 2, 2, 5),
-                      ('secret-key-b', 'private-path-d', '2026-09-15', 'claude/model', 1, 4, 0, 0, 0, 1);
+                      ('secret-key-a', 'private-path-c', '2026-09-14', 'claude/model', 0, 0, 7, 1, 2, 2, 5),
+                      ('secret-key-b', 'private-path-d', '2026-09-15', 'claude/model', 1, 0, 4, 0, 0, 0, 1);
 
                     INSERT INTO opencode_part VALUES
                       ('part-a', 1, 0, '2026-09-15', '\(self.sql(riskyModel))', 1, 1, 8, 2, 1, 1, 3),
@@ -149,7 +149,7 @@ enum UsageReportTests {
                       ('a', '2026-09-14', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0),
                       ('b', '2026-09-15', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0);
                     INSERT INTO claude_message VALUES
-                      ('k', 'c', '2026-09-15', 'claude-opus-5', 0, 1000000, 0, 0, 0, 0);
+                      ('k', 'c', '2026-09-15', 'claude-opus-5', 0, 0, 1000000, 0, 0, 0, 0);
                     """, on: database)
             }
             let book = try PriceBook(data: Data("""
@@ -424,7 +424,7 @@ enum UsageReportTests {
     private static let claudeSchema = """
         CREATE TABLE claude_message (
             key TEXT NOT NULL, path TEXT NOT NULL, day TEXT NOT NULL, model TEXT NOT NULL,
-            long_context INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+            long_context INTEGER NOT NULL, is_fast INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL, cache_read INTEGER NOT NULL
         );
         """

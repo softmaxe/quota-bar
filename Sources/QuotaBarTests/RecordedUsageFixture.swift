@@ -95,8 +95,8 @@ final class RecordedUsageFixture {
             ('old', '\(self.day(-31))', 'old-model', 0, 0, 1000, 0, 0, 0, 0),
             ('future', '\(self.day(1))', 'future-model', 0, 0, 1000, 0, 0, 0, 0);
             INSERT INTO claude_message VALUES
-            ('claude-a', 'claude-a', '\(self.day(-2))', 'claude-model', 0, 7, 1, 2, 2, 5),
-            ('claude-b', 'claude-b', '\(self.day())', 'claude-model', 1, 4, 0, 0, 0, 1);
+            ('claude-a', 'claude-a', '\(self.day(-2))', 'claude-model', 0, 0, 7, 1, 2, 2, 5),
+            ('claude-b', 'claude-b', '\(self.day())', 'claude-model', 1, 0, 4, 0, 0, 0, 1);
             INSERT INTO opencode_part VALUES
             ('open-a', 1, 0, '\(self.day())', 'unpriced-model', 1, 1, 8, 2, 1, 1, 3),
             ('open-excluded', 0, 0, '\(self.day())', 'excluded-model', 0, 0, 5000, 0, 0, 0, 0);
@@ -141,7 +141,7 @@ final class RecordedUsageFixture {
         );
         CREATE TABLE claude_message (
             key TEXT PRIMARY KEY, path TEXT NOT NULL, day TEXT NOT NULL, model TEXT NOT NULL,
-            long_context INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+            long_context INTEGER NOT NULL, is_fast INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
             cache_write INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL, cache_read INTEGER NOT NULL
         );
         CREATE TABLE opencode_part (

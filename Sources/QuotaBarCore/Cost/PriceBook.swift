@@ -32,7 +32,7 @@ public struct PriceBook: Sendable {
         /// First local day (`yyyy-MM-dd`) these rates apply to; nil for the opening period.
         public let from: String?
         public let rates: ModelPricing
-        /// Codex Fast bills every rate of the period at this multiple. nil means the model has
+        /// Fast bills every rate of the period at this multiple. nil means the model has
         /// no Fast tier in this period, so Fast usage of it stays unpriced.
         public let fastMultiplier: Double?
     }

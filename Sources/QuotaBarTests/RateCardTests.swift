@@ -39,7 +39,8 @@ enum RateCardTests {
                     "claude": {
                       "source": "https://example.com", "checkedAt": "2026-09-01",
                       "models": [
-                        { "id": "claude-fixture-5", "showInSettings": true, "periods": [ { "rates": { "input": 3, "output": 15 } } ] }
+                        { "id": "claude-fixture-5", "showInSettings": true, "periods": [ { "rates": { "input": 3, "output": 15 } } ] },
+                        { "id": "claude-fixture-fast", "periods": [ { "rates": { "input": 4, "output": 20, "cacheRead": 0.2 }, "fastMultiplier": 2 } ] }
                       ]
                     }
                   }
@@ -123,6 +124,26 @@ enum RateCardTests {
         Harness.expect(
             card.rates(for: "ox-dated", provider: .codex, day: "2026-11-22", fast: true) == nil,
             "a period without a Fast multiplier leaves Fast unpriced"
+        )
+
+        // Claude Fast mode follows the same rule, with prompt-caching rates scaled alongside.
+        let claude = RateCard(book: book, overrides: [
+            "claude-fixture-fast": ModelPricing(input: 1, output: 1),
+            "claude-fixture-5": ModelPricing(input: 1, output: 1),
+        ])
+        Harness.expectEqual(
+            claude.rates(for: "claude-fixture-fast", provider: .claude, day: "2026-11-21", fast: true),
+            ModelPricing(input: 8, output: 40, cacheRead: 0.4),
+            "Claude Fast multiplies the book's rates and ignores the override"
+        )
+        Harness.expectEqual(
+            claude.rates(for: "claude-fixture-fast", provider: .claude, day: "2026-11-21"),
+            ModelPricing(input: 1, output: 1),
+            "Claude Standard usage still takes the override"
+        )
+        Harness.expect(
+            claude.rates(for: "claude-fixture-5", provider: .claude, day: "2026-11-21", fast: true) == nil,
+            "a Claude model without a Fast multiplier leaves Fast unpriced despite its override"
         )
     }
 

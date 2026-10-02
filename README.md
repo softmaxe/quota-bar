@@ -212,7 +212,7 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 - Standard usage uses your saved override, if any. Otherwise, it uses the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json).
 - The price book stores rates in dated periods. Each day's usage uses that day's rates. An override replaces Standard rates for every recorded day of its model.
-- Codex Fast usage multiplies the price book's rates by that period's Fast multiplier. It ignores overrides. Without a Fast multiplier, usage stays unpriced.
+- Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. It ignores overrides. Without a Fast multiplier, usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
 - Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
 Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates.
