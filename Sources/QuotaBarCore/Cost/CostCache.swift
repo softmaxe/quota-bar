@@ -139,6 +139,9 @@ final class CostCache {
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
         try self.addColumnIfMissing(table: "claude_message", name: "cache_write_1h", definition: "INTEGER NOT NULL DEFAULT 0")
+        // Claude Fast mode, added when it was first priced. Rows scanned earlier stay Standard,
+        // because the transcripts behind them may already be gone.
+        try self.addColumnIfMissing(table: "claude_message", name: "is_fast", definition: "INTEGER NOT NULL DEFAULT 0")
 
         try self.dropStoredCostColumns()
     }
@@ -324,18 +327,20 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
+        isFast: Bool,
         totals: TokenTotals
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO claude_message
-                (key, path, day, model, long_context, input, output, cache_write, cache_write_1h,
-                 cache_read)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (key, path, day, model, long_context, is_fast, input, output, cache_write,
+                 cache_write_1h, cache_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 path = excluded.path,
                 day = excluded.day,
                 model = excluded.model,
                 long_context = excluded.long_context,
+                is_fast = excluded.is_fast,
                 input = excluded.input,
                 output = excluded.output,
                 cache_write = excluded.cache_write,
@@ -352,7 +357,8 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals)
+        sqlite3_bind_int64(stmt, 6, isFast ? 1 : 0)
+        self.bindUsage(stmt, from: 7, totals: totals)
         try self.step(stmt)
     }
 

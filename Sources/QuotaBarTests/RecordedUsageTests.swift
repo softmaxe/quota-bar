@@ -90,7 +90,16 @@ enum RecordedUsageTests {
         Harness.expectEqual(claude.values.flatMap { $0.values }.reduce(0) { $0 + $1.total }, 20,
                             "Claude includes both stored tiers")
         Harness.expect(claude.values.flatMap { $0.keys }.allSatisfy { !$0.isFast },
-                       "sources without Fast keep their Standard attribute")
+                       "Claude rows recorded as Standard stay Standard")
+
+        try fixture.execute("""
+            INSERT INTO claude_message VALUES
+            ('claude-fast', 'claude-fast', '\(fixture.day())', 'claude-model', 0, 1, 9, 1, 0, 0, 0);
+            """)
+        let claudeToday = try reader.dailyUsage(provider: .claude, fromDay: fixture.day())[fixture.day()] ?? [:]
+        Harness.expectEqual(claudeToday.first { $0.key.isFast }?.value.total, 10,
+                            "Claude Fast mode keeps its own recorded bucket")
+        Harness.expectEqual(claudeToday.count, 2, "Claude Standard and Fast stay separate")
     }
 
     private static func queryFailures() throws {

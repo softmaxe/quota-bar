@@ -212,7 +212,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 - Standard 用量优先使用已保存的覆盖费率，否则使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。
 - 价格表按生效日期分段记录费率，每天的用量使用当天的费率。覆盖费率会替换该模型所有已记录日期的 Standard 费率。
-- Codex Fast 用量使用价格表中的费率乘以该时段的 Fast 倍率，不受手动覆盖影响。没有 Fast 倍率时，用量保持未计价状态。
+- Fast 用量（Codex priority 层级和 Claude Fast mode）使用价格表中的费率乘以该时段的 Fast 倍率，缓存费率同样适用，不受手动覆盖影响。没有 Fast 倍率时，用量保持未计价状态。QuotaBar 开始记录 Fast mode 之前扫描的 Claude 用量仍按 Standard 计价。
 - 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。QuotaBar 在扫描时记录这一归类，之后修改阈值不会重新归类已保存的用量。
 
 供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法见[维护价格表](docs/pricing.md)。

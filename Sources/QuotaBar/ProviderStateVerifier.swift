@@ -270,7 +270,8 @@ enum ProviderStateVerifier {
         }
         let day = DayKey.today()
         try execute("""
-            INSERT INTO claude_message VALUES ('saved', 'saved', '\(day)', 'fixture-model', 0, 1, 0, 0, 0, 0);
+            INSERT INTO claude_message (key, path, day, model, long_context, input, output, cache_write, cache_read, cache_write_1h)
+            VALUES ('saved', 'saved', '\(day)', 'fixture-model', 0, 1, 0, 0, 0, 0);
             """)
         let settings = SettingsStore(defaults: defaults)
         settings.menuBarProvider = .claude
@@ -291,7 +292,8 @@ enum ProviderStateVerifier {
         }
         let saved = store.displays[.claude]?.cost
         try execute("""
-            INSERT INTO claude_message VALUES
+            INSERT INTO claude_message (key, path, day, model, long_context, input, output, cache_write, cache_read, cache_write_1h)
+            VALUES
             ('overflow-a', 'a', '\(day)', 'zz-overflow', 0, \(Int64.max), 0, 0, 0, 0),
             ('overflow-b', 'b', '\(day)', 'zz-overflow', 0, 1, 0, 0, 0, 0);
             """)

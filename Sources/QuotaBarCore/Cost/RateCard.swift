@@ -38,7 +38,7 @@ public struct RateCard: Sendable {
         guard model != CostPricing.unknownModel, !model.isEmpty else { return nil }
         // Fast is a multiple of the book's Standard rates; an override states Standard rates only,
         // so it cannot say what Fast costs, and an unknown Fast model stays unpriced.
-        if provider == .codex, fast {
+        if fast {
             return self.book.rates(for: model, provider: provider, day: day, fast: true)
         }
         return self.overrides[model] ?? self.book.rates(for: model, provider: provider, day: day)

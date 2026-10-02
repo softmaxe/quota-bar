@@ -15,8 +15,10 @@ enum CostSchemaUpgradeTests {
             try self.createLegacyUsageDatabase(at: database)
 
             let missingHome = directory.appendingPathComponent("missing-codex-home")
+            let claudeHome = directory.appendingPathComponent("missing-claude-home")
             let env = [
                 "CODEX_HOME": missingHome.path,
+                "CLAUDE_CONFIG_DIR": claudeHome.path,
                 "XDG_DATA_HOME": directory.appendingPathComponent("missing-xdg-home").path,
                 "PI_CODING_AGENT_DIR": directory.appendingPathComponent("missing-pi-home").path,
             ]
@@ -45,6 +47,15 @@ enum CostSchemaUpgradeTests {
                 ),
                 1,
                 "legacy OpenCode usage survives with the standard tier"
+            )
+            Harness.expectEqual(
+                try self.scalarInt(
+                    "SELECT COUNT(*) FROM claude_message WHERE key = 'legacy-message' "
+                        + "AND is_fast = 0 AND cache_write_1h = 0 AND input = 7 AND output = 3",
+                    from: database
+                ),
+                1,
+                "legacy Claude usage survives with the standard tier"
             )
             // Cost is derived from tokens now, so the frozen figures and their index are gone.
             Harness.expectEqual(
@@ -100,6 +111,24 @@ enum CostSchemaUpgradeTests {
                 ),
                 1,
                 "subsequent scanner write records the fast tier"
+            )
+
+            let transcript = claudeHome.appendingPathComponent("projects/app/session.jsonl")
+            try FileManager.default.createDirectory(
+                at: transcript.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let claudeLine = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-fast","message":{"id":"msg-fast","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":2,"speed":"fast"}}}"#
+            try (claudeLine + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+            let claude = await service.refresh(.claude)
+            Harness.expect(claude != nil, "scanner writes to the upgraded Claude table")
+            Harness.expectEqual(
+                try self.scalarInt(
+                    "SELECT COUNT(*) FROM claude_message WHERE key = 'msg-fast|req-fast' AND is_fast = 1",
+                    from: database
+                ),
+                1,
+                "subsequent Claude scanner write records Fast mode"
             )
         }
     }
@@ -158,6 +187,23 @@ enum CostSchemaUpgradeTests {
             INSERT INTO opencode_part VALUES (
                 'legacy-part', 1, 0, '2026-09-05', 'legacy-opencode-model', 0,
                 5, 1, 0, 0, 0, 0.75, 0
+            );
+            CREATE TABLE claude_message (
+                key TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                day TEXT NOT NULL,
+                model TEXT NOT NULL,
+                long_context INTEGER NOT NULL,
+                input INTEGER NOT NULL,
+                output INTEGER NOT NULL,
+                cache_write INTEGER NOT NULL,
+                cache_read INTEGER NOT NULL,
+                cost_usd REAL,
+                unpriced_tokens INTEGER
+            );
+            INSERT INTO claude_message VALUES (
+                'legacy-message', '/missing/legacy-session.jsonl', '2026-09-05', 'claude-opus-5-5', 0,
+                7, 3, 0, 0, 0.5, 0
             );
             CREATE INDEX opencode_part_unpriced ON opencode_part(cost_usd)
                 WHERE cost_usd IS NULL OR unpriced_tokens IS NULL;

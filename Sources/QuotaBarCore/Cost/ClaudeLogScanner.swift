@@ -3,8 +3,8 @@
 //
 // Field shapes verified against real transcripts: assistant lines carry `message.model`,
 // `message.id`, `message.usage.{input_tokens,output_tokens,cache_creation_input_tokens,
-// cache_read_input_tokens}` and `usage.cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens`,
-// plus a top-level `requestId` and `timestamp`.
+// cache_read_input_tokens,speed}` and `usage.cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens`,
+// plus a top-level `requestId` and `timestamp`. `speed` is `"standard"` or `"fast"`.
 
 import Foundation
 
@@ -103,6 +103,7 @@ enum ClaudeLogScanner {
             let cache_creation_input_tokens: LooseScalar?
             let cache_read_input_tokens: LooseScalar?
             let cache_creation: LooseValue<CacheCreation>?
+            let speed: LooseValue<String>?
         }
 
         struct CacheCreation: Decodable {
@@ -161,12 +162,16 @@ enum ClaudeLogScanner {
         // here; deciding it from a day's aggregate would rewrite history. The price is not: it is
         // derived from the stored tokens whenever they are read.
         let day = DayKey.make(from: date)
+        // Fast mode bills at a multiple of the Standard rates. Anything other than an explicit
+        // "fast", including a line written before the field existed, is Standard.
+        let isFast = usage.speed.loose()?.lowercased() == "fast"
         try cache.addClaudeMessage(
             key: key,
             path: path,
             day: day,
             model: model,
-            longContext: rateCard.isLongContext(totals, model: model, provider: .claude, day: day),
+            longContext: rateCard.isLongContext(totals, model: model, provider: .claude, day: day, fast: isFast),
+            isFast: isFast,
             totals: totals
         )
     }

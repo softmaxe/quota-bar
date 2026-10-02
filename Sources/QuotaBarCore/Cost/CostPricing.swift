@@ -63,8 +63,8 @@ public struct ModelPricing: Sendable, Equatable {
         self.cacheReadAbove = cacheReadAbove
     }
 
-    /// Every rate multiplied by `factor`, with the long-context threshold unchanged. Codex Fast
-    /// is priced this way from the Standard row.
+    /// Every rate multiplied by `factor`, with the long-context threshold unchanged. Codex and
+    /// Claude Fast are priced this way from the Standard row.
     public func scaled(by factor: Double) -> ModelPricing {
         ModelPricing(
             input: self.input * factor,
