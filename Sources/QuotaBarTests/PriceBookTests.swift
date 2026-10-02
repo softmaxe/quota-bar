@@ -83,6 +83,21 @@ enum PriceBookTests {
                 thresholdTokens: 272_000,
                 inputAbove: 40, outputAbove: 150, cacheWriteAbove: 50, cacheReadAbove: 4
             )),
+            ("gpt-6.1-sol", false, ModelPricing(
+                input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1,
+                thresholdTokens: 272_000,
+                inputAbove: 4, outputAbove: 15, cacheWriteAbove: 5, cacheReadAbove: 0.2
+            )),
+            ("gpt-6-sol", false, ModelPricing(
+                input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2,
+                thresholdTokens: 272_000,
+                inputAbove: 4, outputAbove: 15, cacheWriteAbove: 5, cacheReadAbove: 0.4
+            )),
+            ("gpt-6-luna", false, ModelPricing(
+                input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01,
+                thresholdTokens: 272_000,
+                inputAbove: 0.2, outputAbove: 0.75, cacheWriteAbove: 0.25, cacheReadAbove: 0.02
+            )),
             ("gpt-5.6-sol", false, ModelPricing(
                 input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4,
                 thresholdTokens: 272_000,
@@ -117,10 +132,42 @@ enum PriceBookTests {
             Harness.expect(rates(id, .codex, fast: true) == nil, "\(id) has no Fast price")
         }
 
+        // GPT-5.6 launched on 2026-07-09 at higher rates. Terra and Luna were cut on 2026-07-30
+        // and Sol on 2026-08-21, so the day before each cut still bills the launch price.
+        let launch: [(id: String, day: String, rates: ModelPricing)] = [
+            ("gpt-5.6-sol", "2026-08-20", ModelPricing(
+                input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5,
+                thresholdTokens: 272_000,
+                inputAbove: 10, outputAbove: 45, cacheWriteAbove: 12.5, cacheReadAbove: 1
+            )),
+            ("gpt-5.6-terra", "2026-07-29", ModelPricing(
+                input: 2.5, output: 15, cacheWrite: 3.125, cacheRead: 0.25,
+                thresholdTokens: 272_000,
+                inputAbove: 5, outputAbove: 22.5, cacheWriteAbove: 6.25, cacheReadAbove: 0.5
+            )),
+            ("gpt-5.6-luna", "2026-07-29", ModelPricing(
+                input: 1, output: 6, cacheWrite: 1.25, cacheRead: 0.1,
+                thresholdTokens: 272_000,
+                inputAbove: 2, outputAbove: 9, cacheWriteAbove: 2.5, cacheReadAbove: 0.2
+            )),
+        ]
+        for entry in launch {
+            Harness.expectEqual(
+                book.rates(for: entry.id, provider: .codex, day: entry.day),
+                entry.rates,
+                "\(entry.id) bills its launch rates on \(entry.day)"
+            )
+        }
+
         Harness.expectEqual(
             rates("claude-opus-5", .claude),
             ModelPricing(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
             "claude-opus-5 rates match the published table"
+        )
+        Harness.expectEqual(
+            rates("claude-sonnet-5-5", .claude),
+            ModelPricing(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),
+            "claude-sonnet-5-5 rates match the published table"
         )
         let haiku = rates("claude-3-5-haiku", .claude)
         Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
