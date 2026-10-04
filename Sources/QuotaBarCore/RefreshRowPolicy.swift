@@ -36,8 +36,6 @@ public enum RefreshRowPolicy {
         }
     }
 
-    public static let idleTitle = "Refresh"
-
     public static func state(
         cooldownRemaining: TimeInterval,
         isRefreshing: Bool,
