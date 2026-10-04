@@ -126,9 +126,11 @@ enum CostTests {
             let retained = await restarted.refresh(.codex)
             Harness.expectEqual(retained?.windowTokens, 120, "deleted sessions retain tokens after restart")
             Harness.expectClose(retained?.windowCostUSD, 0.014, "deleted sessions stay priced from their tokens")
-            Harness.expectEqual(try await restarted.knownModelUsage(provider: .codex),
-                                [ModelUsageTotal(model: "retention-model", tokens: 120)],
-                                "deleted sessions remain in model usage")
+            Harness.expectEqual(
+                try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: restarted.databaseURL),
+                [ModelUsageTotal(model: "retention-model", tokens: 120)],
+                "deleted sessions remain in model usage"
+            )
             Harness.expectEqual(retained?.days.first?.dayKey, DayKey.make(from: ISO8601.parse(timestamp)!),
                                 "retained usage keeps its original day")
             Harness.expectEqual(retained?.days.first?.rankedModels.first?.key.source, .codex,
@@ -873,7 +875,7 @@ enum CostTests {
             0.08,
             "a resumed scan attributes the appended turn to the last announced model"
         )
-        let modelUsage = (try? await service.knownModelUsage(provider: .codex)) ?? []
+        let modelUsage = (try? CostUsageReader.knownModelUsage(provider: .codex, databaseURL: service.databaseURL)) ?? []
         Harness.expectEqual(modelUsage.first?.model, "gpt-5.6-luna", "pricing models sort by token usage")
         Harness.expectEqual(modelUsage.first?.tokens, 400_000, "pricing model usage carries token totals")
 
@@ -913,7 +915,7 @@ enum CostTests {
             rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
-        let modelUsage = (try? await service.knownModelUsage(provider: .codex)) ?? []
+        let modelUsage = (try? CostUsageReader.knownModelUsage(provider: .codex, databaseURL: service.databaseURL)) ?? []
 
         Harness.expectEqual(snapshot?.windowTokens, 100_000, "Fast usage tokens are scanned")
         Harness.expectEqual(

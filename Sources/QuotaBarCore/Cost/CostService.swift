@@ -79,11 +79,6 @@ public actor CostService {
         }
     }
 
-    /// Models seen in local logs with their cumulative token totals, most-used first.
-    public func knownModelUsage(provider: Provider) throws -> [ModelUsageTotal] {
-        try CostUsageReader.knownModelUsage(provider: provider, databaseURL: self.databaseURL)
-    }
-
     public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {
         self.openCodeStatus
     }
