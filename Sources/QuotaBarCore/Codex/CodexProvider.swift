@@ -93,7 +93,7 @@ public enum CodexProvider {
             provider: .codex,
             session: session,
             weekly: weekly,
-            planLabel: response.planType.map(Self.planLabel),
+            planLabel: response.planType.map(PlanLabel.humanize),
             credits: response.credits.map {
                 CreditsSnapshot(hasCredits: $0.hasCredits, unlimited: $0.unlimited, balance: $0.balance)
             },
@@ -102,10 +102,5 @@ public enum CodexProvider {
             // response with no windows at all, is what "no session limit" looks like.
             sessionIsUnlimited: session == nil && weekly != nil
         )
-    }
-
-    /// `plus` -> `Plus`, `free_workspace` -> `Free Workspace`.
-    public static func planLabel(_ raw: String) -> String {
-        PlanLabel.humanize(raw)
     }
 }
