@@ -313,26 +313,6 @@ enum CostTests {
         Harness.expectEqual(topLevelType(fakeTopLevel), .other, "a marker inside a string cannot classify a record")
         let fakePayload = #"{"type":"event_msg","payload":{"note":"\"type\":\"token_count\"","type":"agent_message"}}"#
         Harness.expectEqual(payloadType(fakePayload), .other, "a payload marker inside a string is ignored")
-        Harness.expectEqual(
-            topLevelType(#"{"t\u0079pe":"assistant"}"#),
-            .indeterminate,
-            "an escaped top-level key falls back to full JSON parsing"
-        )
-        Harness.expectEqual(
-            topLevelType(#"{"type":"assist\u0061nt"}"#),
-            .indeterminate,
-            "an escaped top-level value falls back to full JSON parsing"
-        )
-        Harness.expectEqual(
-            payloadType(#"{"type":"event_msg","paylo\u0061d":{"type":"token_count"}}"#),
-            .indeterminate,
-            "an escaped payload key falls back to full JSON parsing"
-        )
-        Harness.expectEqual(
-            payloadType(#"{"type":"event_msg","payload":{"type":"token_\u0063ount"}}"#),
-            .indeterminate,
-            "an escaped payload value falls back to full JSON parsing"
-        )
 
         let bounded = root.appendingPathComponent("bounded.jsonl")
         try? "first\nsecond\n".write(to: bounded, atomically: true, encoding: .utf8)
@@ -1322,14 +1302,20 @@ enum CostTests {
             )
         }
         let timestamp = Self.todayStamp()
+        // One escape per line: an earlier escape on the same line would hide a later one.
         let codexLines = [
             #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"escaped-model"}}"#,
-            #"{"t\u0079pe":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_\u0063ount","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+            #"{"t\u0079pe":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_\u0063ount","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","paylo\u0061d":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
         ]
         try? (codexLines.joined(separator: "\n") + "\n")
             .write(to: codexFile, atomically: true, encoding: .utf8)
-        let claudeLine = #"{"t\u0079pe":"assistant","timestamp":"\#(timestamp)","requestId":"escaped-request","message":{"id":"escaped-message","model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
-        try? (claudeLine + "\n").write(to: claudeFile, atomically: true, encoding: .utf8)
+        let claudeLines = [
+            #"{"t\u0079pe":"assistant","timestamp":"\#(timestamp)","requestId":"escaped-key","message":{"id":"escaped-key","model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            #"{"type":"assist\u0061nt","timestamp":"\#(timestamp)","requestId":"escaped-value","message":{"id":"escaped-value","model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]
+        try? (claudeLines.joined(separator: "\n") + "\n").write(to: claudeFile, atomically: true, encoding: .utf8)
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("escaped-classifier-cache.sqlite"),
@@ -1338,13 +1324,13 @@ enum CostTests {
         )
         Harness.expectEqual(
             await service.refresh(.codex)?.windowTokens,
-            100,
-            "escaped Codex type fields still reach full JSON parsing"
+            300,
+            "escaped Codex type and payload fields still reach full JSON parsing"
         )
         Harness.expectEqual(
             await service.refresh(.claude)?.windowTokens,
-            100,
-            "escaped Claude type fields still reach full JSON parsing"
+            200,
+            "escaped Claude type keys and values still reach full JSON parsing"
         )
     }
 
@@ -1588,42 +1574,29 @@ enum PaceTests {
     static func run() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-        // Halfway through the window with half the budget spent is exactly on pace.
-        let onPace = UsagePace.evaluate(
-            window: Self.window(used: 50, secondsUntilReset: Self.week / 2, now: now),
-            context: .weekly,
-            now: now
-        )
-        Harness.expectEqual(onPace?.stage, .onTrack, "half spent at halfway is on track")
-
-        // Spending faster than the clock is a deficit, and the budget empties before the reset.
-        let deficit = UsagePace.evaluate(
-            window: Self.window(used: 70, secondsUntilReset: Self.week / 2, now: now),
-            context: .weekly,
-            now: now
-        )
-        Harness.expectEqual(deficit?.stage, .farAhead, "20 points over expected is far ahead")
-        Harness.expect(deficit?.willLastToReset == false, "a deficit does not last to the reset")
-
-        // Spending slower banks a reserve.
-        let reserve = UsagePace.evaluate(
-            window: Self.window(used: 30, secondsUntilReset: Self.week / 2, now: now),
-            context: .weekly,
-            now: now
-        )
-        Harness.expectEqual(reserve?.stage, .farBehind, "20 points under expected is far behind")
-        Harness.expect(reserve?.willLastToReset == true, "a reserve lasts to the reset")
-
-        // A small reserve is classified separately.
-        let smallReserve = UsagePace.evaluate(
-            window: Self.window(used: 45, secondsUntilReset: Self.week / 2, now: now),
-            context: .weekly,
-            now: now
-        )
-        Harness.expectEqual(smallReserve?.stage, .slightlyBehind, "5 points under is slightly behind")
-
-        // The bar shows what is left, so the tip is placed on the remaining side.
-        Harness.expectEqual(onPace?.expectedRemainingPercent, 50, "pace tip position mirrors expected use")
+        // Halfway through the window, so 50% used is exactly on pace. Spending faster than the
+        // clock is a deficit that empties before the reset; spending slower banks a reserve.
+        let halfway: [(used: Double, stage: UsagePace.Stage, willLast: Bool?, label: String)] = [
+            (50, .onTrack, nil, "half spent at halfway is on track"),
+            (70, .farAhead, false, "20 points over expected is far ahead"),
+            (30, .farBehind, true, "20 points under expected is far behind"),
+            (45, .slightlyBehind, nil, "5 points under is slightly behind"),
+        ]
+        for row in halfway {
+            let pace = UsagePace.evaluate(
+                window: Self.window(used: row.used, secondsUntilReset: Self.week / 2, now: now),
+                context: .weekly,
+                now: now
+            )
+            Harness.expectEqual(pace?.stage, row.stage, row.label)
+            if let willLast = row.willLast {
+                Harness.expectEqual(pace?.willLastToReset, willLast, "\(row.label): lasting to the reset")
+            }
+            if row.stage == .onTrack {
+                // The bar shows what is left, so the tip is placed on the remaining side.
+                Harness.expectEqual(pace?.expectedRemainingPercent, 50, "pace tip position mirrors expected use")
+            }
+        }
 
         // Guards: each of these would produce a misleading reading.
         Harness.expect(
