@@ -62,6 +62,22 @@ enum RunLoopDrain {
             _ = RunLoop.main.run(mode: mode, before: deadline)
         }
     }
+
+    /// Turns the main run loop until `ready` holds. How long scheduled work takes to land belongs
+    /// to the machine, so the deadline only turns a state that never arrives into a failure
+    /// instead of a hang.
+    @discardableResult
+    static func run(
+        until ready: () -> Bool,
+        timeout: TimeInterval = 5,
+        mode: RunLoop.Mode = .default
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !ready(), Date() < deadline {
+            _ = RunLoop.main.run(mode: mode, before: Date().addingTimeInterval(0.01))
+        }
+        return ready()
+    }
 }
 
 #endif
