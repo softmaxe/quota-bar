@@ -1,5 +1,5 @@
 // Checks the contracts the picture, the score, and the render script share.
-// Run with: node --test docs/demo/
+// Run with: node --test docs/demo/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BARS, DURATION, SCENES, CUES, barTime, sceneAt} from './timeline.mjs';
