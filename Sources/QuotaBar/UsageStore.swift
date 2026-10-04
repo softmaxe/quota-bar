@@ -181,7 +181,8 @@ final class UsageStore: ObservableObject {
     }
 
     /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
-    /// hold up the quota numbers, which are what the menu bar icon needs.
+    /// hold up the quota numbers, which are what the menu bar icon needs. Utility priority lets
+    /// that multi-second pass yield the performance cores to whatever the user is doing.
     private func refreshCosts(for provider: Provider, afterPricingChange: Bool = false) {
         guard self.costTasks[provider] == nil else {
             if afterPricingChange { self.pendingCostRefreshes.insert(provider) }
@@ -189,7 +190,7 @@ final class UsageStore: ObservableObject {
         }
 
         self.displays[provider, default: ProviderDisplay()].localScanStatus = .scanning
-        self.costTasks[provider] = Task { [weak self, fetchCost] in
+        self.costTasks[provider] = Task(priority: .utility) { [weak self, fetchCost] in
             let scanned = await fetchCost(provider)
             await MainActor.run {
                 guard let self else { return }
