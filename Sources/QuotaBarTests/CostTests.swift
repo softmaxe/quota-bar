@@ -1589,8 +1589,13 @@ enum ProviderRefreshCooldownTests {
 /// Refresh availability during cooldown and credential recovery.
 enum RefreshRowPolicyTests {
     static func run() {
+        let idle = RefreshRowPolicy.state(cooldownRemaining: 0, isRefreshing: false)
+        Harness.expect(idle.isEnabled, "an elapsed cooldown accepts clicks")
+        Harness.expectEqual(idle.trailingText, nil, "an elapsed cooldown shows no countdown")
+
         let waiting = RefreshRowPolicy.state(cooldownRemaining: 42, isRefreshing: false)
         Harness.expect(!waiting.isEnabled, "the row refuses clicks during cooldown")
+        Harness.expectEqual(waiting.trailingText, "42s", "the cooldown is spelled out on the row")
 
         let recovery = RefreshRowPolicy.state(
             cooldownRemaining: 42,
@@ -1598,6 +1603,7 @@ enum RefreshRowPolicyTests {
             allowsCredentialRecovery: true
         )
         Harness.expect(recovery.isEnabled, "credential recovery accepts an explicit user click")
+        Harness.expectEqual(recovery.trailingText, nil, "credential recovery hides the cooldown")
 
         let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
         Harness.expect(!running.isEnabled, "a running refresh blocks a second request")
