@@ -8,6 +8,7 @@ import SQLite3
 /// Exercises quota and local-scan state without reading credentials, logs, or the network.
 @MainActor
 enum ProviderStateVerifier {
+    @MainActor
     private final class Fetches {
         var quotaCalls = 0
         var costCalls = 0

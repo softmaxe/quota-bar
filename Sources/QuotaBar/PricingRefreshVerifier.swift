@@ -6,6 +6,10 @@ import Foundation
 /// A saved price must refresh local costs even while quota or a prior scan is in flight.
 @MainActor
 enum PricingRefreshVerifier {
+    /// Main-actor isolated like the verifier that resumes its continuations. Nested types do not
+    /// inherit the enclosing `@MainActor`, and a nonisolated async fetch would park its continuation
+    /// from a cooperative-pool thread while the main actor reads, resumes, and clears the same slot.
+    @MainActor
     private final class Fetches {
         var quotaCalls = 0
         var costCalls = 0
