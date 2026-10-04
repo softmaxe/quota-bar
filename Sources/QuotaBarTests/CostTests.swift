@@ -486,6 +486,15 @@ enum CostTests {
         let repeated = await service.refresh(.codex)
         Harness.expectEqual(repeated?.windowTokens, 150, "OpenCode part IDs dedupe repeated scans")
 
+        // Rows cleared from the store come back only if a refresh queries the database again.
+        var store: OpaquePointer?
+        if sqlite3_open(root.appendingPathComponent("cache.sqlite").path, &store) == SQLITE_OK {
+            sqlite3_exec(store, "DELETE FROM opencode_part", nil, nil, nil)
+        }
+        sqlite3_close(store)
+        let unchanged = await service.refresh(.codex)
+        Harness.expectEqual(unchanged?.windowTokens, 0, "an unchanged OpenCode database is not re-queried")
+
         sqlite3_exec(
             db,
             "UPDATE part SET data = '{\"type\":\"step-finish\",\"tokens\":{\"input\":10,\"output\":120,\"reasoning\":30,\"cache\":{\"read\":40,\"write\":50}}}' WHERE id = 'part-1'",
