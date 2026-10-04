@@ -4,7 +4,7 @@ import Foundation
 enum PiAgentLogScanner {
     struct Result {
         let touched: Int
-        let status: PiAgentScanStatus
+        let status: ExternalAgentScanStatus
         /// The session files this result was read from, when every row was stored. Passing it to
         /// the next scan lets an unchanged session directory skip the full re-read.
         var sessions: SessionSnapshot? = nil

@@ -212,13 +212,9 @@ public enum ClaudeProvider {
             provider: .claude,
             session: response.fiveHour?.window,
             weekly: response.sevenDay?.window,
-            planLabel: credentials.subscriptionType.map(Self.planLabel),
+            planLabel: credentials.subscriptionType.map(PlanLabel.humanize),
             credits: nil,
             fetchedAt: now
         )
-    }
-
-    public static func planLabel(_ raw: String) -> String {
-        PlanLabel.humanize(raw)
     }
 }

@@ -36,8 +36,6 @@ public enum RefreshRowPolicy {
         }
     }
 
-    public static let idleTitle = "Refresh"
-
     public static func state(
         cooldownRemaining: TimeInterval,
         isRefreshing: Bool,
@@ -53,11 +51,7 @@ public enum RefreshRowPolicy {
         // A read-only automatic attempt may discover an expired Claude credential. The existing
         // row is then the user's explicit authorization for one delegated repair, so the local
         // cooldown must not make that action unavailable.
-        if allowsCredentialRecovery {
-            return State(title: action.title, trailingText: nil, isEnabled: true)
-        }
-
-        guard cooldownRemaining > 0 else {
+        guard cooldownRemaining > 0, !allowsCredentialRecovery else {
             return State(title: action.title, trailingText: nil, isEnabled: true)
         }
 

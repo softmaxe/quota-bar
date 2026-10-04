@@ -28,8 +28,11 @@ struct QuotaHeadline: View {
         .accessibilityLabel("\(self.title) \(Formatters.percent(self.percent)) left")
     }
 
+    /// The fill's landing flash on the digits, as a small accent that never obscures the reading.
     private var accentOpacity: Double {
         guard let frame, !frame.isReplay else { return 0 }
-        return QuotaNumberMotion.accentOpacity(at: frame.elapsed)
+        let age = frame.elapsed - QuotaCelebration.landing
+        guard age >= 0, age < QuotaCelebration.flashDuration else { return 0 }
+        return 0.35 * pow(1 - age / QuotaCelebration.flashDuration, 1.6)
     }
 }

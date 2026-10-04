@@ -19,8 +19,8 @@ public actor CostService {
     /// What a dropped rate card is rebuilt from.
     private var book: PriceBook
     private let overrideFile: OverrideFile
-    private var openCodeStatus: OpenCodeScanStatus = .idle
-    private var piAgentStatus: PiAgentScanStatus = .idle
+    private var openCodeStatus: ExternalAgentScanStatus = .idle
+    private var piAgentStatus: ExternalAgentScanStatus = .idle
     /// The Pi Agent session files the store already reflects, so an unchanged directory is not
     /// re-read on every Codex refresh.
     private var piAgentSessions: PiAgentLogScanner.SessionSnapshot?
@@ -79,16 +79,11 @@ public actor CostService {
         }
     }
 
-    /// Models seen in local logs with their cumulative token totals, most-used first.
-    public func knownModelUsage(provider: Provider) throws -> [ModelUsageTotal] {
-        try CostUsageReader.knownModelUsage(provider: provider, databaseURL: self.databaseURL)
-    }
-
-    public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {
+    public func currentOpenCodeScanStatus() -> ExternalAgentScanStatus {
         self.openCodeStatus
     }
 
-    public func currentPiAgentScanStatus() -> PiAgentScanStatus {
+    public func currentPiAgentScanStatus() -> ExternalAgentScanStatus {
         self.piAgentStatus
     }
 
