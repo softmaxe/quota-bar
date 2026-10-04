@@ -8,6 +8,7 @@ enum ScannerRegressionTests {
         Self.sameSizeRewriteRequiresReparse()
         await Self.codexResumeStatePersists()
         await Self.claudeFieldTypesMatchLooseCasts()
+        await Self.codexFieldTypesMatchLooseCasts()
         await Self.claudeFastSpeedIsPricedAsFast()
     }
 
@@ -88,6 +89,48 @@ enum ScannerRegressionTests {
         Harness.expectEqual(tokens?.cacheRead, 1, "a boolean count reads as its number")
         Harness.expectEqual(snapshot?.windowTokens, 61, "mistyped lines are skipped and replays deduped")
         Harness.expectEqual(snapshot?.topModel, "claude-opus-5", "the model is trimmed and normalized")
+    }
+
+    /// A Codex token_count whose running total matches the previous one is a replay. The total
+    /// compares its numeric fields only: booleans count as 0 or 1, fractions truncate, and
+    /// strings are left out.
+    private static func codexFieldTypesMatchLooseCasts() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-codex-fields-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let file = codexHome.appendingPathComponent("sessions/rollout.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        func event(last: String, total: String) -> String {
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last)},"total_token_usage":\#(total)}}}"#
+        }
+        let lines = [
+            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-sol"}}"#,
+            event(last: #""1""#, total: #"{"input_tokens":1,"flag":true,"note":"x"}"#),
+            event(last: "1", total: #"{"input_tokens":1,"flag":1,"note":"y"}"#),
+            event(last: "1", total: #"{"input_tokens":1,"flag":false}"#),
+            event(last: "1.9", total: #"{"input_tokens":2}"#),
+            event(last: "1", total: #"{"input_tokens":2.6}"#),
+            event(last: "1", total: "5"),
+            event(last: "1", total: #"{"input_tokens":2}"#),
+            event(last: "1", total: #"{"input_tokens":"3"}"#),
+            event(last: "1", total: #"{"input_tokens":"4"}"#),
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: isolatedEnvironment(root: root),
+            rateCard: RateCard()
+        )
+        let snapshot = await service.refresh(.codex)
+        Harness.expectEqual(snapshot?.windowTokens, 5, "Codex running totals compare numbers and booleans, not strings")
     }
 
     /// `usage.speed` marks a Claude Fast mode request. On Opus 5.5 it bills at 2x Standard,

@@ -43,14 +43,15 @@ struct LooseScalar: Decodable {
         }
     }
 
-    /// `JSONNumber.int` of the same field.
+    /// The field as a count: its number, else its numeric string, else 0. Depending on which client
+    /// wrote the line, a count is spelled as either.
     var intValue: Int {
         self.number ?? self.string.flatMap { Int($0) } ?? 0
     }
 }
 
 extension Optional where Wrapped == LooseScalar {
-    /// `JSONNumber.int` of a field that may be missing.
+    /// `intValue` of a field that may be missing, 0 when it is.
     var intValue: Int { self?.intValue ?? 0 }
 }
 
