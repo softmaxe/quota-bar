@@ -28,12 +28,13 @@ enum CodexLogScanner {
 
         var touched = 0
         for url in files {
-            let sessionID = Self.sessionID(url)
-            let path = sessionID.flatMap { storedPaths[$0] } ?? url.path
+            let urlPath = url.path
+            let sessionID = Self.sessionID(path: urlPath)
+            let path = sessionID.flatMap { storedPaths[$0] } ?? urlPath
             let previous = cache.cursor(forPath: path)
             guard let plan = try? LogFileScanner.plan(
                 for: url, previous: previous,
-                matchingSessionCopy: sessionID != nil && (path != url.path || previous?.inode == 0)
+                matchingSessionCopy: sessionID != nil && (path != urlPath || previous?.inode == 0)
             ) else { continue }
             // Deleting the live file may leave an older archive copy. It cannot roll history back.
             if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
@@ -93,10 +94,23 @@ enum CodexLogScanner {
 
     /// Standard rollout names end in the session UUID, which survives archive moves and copies.
     /// Unrecognised names keep their path identity to avoid merging unrelated logs.
-    private static func sessionID(_ url: URL) -> UUID? {
-        let name = url.deletingPathExtension().lastPathComponent
-        guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
-        return UUID(uuidString: String(name.suffix(36)))
+    /// Reads the path's bytes, because building a `URL` and counting characters dominated a refresh.
+    /// Real rollout names are ASCII, one character per byte. Other names keep `Character`
+    /// matching, where a combining mark can merge neighbouring bytes into one character.
+    private static func sessionID(path: String) -> UUID? {
+        var path = path
+        return path.withUTF8 { bytes in
+            let file = bytes[(bytes.lastIndex(of: UInt8(ascii: "/")).map { $0 + 1 } ?? 0)...]
+            guard file.allSatisfy({ $0 < 0x80 }) else {
+                let file = Substring(String(decoding: file, as: UTF8.self))
+                let name = file.hasSuffix(".jsonl") ? file.dropLast(6) : file
+                guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
+                return UUID(uuidString: String(name.suffix(36)))
+            }
+            let name = file.suffix(6).elementsEqual(".jsonl".utf8) ? file.dropLast(6) : file
+            guard name.count >= 44, name.starts(with: "rollout-".utf8) else { return nil }
+            return UUID(uuidString: String(decoding: name.suffix(36), as: UTF8.self))
+        }
     }
 
     private static func uniqueRollouts(_ files: [URL]) -> [URL] {
@@ -106,7 +120,7 @@ enum CodexLogScanner {
         var byID: [UUID: (url: URL, path: String)] = [:]
         var others: [(url: URL, path: String)] = []
         for entry in sorted {
-            guard let id = Self.sessionID(entry.url) else { others.append(entry); continue }
+            guard let id = Self.sessionID(path: entry.path) else { others.append(entry); continue }
             if let previous = byID[id] {
                 // A live copy may have more turns than the archived one.
                 let size = (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -125,7 +139,7 @@ enum CodexLogScanner {
         try cache.beginTransaction()
         do {
             for path in tracked {
-                guard let id = Self.sessionID(URL(fileURLWithPath: path)) else { continue }
+                guard let id = Self.sessionID(path: path) else { continue }
                 if paths[id] == nil {
                     paths[id] = path
                     if !FileManager.default.fileExists(atPath: path),
