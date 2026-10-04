@@ -16,12 +16,9 @@ enum CostSchemaUpgradeTests {
 
             let missingHome = directory.appendingPathComponent("missing-codex-home")
             let claudeHome = directory.appendingPathComponent("missing-claude-home")
-            let env = [
-                "CODEX_HOME": missingHome.path,
-                "CLAUDE_CONFIG_DIR": claudeHome.path,
-                "XDG_DATA_HOME": directory.appendingPathComponent("missing-xdg-home").path,
-                "PI_CODING_AGENT_DIR": directory.appendingPathComponent("missing-pi-home").path,
-            ]
+            let env = isolatedEnvironment(root: directory, overriding: [
+                "CODEX_HOME": missingHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path,
+            ])
             let rateCard = RateCard(overrides: [
                 "migration-model": ModelPricing(input: 1, output: 2),
             ])

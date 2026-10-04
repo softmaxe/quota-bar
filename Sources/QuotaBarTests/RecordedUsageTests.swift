@@ -146,7 +146,7 @@ enum RecordedUsageTests {
 
     private static func menuProjectionAndRecovery() async throws {
         let fixture = try RecordedUsageFixture(now: Date(), calendar: .current)
-        let service = CostService(databaseURL: fixture.databaseURL, env: fixture.environment,
+        let service = CostService(databaseURL: fixture.databaseURL, env: isolatedEnvironment(root: fixture.directory),
                                   rateCard: try RecordedUsageFixture.rateCard())
         let first = await service.refresh(.codex)
         Harness.expectEqual(first?.windowTokens, 1_082, "menu retains its lower date bound and future-day usage")

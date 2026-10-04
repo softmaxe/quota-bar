@@ -76,7 +76,7 @@ enum ScannerRegressionTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
+            env: isolatedEnvironment(root: root),
             rateCard: RateCard()
         )
         let snapshot = await service.refresh(.claude)
@@ -120,7 +120,7 @@ enum ScannerRegressionTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
+            env: isolatedEnvironment(root: root),
             rateCard: RateCard()
         )
         let snapshot = await service.refresh(.claude)
@@ -187,7 +187,7 @@ enum ScannerRegressionTests {
             .write(to: file, atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("cache.sqlite")
-        let env = Self.isolatedEnvironment(root: root, codexHome: codexHome)
+        let env = isolatedEnvironment(root: root)
         var service: CostService? = CostService(
             databaseURL: database,
             env: env,
@@ -285,14 +285,5 @@ enum ScannerRegressionTests {
             sqlite3_bind_null(statement, 1)
         }
         return sqlite3_step(statement) == SQLITE_DONE
-    }
-
-    private static func isolatedEnvironment(root: URL, codexHome: URL) -> [String: String] {
-        [
-            "CODEX_HOME": codexHome.path,
-            "HOME": root.path,
-            "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
-            "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
-        ]
     }
 }

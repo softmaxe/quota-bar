@@ -76,7 +76,7 @@ enum CostTests {
             let originalInode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber
             let service = CostService(
                 databaseURL: root.appendingPathComponent("usage.sqlite"),
-                env: ["CODEX_HOME": root.path, "OPENCODE_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path],
+                env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": root.path]),
                 rateCard: RateCard(overrides: ["replacement-model": ModelPricing(input: 1, output: 2)])
             )
             Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 100, "replacement fixture is scanned")
@@ -105,7 +105,7 @@ enum CostTests {
             ].joined(separator: "\n") + "\n"
             try lines.write(to: file, atomically: true, encoding: .utf8)
             let database = root.appendingPathComponent("usage.sqlite")
-            let env = ["CODEX_HOME": home.path, "XDG_DATA_HOME": root.path, "PI_CODING_AGENT_DIR": root.path]
+            let env = isolatedEnvironment(root: root)
             let rateCard = RateCard(overrides: ["retention-model": ModelPricing(input: 1, output: 2)])
             let first = await CostService(databaseURL: database, env: env, rateCard: rateCard).refresh(.codex)
             Harness.expectEqual(first?.windowTokens, 120, "retention fixture is scanned")
@@ -156,11 +156,10 @@ enum CostTests {
             try FileManager.default.createDirectory(at: claudeFile.deletingLastPathComponent(), withIntermediateDirectories: true)
             let claudeLine = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"retained-request","message":{"id":"retained-message","model":"retention-model","usage":{"input_tokens":100,"output_tokens":20},"content":"PRIVATE_TRANSCRIPT_SENTINEL"}}"# + "\n"
             try claudeLine.write(to: claudeFile, atomically: true, encoding: .utf8)
-            let claudeEnv = ["CLAUDE_CONFIG_DIR": claudeHome.path]
-            let claude = await CostService(databaseURL: database, env: claudeEnv, rateCard: rateCard).refresh(.claude)
+            let claude = await CostService(databaseURL: database, env: env, rateCard: rateCard).refresh(.claude)
             Harness.expectEqual(claude?.windowTokens, 120, "Claude retention fixture is scanned")
             try FileManager.default.removeItem(at: claudeHome)
-            let claudeRetained = await CostService(databaseURL: database, env: claudeEnv, rateCard: changedPrices).refresh(.claude)
+            let claudeRetained = await CostService(databaseURL: database, env: env, rateCard: changedPrices).refresh(.claude)
             Harness.expectEqual(claudeRetained?.windowTokens, 120, "Claude usage survives deleting its session directory and restart")
             Harness.expectClose(claudeRetained?.windowCostUSD, 0.014, "deleted Claude usage stays priced")
             Harness.expectEqual(claudeRetained?.days.first?.rankedModels.first?.key.source, .claude,
@@ -431,7 +430,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: ["CODEX_HOME": codexHome.path, "OPENCODE_DATA_HOME": openCodeHome.path],
+            env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
@@ -597,12 +596,10 @@ enum CostTests {
         ])
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: [
-                "CODEX_HOME": codexHome.path,
+            env: isolatedEnvironment(root: root, overriding: [
                 "PI_CODING_AGENT_DIR": agentHome.path,
                 "PI_CODING_AGENT_SESSION_DIR": sessions.path,
-                "OPENCODE_DATA_HOME": root.appendingPathComponent("missing-opencode").path,
-            ],
+            ]),
             rateCard: rateCard
         )
 
@@ -703,7 +700,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude").path],
+            env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
 
@@ -772,10 +769,9 @@ enum CostTests {
         try? (codexLines.joined(separator: "\n") + "\n").write(to: codexFile, atomically: true, encoding: .utf8)
         try? (claudeLines.joined(separator: "\n") + "\n").write(to: claudeFile, atomically: true, encoding: .utf8)
 
-        let env = ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path]
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: env,
+            env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
 
@@ -862,7 +858,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("fast-cache.sqlite"),
-            env: ["CODEX_HOME": home.path],
+            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
             rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
@@ -931,7 +927,7 @@ enum CostTests {
                 .write(to: tierFile, atomically: true, encoding: .utf8)
             let tierService = CostService(
                 databaseURL: root.appendingPathComponent("\(name)-cache.sqlite"),
-                env: ["CODEX_HOME": tierHome.path],
+                env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": tierHome.path]),
                 rateCard: Self.fixtureRateCard
             )
             return await tierService.refresh(.codex)
@@ -979,12 +975,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: [
-                "CODEX_HOME": codexHome.path,
-                "HOME": root.path,
-                "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
-                "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
-            ],
+            env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
@@ -1110,11 +1101,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: [
-                "CODEX_HOME": codexHome.path,
-                "OPENCODE_DATA_HOME": openCodeHome.path,
-                "PI_CODING_AGENT_DIR": root.appendingPathComponent("missing-pi").path,
-            ],
+            env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
         let snapshot = await service.refresh(.codex)
@@ -1144,7 +1131,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("stream-cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("stream-claude").path],
+            env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("stream-claude").path]),
             rateCard: RateCard(overrides: [
                 "stream-model": ModelPricing(input: 1, output: 2),
             ])
@@ -1198,7 +1185,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("invalidate-cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("invalidate-claude").path],
+            env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("invalidate-claude").path]),
             rateCard: RateCard(book: book),
             overrideFile: overrideFile
         )
@@ -1234,7 +1221,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("ttl-cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("ttl-claude").path],
+            env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("ttl-claude").path]),
             rateCard: RateCard(overrides: [
                 "ttl-model": ModelPricing(input: 10, output: 0, cacheWrite: 12.5, cacheRead: 0),
             ])
@@ -1277,10 +1264,10 @@ enum CostTests {
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("replay-cache.sqlite")
-        let env = ["CODEX_HOME": home.path]
         let rateCard = RateCard(overrides: [
             "replay-model": ModelPricing(input: 1, output: 1),
         ])
+        let env = isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path])
         let snapshot = await CostService(databaseURL: database, env: env, rateCard: rateCard)
             .refresh(.codex)
         Harness.expectClose(
@@ -1319,7 +1306,9 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("escaped-classifier-cache.sqlite"),
-            env: ["CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path],
+            env: isolatedEnvironment(root: root, overriding: [
+                "CODEX_HOME": codexHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path,
+            ]),
             rateCard: Self.fixtureRateCard
         )
         Harness.expectEqual(
@@ -1351,7 +1340,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("bounded-resume-cache.sqlite"),
-            env: ["CODEX_HOME": home.path],
+            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
             rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
@@ -1386,7 +1375,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("truncated-cache.sqlite"),
-            env: ["CODEX_HOME": home.path],
+            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
             rateCard: Self.fixtureRateCard
         )
         let first = await service.refresh(.codex)
@@ -1416,7 +1405,7 @@ enum CostTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("carve-cache.sqlite"),
-            env: ["CODEX_HOME": home.path],
+            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
             rateCard: RateCard(overrides: [
                 "carve-model": ModelPricing(input: 10, output: 0, cacheWrite: 1, cacheRead: 0),
             ])
