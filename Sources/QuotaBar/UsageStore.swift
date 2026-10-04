@@ -221,12 +221,8 @@ final class UsageStore: ObservableObject {
         self.refreshCosts(for: self.settings.menuBarProvider)
     }
 
-    /// Seconds until the next refresh of the provider on screen would actually run. The Refresh
-    /// row counts this down instead of accepting clicks it would drop.
-    func refreshCooldownRemaining() -> TimeInterval {
-        self.cooldownRemaining(for: self.settings.menuBarProvider)
-    }
-
+    /// Seconds until the next refresh of this provider would actually run. The Refresh row counts
+    /// this down instead of accepting clicks it would drop.
     func cooldownRemaining(for provider: Provider) -> TimeInterval {
         max(
             self.cooldowns.remaining(provider, at: self.clock()),
