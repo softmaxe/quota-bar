@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// One frame of the reset choreography, as the bar is drawing it. The headline reads its elapsed
@@ -21,14 +20,5 @@ final class QuotaCelebrationRelay: ObservableObject {
 
     func publish(_ frame: QuotaCelebrationFrame?) {
         self.frame = frame
-    }
-}
-
-/// The label's small landing accent. It never changes, obscures, or moves the quota reading.
-enum QuotaNumberMotion {
-    static func accentOpacity(at time: TimeInterval) -> Double {
-        let age = time - QuotaCelebration.landing
-        guard age >= 0, age < QuotaCelebration.flashDuration else { return 0 }
-        return 0.35 * pow(1 - age / QuotaCelebration.flashDuration, 1.6)
     }
 }
