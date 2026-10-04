@@ -54,10 +54,10 @@ enum CodexLogScanner {
                 let newOffset = try LogFileScanner.readLines(
                     of: url,
                     from: plan.cursor.offset,
-                    upTo: plan.cursor.size
+                    upTo: plan.cursor.size,
+                    where: Self.isRelevant
                 ) { buffer in
                     guard parseError == nil else { return }
-                    guard Self.isRelevant(buffer) else { return }
                     do {
                         try Self.ingest(
                             line: buffer,
@@ -275,8 +275,7 @@ enum CodexLogScanner {
     /// appended region and attribute the turns before it to the wrong model.
     private static func resumeState(in url: URL, before offset: Int64) -> ResumeState {
         var state = ResumeState()
-        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset) { buffer in
-            guard Self.isRelevant(buffer) else { return }
+        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset, where: Self.isRelevant) { buffer in
             guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
                   let payload = root["payload"] as? [String: Any] else { return }
 

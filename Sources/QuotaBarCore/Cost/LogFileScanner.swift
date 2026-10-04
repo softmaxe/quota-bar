@@ -6,6 +6,7 @@ import Foundation
 package enum LogFileScanner {
     private static let prefixDigestBytes = 64 * 1024
     private static let chunkSize = 1 << 20
+    private static let longLinePrefixBytes = 64 * 1024
 
     package struct ScanPlan {
         package let cursor: FileCursor
@@ -81,10 +82,16 @@ package enum LogFileScanner {
     /// complete line, so a partially written trailing line is re-read next time. `limit` is an
     /// absolute byte offset and is never read past, even when it lands inside a line. The buffer
     /// passed to `handle` is valid only for that call and must not escape it.
+    ///
+    /// Only lines `isWanted` accepts reach `handle`. A line longer than 64KB is first judged by
+    /// that prefix alone, and skipped to its newline unbuffered if rejected, so `isWanted` may
+    /// reject a prefix only when it would reject every line starting with it. Some logs carry
+    /// irrelevant lines of tens of megabytes.
     package static func readLines(
         of url: URL,
         from offset: Int64,
         upTo limit: Int64? = nil,
+        where isWanted: (UnsafeRawBufferPointer) -> Bool = { _ in true },
         handle: (UnsafeRawBufferPointer) -> Void
     ) throws -> Int64 {
         let start = max(0, offset)
@@ -97,6 +104,7 @@ package enum LogFileScanner {
 
         var buffer = [UInt8](repeating: 0, count: Self.chunkSize)
         var carry: [UInt8] = []
+        var skippingLine = false
         var readPosition = start
         var consumed = start
 
@@ -123,24 +131,32 @@ package enum LogFileScanner {
                       let found = memchr(base.advanced(by: lineStart), Int32(UInt8(ascii: "\n")), count - lineStart) {
                     let newline = base.distance(to: found.assumingMemoryBound(to: UInt8.self))
                     let length = newline - lineStart
-                    if carry.isEmpty {
-                        if length > 0 {
+                    if skippingLine {
+                        skippingLine = false
+                    } else if carry.isEmpty {
+                        let line = UnsafeRawBufferPointer(start: base.advanced(by: lineStart), count: length)
+                        if length > 0, isWanted(line) {
                             // Handlers parse with Foundation, whose autoreleased objects would
                             // otherwise pile up until the scan's task finishes.
-                            autoreleasepool {
-                                handle(UnsafeRawBufferPointer(start: base.advanced(by: lineStart), count: length))
-                            }
+                            autoreleasepool { handle(line) }
                         }
                     } else {
                         carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: length))
-                        autoreleasepool { carry.withUnsafeBytes(handle) }
+                        if carry.withUnsafeBytes(isWanted) {
+                            autoreleasepool { carry.withUnsafeBytes(handle) }
+                        }
                         carry.removeAll(keepingCapacity: true)
                     }
                     consumed = chunkStart + Int64(newline) + 1
                     lineStart = newline + 1
                 }
-                if lineStart < count {
+                if lineStart < count, !skippingLine {
+                    let wasShort = carry.count < Self.longLinePrefixBytes
                     carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: count - lineStart))
+                    if wasShort, carry.count >= Self.longLinePrefixBytes, !carry.withUnsafeBytes(isWanted) {
+                        skippingLine = true
+                        carry.removeAll(keepingCapacity: true)
+                    }
                 }
             }
             readPosition += Int64(count)

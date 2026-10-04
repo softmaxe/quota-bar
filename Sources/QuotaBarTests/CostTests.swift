@@ -380,6 +380,44 @@ enum CostTests {
             Int64(largeLine.utf8.count + 3),
             "line reader counts bytes across chunk boundaries"
         )
+
+        let isAssistant = { (line: UnsafeRawBufferPointer) in
+            let type = JSONLogClassifier.topLevelType(in: line)
+            return type == .assistant || type == .indeterminate
+        }
+        let longIrrelevant = #"{"type":"user","pad":""# + String(repeating: "x", count: (1 << 20) + 5) + #""}"#
+        let longRelevant = #"{"type":"assistant","pad":""# + String(repeating: "y", count: 100_000) + #""}"#
+        let short = #"{"type":"assistant"}"#
+        let filtered = root.appendingPathComponent("filtered.jsonl")
+        try? "\(longIrrelevant)\n\(short)\n\(longRelevant)\n".write(to: filtered, atomically: true, encoding: .utf8)
+        var wanted: [String] = []
+        let filteredOffset = try? LogFileScanner.readLines(of: filtered, from: 0, where: isAssistant) { line in
+            wanted.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(wanted, [short, longRelevant], "a skipped long line keeps the lines after it and a wanted long line whole")
+        Harness.expectEqual(
+            filteredOffset,
+            Int64(longIrrelevant.utf8.count + short.utf8.count + longRelevant.utf8.count + 3),
+            "a skipped long line still counts toward the offset"
+        )
+
+        let trailing = root.appendingPathComponent("trailing-long.jsonl")
+        try? "\(short)\n\(longIrrelevant.dropLast(2))".write(to: trailing, atomically: true, encoding: .utf8)
+        var beforeAppend: [String] = []
+        let trailingOffset = try? LogFileScanner.readLines(of: trailing, from: 0, where: isAssistant) { line in
+            beforeAppend.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(trailingOffset, Int64(short.utf8.count + 1), "a partial long line is left for the next scan")
+        if let handle = try? FileHandle(forWritingTo: trailing) {
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data("\"}\n\(short)\n".utf8))
+            try? handle.close()
+        }
+        var afterAppend: [String] = []
+        _ = try? LogFileScanner.readLines(of: trailing, from: trailingOffset ?? 0, where: isAssistant) { line in
+            afterAppend.append(String(decoding: line, as: UTF8.self))
+        }
+        Harness.expectEqual(beforeAppend + afterAppend, [short, short], "a completed long line is skipped whole on the next scan")
     }
 
     private static func openCodeScanning() async {
