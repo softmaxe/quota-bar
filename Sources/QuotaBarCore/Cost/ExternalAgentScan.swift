@@ -19,9 +19,6 @@ public enum ExternalAgentScanStatus: Sendable, Equatable {
     }
 }
 
-public typealias OpenCodeScanStatus = ExternalAgentScanStatus
-public typealias PiAgentScanStatus = ExternalAgentScanStatus
-
 /// Whether one agent's usage counts toward the Codex total.
 enum ExternalAgentEligibility {
     case eligible

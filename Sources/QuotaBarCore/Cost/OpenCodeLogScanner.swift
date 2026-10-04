@@ -4,7 +4,7 @@ import SQLite3
 enum OpenCodeLogScanner {
     struct Result {
         let touched: Int
-        let status: OpenCodeScanStatus
+        let status: ExternalAgentScanStatus
     }
 
     private struct AuthFile: Decodable {
