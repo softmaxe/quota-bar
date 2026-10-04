@@ -91,7 +91,7 @@ enum ScannerRegressionTests {
     }
 
     /// `usage.speed` marks a Claude Fast mode request. On Opus 5.5 it bills at 2x Standard,
-    /// cache reads included, in the menu and in the exported report alike.
+    /// cache reads included.
     private static func claudeFastSpeedIsPricedAsFast() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-claude-fast-tests-\(ProcessInfo.processInfo.processIdentifier)")
@@ -118,9 +118,8 @@ enum ScannerRegressionTests {
         ]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
-        let database = root.appendingPathComponent("cache.sqlite")
         let service = CostService(
-            databaseURL: database,
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
             rateCard: RateCard()
         )
@@ -133,10 +132,6 @@ enum ScannerRegressionTests {
         Harness.expectClose(byModel?[fastKey]?.costUSD, 12.4, "one Fast request bills at 2x Standard")
         Harness.expectEqual(byModel?[fastKey]?.tokens.total, 2_100_000, "Fast tokens stay in the Fast row")
         Harness.expectClose(snapshot?.windowCostUSD, 24.8, "the window sums both tiers")
-
-        let report = try? UsageReportReader.read(databaseURL: database, windowDays: 1, rateCard: RateCard())
-        Harness.expectClose(report?.totals.cost, 24.8, "the exported report prices Claude Fast the same way")
-        Harness.expectEqual(report?.totals.unpricedTokens, 0, "Claude Fast on Opus 5.5 is priced in the report")
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {

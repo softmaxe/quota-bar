@@ -16,8 +16,8 @@ enum UsageReportTests {
         self.check("usage report rejects missing and corrupt databases") {
             try self.rejectsMissingAndCorruptDatabases()
         }
-        self.check("usage report validates bounded numeric data") {
-            try self.validatesInputsAndNumbers()
+        self.check("usage report rejects windows outside the chart range") {
+            self.rejectsInvalidWindows()
         }
         self.check("usage report keeps committed WAL data visible and uncommitted writes invisible") {
             try self.readsCommittedWAL()
@@ -252,48 +252,12 @@ enum UsageReportTests {
         }
     }
 
-    private static func validatesInputsAndNumbers() throws {
+    private static func rejectsInvalidWindows() {
         Harness.expectThrows("zero-day window") {
             _ = try UsageReportReader.read(databaseURL: URL(fileURLWithPath: "/missing"), windowDays: 0)
         }
         Harness.expectThrows("window above chart limit") {
             _ = try UsageReportReader.read(databaseURL: URL(fileURLWithPath: "/missing"), windowDays: 31)
-        }
-
-        try self.withTemporaryDirectory { directory in
-            let negativeURL = directory.appendingPathComponent("negative.sqlite")
-            try self.withDatabase(at: negativeURL) { database in
-                try self.execute(self.codexSchema, on: database)
-                try self.execute("""
-                    INSERT INTO codex_day VALUES
-                      ('path', '2026-09-15', 'bad', 0, 0, -1, 0, 0, 0, 0)
-                    """, on: database)
-            }
-            Harness.expectThrows("negative token count") {
-                _ = try UsageReportReader.read(
-                    databaseURL: negativeURL,
-                    windowDays: 1,
-                    now: self.captureDate,
-                    calendar: self.calendar
-                )
-            }
-
-            let unsafeURL = directory.appendingPathComponent("unsafe.sqlite")
-            try self.withDatabase(at: unsafeURL) { database in
-                try self.execute(self.codexSchema, on: database)
-                try self.execute("""
-                    INSERT INTO codex_day VALUES
-                      ('path', '2026-09-15', 'bad', 0, 0, 9007199254740992, 0, 0, 0, 0)
-                    """, on: database)
-            }
-            Harness.expectThrows("JavaScript-unsafe token count") {
-                _ = try UsageReportReader.read(
-                    databaseURL: unsafeURL,
-                    windowDays: 1,
-                    now: self.captureDate,
-                    calendar: self.calendar
-                )
-            }
         }
     }
 

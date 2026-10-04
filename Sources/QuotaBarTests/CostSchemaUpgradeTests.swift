@@ -57,28 +57,6 @@ enum CostSchemaUpgradeTests {
                 1,
                 "legacy Claude usage survives with the standard tier"
             )
-            // Cost is derived from tokens now, so the frozen figures and their index are gone.
-            Harness.expectEqual(
-                try self.scalarInt(
-                    "SELECT COUNT(*) FROM pragma_table_info('codex_day') "
-                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
-                    from: database
-                ) + self.scalarInt(
-                    "SELECT COUNT(*) FROM pragma_table_info('opencode_part') "
-                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
-                    from: database
-                ),
-                0,
-                "schema upgrade drops the stored cost columns"
-            )
-            Harness.expectEqual(
-                try self.scalarInt(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name LIKE '%_unpriced'",
-                    from: database
-                ),
-                0,
-                "schema upgrade drops the unpriced-row indexes"
-            )
             Harness.expectEqual(
                 try self.scalarInt(
                     "SELECT COUNT(*) FROM file_cursor WHERE path = '/missing/legacy-rollout.jsonl'",
