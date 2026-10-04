@@ -46,6 +46,7 @@ enum CostTests {
                     "claude": {
                       "source": "https://example.com", "checkedAt": "2026-09-25",
                       "models": [
+                        { "id": "claude-opus-5-5", "periods": [ { "rates": { "input": 4, "output": 20, "cacheWrite": 5, "cacheRead": 0.2 }, "fastMultiplier": 2 } ] },
                         { "id": "claude-opus-5", "periods": [ { "rates": { "input": 5, "output": 25, "cacheWrite": 6.25, "cacheRead": 0.5 } } ] }
                       ]
                     }
@@ -57,7 +58,7 @@ enum CostTests {
         }
     }()
 
-    private static let fixtureRateCard = RateCard(book: fixtureBook)
+    static let fixtureRateCard = RateCard(book: fixtureBook)
 
     private static func replacedCodexSessionIsReparsed() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

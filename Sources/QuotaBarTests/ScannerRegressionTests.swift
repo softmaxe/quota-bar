@@ -121,7 +121,7 @@ enum ScannerRegressionTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: isolatedEnvironment(root: root),
-            rateCard: RateCard()
+            rateCard: CostTests.fixtureRateCard
         )
         let snapshot = await service.refresh(.claude)
         let byModel = snapshot?.days.first?.byModel
