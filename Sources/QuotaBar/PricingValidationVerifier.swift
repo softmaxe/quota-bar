@@ -5,6 +5,7 @@ import Foundation
 
 @MainActor
 enum PricingValidationVerifier {
+    @MainActor
     private final class Gate {
         var continuation: CheckedContinuation<Void, Never>?
 
@@ -18,6 +19,7 @@ enum PricingValidationVerifier {
         }
     }
 
+    @MainActor
     private final class Recorder {
         var writes: [[String: ModelPricing]] = []
         var failWrite = false
@@ -38,6 +40,7 @@ enum PricingValidationVerifier {
 
     private enum SaveFailure: Error { case simulated }
 
+    @MainActor
     private final class UsageRead {
         var result: Result<[Provider: [ModelUsageTotal]], Error> = .success([:])
         var gate: Gate?
