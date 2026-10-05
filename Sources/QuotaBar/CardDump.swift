@@ -206,34 +206,6 @@ enum CardDump {
         )
     }
 
-    /// `--dump-breakdown-toggle <dir> <provider>` holds the three faces of the line that closes a
-    /// busy day's model list: at rest, under the pointer, and opened. Off screen there is no
-    /// pointer, so the hover is seeded rather than performed.
-    static func dumpBreakdownToggle(directory: String, provider: Provider) {
-        let root = OffscreenCapture.directory(directory)
-        let cost = Self.busyCost(provider)
-        guard let today = cost.days.last else { return }
-
-        let states: [(name: String, expanded: Bool, toggleHovered: Bool)] = [
-            ("collapsed", false, false),
-            ("hovered", false, true),
-            ("expanded", true, true),
-        ]
-        for state in states {
-            Self.capture(
-                CostSectionView(
-                    snapshot: cost,
-                    previewHoveredDayKey: today.dayKey,
-                    previewTodayDayKey: today.dayKey,
-                    isBreakdownExpanded: state.expanded,
-                    previewToggleHovered: state.toggleHovered
-                ).padding(14).frame(width: 280),
-                named: state.name,
-                into: root
-            )
-        }
-    }
-
     /// `--dump-chart-hover <dir> <provider>` walks the highlight across every bar of the cost
     /// chart, one PNG per day. The frames carry the breakdown each bar opens, not the spring that
     /// carries the highlight between them — a still cannot hold a spring.

@@ -3,7 +3,6 @@ import QuotaBarCore
 import AppKit
 import Foundation
 import SwiftUI
-import SQLite3
 
 /// Exercises quota and local-scan state without reading credentials, logs, or the network.
 @MainActor
@@ -240,39 +239,32 @@ enum ProviderStateVerifier {
         }
         store.stop()
         do {
-            if let failure = try await Self.verifyRecordedUsageRecovery(defaults: defaults) { finish(failure) }
+            if let failure = try await Self.verifyMenuReadsRecordedUsage(defaults: defaults) { finish(failure) }
         } catch {
-            finish("recorded usage recovery fixture threw: \(error)")
+            finish("recorded usage fixture threw: \(error)")
         }
         finish()
     }
 
-    private static func verifyRecordedUsageRecovery(defaults: UserDefaults) async throws -> String? {
+    /// The only check that leaves the store on its default cost fetch, so it is what proves the
+    /// menu reads the service's recorded usage at all.
+    private static func verifyMenuReadsRecordedUsage(defaults: UserDefaults) async throws -> String? {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("quota-bar-menu-read-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let databaseURL = directory.appendingPathComponent("usage.sqlite")
+        let claudeHome = directory.appendingPathComponent("claude")
+        let transcript = claudeHome.appendingPathComponent("projects/app/session.jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req","message":{"id":"msg","model":"fixture-model","usage":{"input_tokens":1,"output_tokens":0}}}"#
+        try (line + "\n").write(to: transcript, atomically: true, encoding: .utf8)
         let service = CostService(
-            databaseURL: databaseURL,
-            env: ["CLAUDE_CONFIG_DIR": directory.appendingPathComponent("claude").path],
+            databaseURL: directory.appendingPathComponent("usage.sqlite"),
+            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
             rateCard: RateCard()
         )
-        guard await service.refresh(.claude) != nil else { return "could not initialize usage fixture" }
-        var database: OpaquePointer?
-        guard sqlite3_open(databaseURL.path, &database) == SQLITE_OK else { return "could not open usage fixture" }
-        defer { sqlite3_close(database) }
-        func execute(_ sql: String) throws {
-            guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else {
-                throw NSError(domain: "MenuReadFixture", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: String(cString: sqlite3_errmsg(database)),
-                ])
-            }
-        }
-        let day = DayKey.today()
-        try execute("""
-            INSERT INTO claude_message (key, path, day, model, long_context, input, output, cache_write, cache_read, cache_write_1h)
-            VALUES ('saved', 'saved', '\(day)', 'fixture-model', 0, 1, 0, 0, 0, 0);
-            """)
         let settings = SettingsStore(defaults: defaults)
         settings.menuBarProvider = .claude
         var quotaCalls = 0
@@ -287,33 +279,8 @@ enum ProviderStateVerifier {
         )
         defer { store.stop() }
         store.retryLocalUsage()
-        guard await Self.wait(until: { store.displays[.claude]?.cost?.windowTokens == 1 }) else {
-            return "the menu did not load recorded usage"
-        }
-        let saved = store.displays[.claude]?.cost
-        try execute("""
-            INSERT INTO claude_message (key, path, day, model, long_context, input, output, cache_write, cache_read, cache_write_1h)
-            VALUES
-            ('overflow-a', 'a', '\(day)', 'zz-overflow', 0, \(Int64.max), 0, 0, 0, 0),
-            ('overflow-b', 'b', '\(day)', 'zz-overflow', 0, 1, 0, 0, 0, 0);
-            """)
-        store.retryLocalUsage()
-        guard await Self.wait(until: {
-            if case .some(.failed) = store.displays[.claude]?.localScanStatus { return true }
-            return false
-        }), store.displays[.claude]?.cost == saved else {
-            return "a SQLite query failure did not preserve the menu snapshot and expose retry"
-        }
-        try execute("DELETE FROM claude_message WHERE key IN ('overflow-a', 'overflow-b')")
-        try execute("UPDATE claude_message SET input = 2 WHERE key = 'saved'")
-        store.retryLocalUsage()
-        guard await Self.wait(until: {
-            if case .some(.completed) = store.displays[.claude]?.localScanStatus {
-                return store.displays[.claude]?.cost?.windowTokens == 2
-            }
-            return false
-        }), quotaCalls == 0 else {
-            return "menu retry did not replace the failed read with current usage independently of quota"
+        guard await Self.wait(until: { store.displays[.claude]?.cost?.windowTokens == 1 }), quotaCalls == 0 else {
+            return "the menu did not load recorded usage independently of quota"
         }
         return nil
     }

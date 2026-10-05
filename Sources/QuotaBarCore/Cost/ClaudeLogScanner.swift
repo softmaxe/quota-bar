@@ -45,11 +45,13 @@ enum ClaudeLogScanner {
                 let newOffset = try LogFileScanner.readLines(
                     of: url,
                     from: plan.cursor.offset,
-                    upTo: plan.cursor.size
+                    upTo: plan.cursor.size,
+                    where: { buffer in
+                        let type = JSONLogClassifier.topLevelType(in: buffer)
+                        return type == .assistant || type == .indeterminate
+                    }
                 ) { buffer in
                     guard parseError == nil else { return }
-                    let type = JSONLogClassifier.topLevelType(in: buffer)
-                    guard type == .assistant || type == .indeterminate else { return }
                     do {
                         try Self.ingest(
                             line: buffer,

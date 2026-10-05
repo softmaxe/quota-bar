@@ -43,15 +43,6 @@ final class RecordedUsageFixture {
         try? FileManager.default.removeItem(at: self.directory)
     }
 
-    var environment: [String: String] {
-        [
-            "CODEX_HOME": self.directory.appendingPathComponent("codex").path,
-            "CLAUDE_CONFIG_DIR": self.directory.appendingPathComponent("claude").path,
-            "OPENCODE_DATA_HOME": self.directory.appendingPathComponent("opencode").path,
-            "PI_CODING_AGENT_DIR": self.directory.appendingPathComponent("pi").path,
-        ]
-    }
-
     func day(_ offset: Int = 0) -> String {
         DayKey.make(from: self.calendar.date(byAdding: .day, value: offset, to: self.now)!, calendar: self.calendar)
     }

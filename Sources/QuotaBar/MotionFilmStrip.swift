@@ -146,21 +146,6 @@ enum MotionFilmStrip {
             )
         }
     }
-
-    // MARK: - Cost chart unit
-
-    /// `--dump-label-toggle <dir>`: switch cost and token readings twice. Labels and bar heights
-    /// use the selected unit in the first frame.
-    static func dumpLabelToggle(directory: String) {
-        let root = OffscreenCapture.directory(directory)
-        let hold: TimeInterval = 0.9
-
-        Self.strip([CostChartLabelMode.cost, .tokens], into: root, named: "label toggle") { _ in
-            hold
-        } frame: { mode, _ in
-            ChartLabelSwapFrame(mode: mode)
-        }
-    }
 }
 
 // MARK: - Frames
@@ -376,107 +361,6 @@ private struct ChartHighlightFrame: View {
         }
         .padding(18)
         .frame(width: 340, height: 160, alignment: .bottomLeading)
-        .background(OffscreenCapture.groundColor)
-    }
-}
-
-/// The selected day's readings and bar heights change together. The layout is a stand-in;
-/// each bar uses `CostChartHighlightPolicy.value` and the matching metric's maximum.
-private struct ChartLabelSwapFrame: View {
-    let mode: CostChartLabelMode
-
-    /// A week the two metrics disagree about, because a cheap model spends tokens a dear one does
-    /// not: the tallest token day is the second, the tallest cost day is the third. A fixture that
-    /// read the same in both units would hold the chart still and show half of what the click does.
-    /// The selected day has 37M tokens and $37, so both readings remain visible through a swap.
-    private static let fixture: [(tokensM: Double, costUSD: Double)] = [
-        (62, 18), (90, 24), (48, 40), (71, 30), (9, 7), (88, 22), (41, 35), (37, 37),
-    ]
-    private static let chartHeight: CGFloat = 56
-    private static let spacing: CGFloat = 4
-    private static let chartWidth: CGFloat = 252
-
-    private static let days: [CostDay] = Self.fixture.enumerated().map { index, day in
-        CostDay(
-            dayKey: String(format: "2026-08-%02d", 17 + index),
-            byModel: [
-                ModelUsageKey(source: .claude, model: "opus-5"): ModelDayUsage(
-                    tokens: TokenTotals(input: Int(day.tokensM * 1_000_000)),
-                    costUSD: day.costUSD
-                ),
-            ],
-            costUSD: day.costUSD,
-            unpricedTokens: 0
-        )
-    }
-
-    private func ratio(for day: CostDay) -> Double {
-        Self.ratio(for: day, mode: self.mode)
-    }
-
-    private static func ratio(for day: CostDay, mode: CostChartLabelMode) -> Double {
-        let maxValue = CostChartHighlightPolicy.maxValue(for: Self.days, mode: mode)
-        guard maxValue > 0 else { return 0 }
-        return CostChartHighlightPolicy.value(for: day, mode: mode) / maxValue
-    }
-
-    var body: some View {
-        let tint = Theme.accent(for: .claude)
-        let selectedDay = Self.days[Self.days.count - 1]
-        let cost = selectedDay.costAvailability.knownUSD.map(Formatters.cost) ?? "—"
-        let tokens = "\(Formatters.tokens(selectedDay.tokens.total)) tokens"
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("Last \(Self.days.count) calendar days")
-                Spacer(minLength: 4)
-                Text(self.mode == .tokens ? "Tokens" : "Cost")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-
-            HStack(alignment: .bottom, spacing: Self.spacing) {
-                ForEach(Array(Self.days.enumerated()), id: \.offset) { index, day in
-                    let isSelected = index == Self.days.count - 1
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(tint)
-                        .opacity(isSelected ? 1 : CostChartHighlightPolicy.restingOpacity)
-                        .frame(height: max(4, Self.chartHeight * self.ratio(for: day)))
-                        .frame(maxWidth: .infinity)
-                        .overlay(alignment: .bottom) {
-                            if isSelected {
-                                Capsule(style: .continuous)
-                                    .fill(tint)
-                                    .frame(height: CostChartHoverMotion.markerHeight)
-                                    .offset(y: CostChartHoverMotion.markerBand)
-                            }
-                        }
-                }
-            }
-            .frame(width: Self.chartWidth, height: Self.chartHeight)
-            .padding(.bottom, CostChartHoverMotion.markerBand)
-
-            HStack {
-                Text(Formatters.dayLabel(Self.days[0].dayKey))
-                Spacer(minLength: 4)
-                Text(Formatters.dayLabel(selectedDay.dayKey))
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-
-            Divider()
-            Text(Formatters.dayLabel(selectedDay.dayKey))
-                .font(.system(size: 11, weight: .medium))
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                Text(self.mode == .tokens ? tokens : cost)
-                    .font(.system(size: 17, weight: .medium))
-                Text(self.mode == .tokens ? cost : tokens)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .monospacedDigit()
-        }
-        .padding(14)
-        .frame(width: 280, alignment: .leading)
         .background(OffscreenCapture.groundColor)
     }
 }

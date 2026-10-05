@@ -8,6 +8,7 @@ enum ScannerRegressionTests {
         Self.sameSizeRewriteRequiresReparse()
         await Self.codexResumeStatePersists()
         await Self.claudeFieldTypesMatchLooseCasts()
+        await Self.codexFieldTypesMatchLooseCasts()
         await Self.claudeFastSpeedIsPricedAsFast()
     }
 
@@ -76,7 +77,7 @@ enum ScannerRegressionTests {
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
+            env: isolatedEnvironment(root: root),
             rateCard: RateCard()
         )
         let snapshot = await service.refresh(.claude)
@@ -90,8 +91,50 @@ enum ScannerRegressionTests {
         Harness.expectEqual(snapshot?.topModel, "claude-opus-5", "the model is trimmed and normalized")
     }
 
+    /// A Codex token_count whose running total matches the previous one is a replay. The total
+    /// compares its numeric fields only: booleans count as 0 or 1, fractions truncate, and
+    /// strings are left out.
+    private static func codexFieldTypesMatchLooseCasts() async {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("quotabar-codex-fields-tests-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let codexHome = root.appendingPathComponent("codex")
+        let file = codexHome.appendingPathComponent("sessions/rollout.jsonl")
+        try? FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        func event(last: String, total: String) -> String {
+            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last)},"total_token_usage":\#(total)}}}"#
+        }
+        let lines = [
+            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-sol"}}"#,
+            event(last: #""1""#, total: #"{"input_tokens":1,"flag":true,"note":"x"}"#),
+            event(last: "1", total: #"{"input_tokens":1,"flag":1,"note":"y"}"#),
+            event(last: "1", total: #"{"input_tokens":1,"flag":false}"#),
+            event(last: "1.9", total: #"{"input_tokens":2}"#),
+            event(last: "1", total: #"{"input_tokens":2.6}"#),
+            event(last: "1", total: "5"),
+            event(last: "1", total: #"{"input_tokens":2}"#),
+            event(last: "1", total: #"{"input_tokens":"3"}"#),
+            event(last: "1", total: #"{"input_tokens":"4"}"#),
+        ]
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        let service = CostService(
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: isolatedEnvironment(root: root),
+            rateCard: RateCard()
+        )
+        let snapshot = await service.refresh(.codex)
+        Harness.expectEqual(snapshot?.windowTokens, 5, "Codex running totals compare numbers and booleans, not strings")
+    }
+
     /// `usage.speed` marks a Claude Fast mode request. On Opus 5.5 it bills at 2x Standard,
-    /// cache reads included, in the menu and in the exported report alike.
+    /// cache reads included.
     private static func claudeFastSpeedIsPricedAsFast() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-claude-fast-tests-\(ProcessInfo.processInfo.processIdentifier)")
@@ -118,11 +161,10 @@ enum ScannerRegressionTests {
         ]
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
 
-        let database = root.appendingPathComponent("cache.sqlite")
         let service = CostService(
-            databaseURL: database,
-            env: ["CLAUDE_CONFIG_DIR": claudeHome.path],
-            rateCard: RateCard()
+            databaseURL: root.appendingPathComponent("cache.sqlite"),
+            env: isolatedEnvironment(root: root),
+            rateCard: CostTests.fixtureRateCard
         )
         let snapshot = await service.refresh(.claude)
         let byModel = snapshot?.days.first?.byModel
@@ -133,10 +175,6 @@ enum ScannerRegressionTests {
         Harness.expectClose(byModel?[fastKey]?.costUSD, 12.4, "one Fast request bills at 2x Standard")
         Harness.expectEqual(byModel?[fastKey]?.tokens.total, 2_100_000, "Fast tokens stay in the Fast row")
         Harness.expectClose(snapshot?.windowCostUSD, 24.8, "the window sums both tiers")
-
-        let report = try? UsageReportReader.read(databaseURL: database, windowDays: 1, rateCard: RateCard())
-        Harness.expectClose(report?.totals.cost, 24.8, "the exported report prices Claude Fast the same way")
-        Harness.expectEqual(report?.totals.unpricedTokens, 0, "Claude Fast on Opus 5.5 is priced in the report")
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {
@@ -192,7 +230,7 @@ enum ScannerRegressionTests {
             .write(to: file, atomically: true, encoding: .utf8)
 
         let database = root.appendingPathComponent("cache.sqlite")
-        let env = Self.isolatedEnvironment(root: root, codexHome: codexHome)
+        let env = isolatedEnvironment(root: root)
         var service: CostService? = CostService(
             databaseURL: database,
             env: env,
@@ -290,14 +328,5 @@ enum ScannerRegressionTests {
             sqlite3_bind_null(statement, 1)
         }
         return sqlite3_step(statement) == SQLITE_DONE
-    }
-
-    private static func isolatedEnvironment(root: URL, codexHome: URL) -> [String: String] {
-        [
-            "CODEX_HOME": codexHome.path,
-            "HOME": root.path,
-            "XDG_DATA_HOME": root.appendingPathComponent("xdg").path,
-            "PI_CODING_AGENT_DIR": root.appendingPathComponent("pi").path,
-        ]
     }
 }

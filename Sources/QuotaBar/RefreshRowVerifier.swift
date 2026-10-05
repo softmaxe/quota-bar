@@ -37,17 +37,15 @@ enum RefreshRowVerifier {
         store.debugRecordRefresh(at: now)
         controller.debugBeginPresentation()
         controller.debugStartRefreshRowClock()
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "59s", enabled: false, step: "just after a refresh")
 
         // The row advances on its own clock, with nothing else publishing.
         now = 1_030
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "half a cooldown later")
 
         // A click during the cooldown is refused by the row itself, so the store is never asked.
+        // The click redraws the row before it returns, so an accepted click would already show.
         controller.debugClickRefreshRow()
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: "29s", enabled: false, step: "after a refused click")
 
         // An automatic Claude 401 is different from an ordinary API cooldown: the existing row
@@ -56,7 +54,6 @@ enum RefreshRowVerifier {
         recovery.error = "Claude credentials need recovery."
         recovery.canAttemptCredentialRecovery = true
         store.debugSetDisplay(recovery, for: settings.menuBarProvider)
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,
             "Refresh",
@@ -66,7 +63,6 @@ enum RefreshRowVerifier {
         )
 
         store.debugSetDisplay(ProviderDisplay(), for: settings.menuBarProvider)
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(
             controller,
             "Refresh",
@@ -77,7 +73,6 @@ enum RefreshRowVerifier {
 
         // And the row comes back by itself, without the menu being reopened.
         now = 1_059
-        RunLoopDrain.run(mode: .eventTracking)
         Self.requireRow(controller, "Refresh", trailing: nil, enabled: true, step: "once the cooldown elapsed")
 
         controller.debugStopRefreshRowClock()
@@ -93,6 +88,12 @@ enum RefreshRowVerifier {
         enabled: Bool,
         step: String
     ) {
+        // The row redraws from a timer and from store publishes, both of which land on later
+        // run-loop turns, during menu tracking.
+        RunLoopDrain.run(until: {
+            guard let state = controller.debugRefreshRowState() else { return false }
+            return state.title == title && state.trailingText == trailing && state.isEnabled == enabled
+        }, mode: .eventTracking)
         guard let state = controller.debugRefreshRowState() else {
             Self.fail("\(step): the menu carries no Refresh row")
         }

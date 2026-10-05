@@ -104,9 +104,7 @@ enum ClaudeRefreshTests {
         await Self.coordinatorCooldownAndRequest()
         await Self.coordinatorSingleFlight()
         await Self.localPTYRunner()
-        await Self.localPTYTimeout()
         await Self.localPTYTimeoutCleansChildTree()
-        Self.environmentSanitization()
         Self.cliLocator()
     }
 
@@ -412,6 +410,8 @@ enum ClaudeRefreshTests {
                 "CLAUDE_CLI_PATH": "/fake/claude",
                 "CLAUDE_CONFIG_DIR": "/profile",
                 "ANTHROPIC_API_KEY": "secret",
+                "ANTHROPIC_BASE_URL": "https://example.invalid",
+                "DISABLE_AUTOUPDATER": "0",
                 "PATH": "/bin",
             ],
             now: { clock.now() }
@@ -449,7 +449,8 @@ enum ClaudeRefreshTests {
         Harness.expect(request.arguments.contains(ClaudeDelegatedRefreshCoordinator.stableSessionID), "runner receives a stable session")
         Harness.expectEqual(request.environment["CLAUDE_CONFIG_DIR"], "/profile", "profile environment is preserved")
         Harness.expectEqual(request.environment["ANTHROPIC_API_KEY"], nil, "Anthropic environment is removed")
-        Harness.expectEqual(request.environment["DISABLE_AUTOUPDATER"], "1", "autoupdater is disabled")
+        Harness.expectEqual(request.environment["ANTHROPIC_BASE_URL"], nil, "Anthropic endpoints are removed")
+        Harness.expectEqual(request.environment["DISABLE_AUTOUPDATER"], "1", "autoupdater is disabled even when set to 0")
         Harness.expectEqual(request.environment["TERM"], "xterm-256color", "PTY environment supplies TERM")
         Harness.expectEqual(request.workingDirectoryPath, "/", "runner never starts in a user project")
         Harness.expectEqual(request.timeout, 5, "runner receives the five-second timeout")
@@ -499,32 +500,6 @@ enum ClaudeRefreshTests {
         }
     }
 
-    private static func localPTYTimeout() async {
-        let request = ClaudeDelegatedRefreshRequest(
-            executablePath: "/bin/sh",
-            arguments: ["-c", "while :; do :; done"],
-            command: "/status",
-            environment: ["TERM": "xterm-256color"],
-            workingDirectoryPath: "/",
-            timeout: 0.1
-        )
-        let startedAt = Date()
-
-        do {
-            try await ClaudePTYRunner().run(request)
-            Harness.expect(false, "the local PTY timeout terminates the process")
-        } catch let error as ClaudePTYRunnerError {
-            Harness.expectEqual(error, .timedOut, "the local PTY timeout reports timedOut")
-        } catch {
-            Harness.expect(false, "the local PTY timeout reports a typed timeout")
-        }
-
-        Harness.expect(
-            Date().timeIntervalSince(startedAt) < 2,
-            "the local PTY timeout completes promptly"
-        )
-    }
-
     private static func localPTYTimeoutCleansChildTree() async {
         let pidFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("quotabar-pty-child-\(UUID().uuidString).pid")
@@ -534,13 +509,14 @@ enum ClaudeRefreshTests {
             executablePath: "/bin/sh",
             arguments: [
                 "-c",
-                "sleep 30 & child=$!; printf '%s\\n' \"$child\" > \"$PID_FILE\"; trap 'wait \"$child\"; exit 143' TERM INT; while :; do :; done",
+                "sleep 30 & child=$!; printf '%s\\n' \"$child\" > \"$PID_FILE\"; trap 'wait \"$child\"; exit 143' TERM INT; sleep 30",
             ],
             command: "/status",
             environment: ["TERM": "xterm-256color", "PID_FILE": pidFile.path],
             workingDirectoryPath: "/",
-            timeout: 0.5
+            timeout: 0.2
         )
+        let startedAt = Date()
         let runTask = Task { () -> ClaudePTYRunnerError? in
             do {
                 try await ClaudePTYRunner().run(request)
@@ -557,6 +533,7 @@ enum ClaudeRefreshTests {
         let result = await runTask.value
 
         Harness.expectEqual(result, .timedOut, "a PTY timeout with a child reports timedOut")
+        Harness.expect(Date().timeIntervalSince(startedAt) < 2, "the local PTY timeout completes promptly")
         guard let childIdentity else {
             Harness.expect(false, "the local child-tree fixture wrote a child identity")
             return
@@ -612,19 +589,6 @@ enum ClaudeRefreshTests {
             startMicroseconds: info.pbi_start_tvusec,
             status: info.pbi_status
         )
-    }
-
-    private static func environmentSanitization() {
-        let sanitized = ClaudeDelegatedRefreshEnvironment.sanitized([
-            "ANTHROPIC_API_KEY": "secret",
-            "ANTHROPIC_BASE_URL": "https://example.invalid",
-            "CLAUDE_CONFIG_DIR": "/profile",
-            "DISABLE_AUTOUPDATER": "0",
-        ])
-        Harness.expectEqual(sanitized["ANTHROPIC_API_KEY"], nil, "API keys are removed from the delegated environment")
-        Harness.expectEqual(sanitized["ANTHROPIC_BASE_URL"], nil, "Anthropic endpoints are removed from the delegated environment")
-        Harness.expectEqual(sanitized["CLAUDE_CONFIG_DIR"], "/profile", "Claude profile variables remain")
-        Harness.expectEqual(sanitized["DISABLE_AUTOUPDATER"], "1", "the updater is disabled")
     }
 
     private static func cliLocator() {

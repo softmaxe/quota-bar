@@ -24,6 +24,8 @@ public actor CostService {
     /// The Pi Agent session files the store already reflects, so an unchanged directory is not
     /// re-read on every Codex refresh.
     private var piAgentSessions: PiAgentLogScanner.SessionSnapshot?
+    /// The OpenCode database the store already reflects, so an unchanged one is not re-queried.
+    private var openCodeDatabase: OpenCodeLogScanner.DatabaseSnapshot?
     /// Readable without the actor so `CostUsageReader` can open the same file on a connection
     /// of its own rather than queueing behind a scan.
     public nonisolated let databaseURL: URL
@@ -125,7 +127,13 @@ public actor CostService {
         switch provider {
         case .codex:
             let codexTouched = try CodexLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
-            let openCode = OpenCodeLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
+            let openCode = OpenCodeLogScanner.scan(
+                cache: cache,
+                rateCard: rateCard,
+                env: self.env,
+                previous: self.openCodeDatabase
+            )
+            self.openCodeDatabase = openCode.database
             self.openCodeStatus = openCode.status
             if case .error = openCode.status {
                 Log.ui.error("OpenCode usage scan failed; cached usage was kept")

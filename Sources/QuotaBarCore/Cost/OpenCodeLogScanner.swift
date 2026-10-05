@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SQLite3
 
@@ -5,6 +6,27 @@ enum OpenCodeLogScanner {
     struct Result {
         let touched: Int
         let status: OpenCodeScanStatus
+        /// The database this result was read from, when every row was stored. Passing it to the
+        /// next scan lets an unchanged database skip the full query.
+        var database: DatabaseSnapshot? = nil
+    }
+
+    /// Identity of the database and its write-ahead log at the moment they were read, with the
+    /// time zone that decides each row's day and whether rows count. Rows are upserted by part
+    /// key and an identical row is left untouched, so re-reading the same input cannot change the
+    /// store.
+    struct DatabaseSnapshot: Equatable {
+        fileprivate let files: [FileStamp?]
+        fileprivate let timeZone: String
+        fileprivate let included: Bool
+    }
+
+    fileprivate struct FileStamp: Equatable {
+        let device: Int32
+        let inode: UInt64
+        let size: Int64
+        let modified: Double
+        let changed: Double
     }
 
     private struct AuthFile: Decodable {
@@ -32,7 +54,8 @@ enum OpenCodeLogScanner {
     static func scan(
         cache: CostCache,
         rateCard: RateCard,
-        env: [String: String]
+        env: [String: String],
+        previous: DatabaseSnapshot? = nil
     ) -> Result {
         let dataDirectory = self.dataDirectory(env: env)
         let databaseURL = dataDirectory.appendingPathComponent("opencode.db")
@@ -46,7 +69,8 @@ enum OpenCodeLogScanner {
                 databaseURL,
                 eligibility: eligibility,
                 cache: cache,
-                rateCard: rateCard
+                rateCard: rateCard,
+                previous: previous
             )
         }
         return Result(touched: 0, status: .error("auth"))
@@ -56,8 +80,14 @@ enum OpenCodeLogScanner {
         _ url: URL,
         eligibility: ExternalAgentEligibility,
         cache: CostCache,
-        rateCard: RateCard
+        rateCard: RateCard,
+        previous: DatabaseSnapshot?
     ) -> Result {
+        let snapshot = eligibility.resolved.flatMap { self.snapshot(of: url, included: $0.included) }
+        if let snapshot, snapshot == previous, let status = eligibility.resolved?.status {
+            return Result(touched: 0, status: status, database: snapshot)
+        }
+
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             if let db { sqlite3_close(db) }
@@ -104,11 +134,33 @@ enum OpenCodeLogScanner {
                 cache.rollback()
                 throw error
             }
-            return Result(touched: rows.count, status: status)
+            return Result(touched: rows.count, status: status, database: snapshot)
         } catch {
             try? self.exec(db, "ROLLBACK")
             return Result(touched: 0, status: .error("schema"))
         }
+    }
+
+    /// Nil when either file cannot be examined, so the scan queries the database.
+    private static func snapshot(of url: URL, included: Bool) -> DatabaseSnapshot? {
+        var files: [FileStamp?] = []
+        for path in [url.path, url.path + "-wal"] {
+            var info = Darwin.stat()
+            if fstatat(AT_FDCWD, path, &info, 0) == 0 {
+                files.append(FileStamp(
+                    device: info.st_dev,
+                    inode: info.st_ino,
+                    size: info.st_size,
+                    modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
+                    changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
+                ))
+            } else if errno == ENOENT {
+                files.append(nil)
+            } else {
+                return nil
+            }
+        }
+        return DatabaseSnapshot(files: files, timeZone: TimeZone.current.identifier, included: included)
     }
 
     private static func eligibility(

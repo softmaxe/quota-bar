@@ -51,16 +51,11 @@ enum RelativeTimeVerifier {
 
         now = base.addingTimeInterval(120)
         controller.debugStartOpenMenuClock()
-        // The clock is a real timer whose tick hops to the main actor before it redraws, so how
-        // long one tick takes belongs to the machine, not to this check. Waiting a fixed slice of
-        // wall time made the check fail on a loaded runner that had not reached the first fire
-        // yet; waiting for the label the tick produces still proves the timer runs during menu
-        // tracking, and the deadline is only here so a clock that never fires fails rather than
-        // hangs.
-        let deadline = Date().addingTimeInterval(5)
-        while controller.debugStatusLine() != "Updated 2m ago", Date() < deadline {
-            _ = RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.01))
-        }
+        // The clock is a real timer whose tick hops to the main actor before it redraws. Waiting a
+        // fixed slice of wall time made the check fail on a loaded runner that had not reached the
+        // first fire yet; waiting for the label the tick produces still proves the timer runs
+        // during menu tracking.
+        RunLoopDrain.run(until: { controller.debugStatusLine() == "Updated 2m ago" }, mode: .eventTracking)
         controller.debugStopOpenMenuClock()
 
         Self.require(

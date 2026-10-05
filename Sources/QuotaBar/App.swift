@@ -92,12 +92,10 @@ enum QuotaBarApp {
             ("--dump-icons", IconDump.run),
             ("--dump-card", CardDump.run),
             ("--dump-settings", CardDump.dumpSettings),
-            ("--dump-export-settings", ExportReportVerifier.dump),
             ("--dump-usage-report", ExportReportVerifier.dumpSampleReport),
             ("--dump-tab-switch", MotionFilmStrip.dumpTabSwitch),
             ("--dump-disclosure", MotionFilmStrip.dumpDisclosure),
             ("--dump-chart-motion", MotionFilmStrip.dumpChartMotion),
-            ("--dump-label-toggle", MotionFilmStrip.dumpLabelToggle),
         ]
         for dump in dumps {
             if let directory = values(after: dump.flag, count: 1)?[0] {
@@ -111,7 +109,6 @@ enum QuotaBarApp {
             ("--dump-card-celebration", { CelebrationDump.dumpCardFrames(directory: $0, provider: $1) }),
             ("--dump-chart-hover", { CardDump.dumpChartHover(directory: $0, provider: $1) }),
             ("--dump-reset-toggle", { CardDump.dumpResetToggle(directory: $0, provider: $1) }),
-            ("--dump-breakdown-toggle", { CardDump.dumpBreakdownToggle(directory: $0, provider: $1) }),
         ]
         for dump in providerDumps {
             if let pair = values(after: dump.flag, count: 2) {

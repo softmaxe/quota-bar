@@ -25,15 +25,17 @@ enum CodexLogScanner {
     ) throws -> Int {
         let files = Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env)))
         let storedPaths = try Self.retainedPaths(cache: cache)
+        let decoder = JSONDecoder()
 
         var touched = 0
         for url in files {
-            let sessionID = Self.sessionID(url)
-            let path = sessionID.flatMap { storedPaths[$0] } ?? url.path
+            let urlPath = url.path
+            let sessionID = Self.sessionID(path: urlPath)
+            let path = sessionID.flatMap { storedPaths[$0] } ?? urlPath
             let previous = cache.cursor(forPath: path)
             guard let plan = try? LogFileScanner.plan(
                 for: url, previous: previous,
-                matchingSessionCopy: sessionID != nil && (path != url.path || previous?.inode == 0)
+                matchingSessionCopy: sessionID != nil && (path != urlPath || previous?.inode == 0)
             ) else { continue }
             // Deleting the live file may leave an older archive copy. It cannot roll history back.
             if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
@@ -53,16 +55,17 @@ enum CodexLogScanner {
                 let newOffset = try LogFileScanner.readLines(
                     of: url,
                     from: plan.cursor.offset,
-                    upTo: plan.cursor.size
+                    upTo: plan.cursor.size,
+                    where: Self.isRelevant
                 ) { buffer in
                     guard parseError == nil else { return }
-                    guard Self.isRelevant(buffer) else { return }
                     do {
                         try Self.ingest(
                             line: buffer,
                             path: path,
                             cache: cache,
                             rateCard: rateCard,
+                            decoder: decoder,
                             state: &state
                         )
                     } catch {
@@ -93,10 +96,23 @@ enum CodexLogScanner {
 
     /// Standard rollout names end in the session UUID, which survives archive moves and copies.
     /// Unrecognised names keep their path identity to avoid merging unrelated logs.
-    private static func sessionID(_ url: URL) -> UUID? {
-        let name = url.deletingPathExtension().lastPathComponent
-        guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
-        return UUID(uuidString: String(name.suffix(36)))
+    /// Reads the path's bytes, because building a `URL` and counting characters dominated a refresh.
+    /// Real rollout names are ASCII, one character per byte. Other names keep `Character`
+    /// matching, where a combining mark can merge neighbouring bytes into one character.
+    private static func sessionID(path: String) -> UUID? {
+        var path = path
+        return path.withUTF8 { bytes in
+            let file = bytes[(bytes.lastIndex(of: UInt8(ascii: "/")).map { $0 + 1 } ?? 0)...]
+            guard file.allSatisfy({ $0 < 0x80 }) else {
+                let file = Substring(String(decoding: file, as: UTF8.self))
+                let name = file.hasSuffix(".jsonl") ? file.dropLast(6) : file
+                guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
+                return UUID(uuidString: String(name.suffix(36)))
+            }
+            let name = file.suffix(6).elementsEqual(".jsonl".utf8) ? file.dropLast(6) : file
+            guard name.count >= 44, name.starts(with: "rollout-".utf8) else { return nil }
+            return UUID(uuidString: String(decoding: name.suffix(36), as: UTF8.self))
+        }
     }
 
     private static func uniqueRollouts(_ files: [URL]) -> [URL] {
@@ -106,7 +122,7 @@ enum CodexLogScanner {
         var byID: [UUID: (url: URL, path: String)] = [:]
         var others: [(url: URL, path: String)] = []
         for entry in sorted {
-            guard let id = Self.sessionID(entry.url) else { others.append(entry); continue }
+            guard let id = Self.sessionID(path: entry.path) else { others.append(entry); continue }
             if let previous = byID[id] {
                 // A live copy may have more turns than the archived one.
                 let size = (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -125,7 +141,7 @@ enum CodexLogScanner {
         try cache.beginTransaction()
         do {
             for path in tracked {
-                guard let id = Self.sessionID(URL(fileURLWithPath: path)) else { continue }
+                guard let id = Self.sessionID(path: path) else { continue }
                 if paths[id] == nil {
                     paths[id] = path
                     if !FileManager.default.fileExists(atPath: path),
@@ -178,45 +194,81 @@ enum CodexLogScanner {
         return json
     }
 
+    /// The fields of a rollout line the scanner reads. Everything else is skipped unparsed.
+    private struct Line: Decodable {
+        let type: LooseValue<String>?
+        let timestamp: LooseValue<String>?
+        let payload: LooseValue<Payload>?
+
+        struct Payload: Decodable {
+            let type: LooseValue<String>?
+            let model: LooseValue<String>?
+            let service_tier: LooseValue<String>?
+            let thread_settings: LooseValue<ThreadSettings>?
+            let info: LooseValue<Info>?
+        }
+
+        struct ThreadSettings: Decodable {
+            let service_tier: LooseValue<String>?
+        }
+
+        struct Info: Decodable {
+            let last_token_usage: LooseValue<Usage>?
+            let total_token_usage: LooseValue<[String: LooseScalar]>?
+
+            /// The numeric fields of `total_token_usage`, which is what makes two events comparable.
+            var runningTotal: [String: Int]? {
+                self.total_token_usage.loose()?.compactMapValues(\.number)
+            }
+        }
+
+        struct Usage: Decodable {
+            let input_tokens: LooseScalar?
+            let cached_input_tokens: LooseScalar?
+            let cache_write_input_tokens: LooseScalar?
+            let output_tokens: LooseScalar?
+        }
+    }
+
     private static func ingest(
         line: UnsafeRawBufferPointer,
         path: String,
         cache: CostCache,
         rateCard: RateCard,
+        decoder: JSONDecoder,
         state: inout ResumeState
     ) throws {
-        let data = Data(line)
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        let payload = root["payload"] as? [String: Any] ?? [:]
+        guard let root = decoder.decodeLine(Line.self, from: line) else { return }
+        let payload = root.payload.loose()
         if Self.applyContext(root: root, payload: payload, state: &state) { return }
 
-        guard root["type"] as? String == "event_msg",
-              payload["type"] as? String == "token_count",
-              let info = payload["info"] as? [String: Any],
-              let usage = info["last_token_usage"] as? [String: Any] else { return }
+        guard root.type.loose() == "event_msg",
+              payload?.type.loose() == "token_count",
+              let info = payload?.info.loose(),
+              let usage = info.last_token_usage.loose() else { return }
 
         // Codex re-emits a token_count when the rate-limit block refreshes without a new turn.
         // Those events repeat the previous last_token_usage while the running total stands still,
         // so the running total is what tells a real turn from a replay.
-        let runningTotal = Self.totals(info["total_token_usage"])
+        let runningTotal = info.runningTotal
         defer { if let runningTotal { state.lastTotalUsage = runningTotal } }
         if let runningTotal, runningTotal == state.lastTotalUsage { return }
 
         // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
         // writes both carved out of it. Peel them off in turn so each bucket is priced once.
-        let rawInput = max(0, JSONNumber.int(usage["input_tokens"]))
-        let cacheRead = min(max(0, JSONNumber.int(usage["cached_input_tokens"])), rawInput)
-        let cacheWrite = min(max(0, JSONNumber.int(usage["cache_write_input_tokens"])), rawInput - cacheRead)
+        let rawInput = max(0, usage.input_tokens.intValue)
+        let cacheRead = min(max(0, usage.cached_input_tokens.intValue), rawInput)
+        let cacheWrite = min(max(0, usage.cache_write_input_tokens.intValue), rawInput - cacheRead)
         let totals = TokenTotals(
             input: rawInput - cacheRead - cacheWrite,
             // reasoning_output_tokens is a subset of output_tokens, which is what OpenAI bills.
-            output: JSONNumber.int(usage["output_tokens"]),
+            output: usage.output_tokens.intValue,
             cacheWrite: cacheWrite,
             cacheRead: cacheRead
         )
         guard totals.total > 0 else { return }
 
-        guard let timestamp = root["timestamp"] as? String,
+        guard let timestamp = root.timestamp.loose(),
               let date = ISO8601.parse(timestamp) else { return }
 
         // Older rollouts predate turn_context; count their tokens but leave them unpriced. The
@@ -261,17 +313,16 @@ enum CodexLogScanner {
     /// appended region and attribute the turns before it to the wrong model.
     private static func resumeState(in url: URL, before offset: Int64) -> ResumeState {
         var state = ResumeState()
-        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset) { buffer in
-            guard Self.isRelevant(buffer) else { return }
-            guard let root = try? JSONSerialization.jsonObject(with: Data(buffer)) as? [String: Any],
-                  let payload = root["payload"] as? [String: Any] else { return }
+        let decoder = JSONDecoder()
+        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset, where: Self.isRelevant) { buffer in
+            guard let root = decoder.decodeLine(Line.self, from: buffer),
+                  let payload = root.payload.loose() else { return }
 
             if Self.applyContext(root: root, payload: payload, state: &state) { return }
 
-            guard root["type"] as? String == "event_msg",
-                  payload["type"] as? String == "token_count",
-                  let info = payload["info"] as? [String: Any],
-                  let total = Self.totals(info["total_token_usage"]) else { return }
+            guard root.type.loose() == "event_msg",
+                  payload.type.loose() == "token_count",
+                  let total = payload.info.loose()?.runningTotal else { return }
             state.lastTotalUsage = total
         }
         return state
@@ -281,32 +332,26 @@ enum CodexLogScanner {
     /// service tier, and the thread settings that can change the tier mid-file. Returns whether
     /// the line was one of them, so a fresh scan and a resumed replay read them the same way.
     private static func applyContext(
-        root: [String: Any],
-        payload: [String: Any],
+        root: Line,
+        payload: Line.Payload?,
         state: inout ResumeState
     ) -> Bool {
-        guard let type = root["type"] as? String else { return false }
+        guard let type = root.type.loose() else { return false }
         if type == "turn_context" {
-            if let tier = payload["service_tier"] as? String {
+            if let tier = payload?.service_tier.loose() {
                 state.serviceTier = CostPricing.CodexServiceTier.parse(tier)
             }
-            if let model = (payload["model"] as? String)?
+            if let model = payload?.model.loose()?
                 .trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
                 state.model = model
             }
             return true
         }
-        if type == "event_msg", payload["type"] as? String == "thread_settings_applied" {
-            let settings = payload["thread_settings"] as? [String: Any]
-            state.serviceTier = CostPricing.CodexServiceTier.parse(settings?["service_tier"] as? String)
+        if type == "event_msg", payload?.type.loose() == "thread_settings_applied" {
+            let settings = payload?.thread_settings.loose()
+            state.serviceTier = CostPricing.CodexServiceTier.parse(settings?.service_tier.loose())
             return true
         }
         return false
-    }
-
-    /// The integer fields of a `*_token_usage` object, which is what makes two events comparable.
-    private static func totals(_ value: Any?) -> [String: Int]? {
-        guard let usage = value as? [String: Any] else { return nil }
-        return usage.compactMapValues { ($0 as? NSNumber)?.intValue }
     }
 }

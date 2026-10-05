@@ -116,16 +116,6 @@ enum CodexHome {
     }
 }
 
-/// JSON coercion shared by the two log scanners, whose payloads spell integers as either a
-/// number or a string depending on which client wrote the line.
-enum JSONNumber {
-    static func int(_ value: Any?) -> Int {
-        if let number = value as? NSNumber { return number.intValue }
-        if let string = value as? String { return Int(string) ?? 0 }
-        return 0
-    }
-}
-
 /// `plus` -> `Plus`, `free_workspace` -> `Free Workspace`. Both providers label plans this way.
 enum PlanLabel {
     public static func humanize(_ raw: String) -> String {

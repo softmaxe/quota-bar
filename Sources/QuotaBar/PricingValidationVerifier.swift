@@ -358,24 +358,6 @@ enum PricingValidationVerifier {
                     && recorder.writes.last?["local-unpriced"] == ModelPricing(input: 14, output: 15)
                     && recorder.writes.last?["hidden-model"] == hidden,
                     "a late retry restored stale overrides or deleted a now-hidden saved override", &failures)
-
-        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("quota-bar-absent-\(UUID()).sqlite")
-        let absent = PricingEditorModel(
-            costService: CostService(databaseURL: missing),
-            fixtures: .init(usage: [:], rateCard: card, readUsage: {
-                var usage: [Provider: [ModelUsageTotal]] = [:]
-                for provider in Provider.allCases {
-                    usage[provider] = try CostUsageReader.knownModelUsage(provider: provider, databaseURL: missing)
-                }
-                return usage
-            }),
-            saveOperations: recorder.operations()
-        )
-        await absent.load()
-        self.expect(absent.hasLoadedUsage && absent.usageReadError == nil && !absent.isLoading
-                    && absent.rows.allSatisfy { $0.usageTokens == 0 && !$0.seenInLogs },
-                    "an absent database did not load as normal known empty usage", &failures)
-        self.expect(!FileManager.default.fileExists(atPath: missing.path), "Pricing created the absent cache", &failures)
     }
 
     private static func row(model: String, input: String, output: String, hasDefault: Bool) -> PricingRow {

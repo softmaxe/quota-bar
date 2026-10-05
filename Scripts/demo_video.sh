@@ -12,5 +12,5 @@ cd "$(dirname "$0")/.."
 command -v ffmpeg >/dev/null || { echo "ffmpeg is required: brew install ffmpeg" >&2; exit 1; }
 command -v playwright-cli >/dev/null || { echo "playwright-cli is required: brew install playwright-cli" >&2; exit 1; }
 
-node --test docs/demo/
+node --test docs/demo/*.test.mjs
 node Scripts/demo_video.mjs "$@"

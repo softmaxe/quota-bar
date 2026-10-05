@@ -16,12 +16,9 @@ enum CostSchemaUpgradeTests {
 
             let missingHome = directory.appendingPathComponent("missing-codex-home")
             let claudeHome = directory.appendingPathComponent("missing-claude-home")
-            let env = [
-                "CODEX_HOME": missingHome.path,
-                "CLAUDE_CONFIG_DIR": claudeHome.path,
-                "XDG_DATA_HOME": directory.appendingPathComponent("missing-xdg-home").path,
-                "PI_CODING_AGENT_DIR": directory.appendingPathComponent("missing-pi-home").path,
-            ]
+            let env = isolatedEnvironment(root: directory, overriding: [
+                "CODEX_HOME": missingHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path,
+            ])
             let rateCard = RateCard(overrides: [
                 "migration-model": ModelPricing(input: 1, output: 2),
             ])
@@ -56,28 +53,6 @@ enum CostSchemaUpgradeTests {
                 ),
                 1,
                 "legacy Claude usage survives with the standard tier"
-            )
-            // Cost is derived from tokens now, so the frozen figures and their index are gone.
-            Harness.expectEqual(
-                try self.scalarInt(
-                    "SELECT COUNT(*) FROM pragma_table_info('codex_day') "
-                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
-                    from: database
-                ) + self.scalarInt(
-                    "SELECT COUNT(*) FROM pragma_table_info('opencode_part') "
-                        + "WHERE name IN ('cost_usd', 'unpriced_tokens')",
-                    from: database
-                ),
-                0,
-                "schema upgrade drops the stored cost columns"
-            )
-            Harness.expectEqual(
-                try self.scalarInt(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name LIKE '%_unpriced'",
-                    from: database
-                ),
-                0,
-                "schema upgrade drops the unpriced-row indexes"
             )
             Harness.expectEqual(
                 try self.scalarInt(

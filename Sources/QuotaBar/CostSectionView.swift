@@ -42,7 +42,6 @@ struct CostSectionView: View {
         onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in },
         isBreakdownExpanded: Bool = false,
         expandedBreakdownDayKey: String? = nil,
-        previewToggleHovered: Bool = false,
         onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in },
         onOpenPricing: (() -> Void)? = nil
     ) {
@@ -71,7 +70,6 @@ struct CostSectionView: View {
         self.breakdownOpenness = isBreakdownExpanded ? 1 : 0
         self.expandedBreakdownDayKey = expandedBreakdownDayKey
         self.onBreakdownExpandedChanged = onBreakdownExpandedChanged
-        _ = previewToggleHovered
     }
 
     var body: some View {

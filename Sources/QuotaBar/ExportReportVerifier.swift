@@ -2,7 +2,6 @@
 import AppKit
 import Foundation
 import QuotaBarCore
-import SwiftUI
 
 @MainActor
 enum ExportReportVerifier {
@@ -123,22 +122,6 @@ enum ExportReportVerifier {
             sources: [UsageReportNamedUsage(name: "Codex", totals: totals)],
             weekdays: [UsageReportWeekday(name: "周二", total: totals.total)]
         )
-    }
-
-    static func dump(directory: String) {
-        let root = OffscreenCapture.directory(directory)
-        let defaults = EphemeralDefaults.make("QuotaBarExportDump")
-        defer { EphemeralDefaults.clear("QuotaBarExportDump") }
-        NSApplication.shared.setActivationPolicy(.accessory)
-        let selection = SettingsSelection()
-        selection.tab = .export
-        let pricing = PricingEditorModel(costService: CostService(), fixtures: .init(usage: [:]))
-        for (name, appearance) in [("export-settings-dark", NSAppearance.Name.darkAqua), ("export-settings-light", .aqua)] {
-            let hosting = NSHostingView(rootView: SettingsView(settings: SettingsStore(defaults: defaults), pricing: pricing, selection: selection))
-            hosting.appearance = NSAppearance(named: appearance)
-            hosting.frame.size = hosting.fittingSize
-            _ = OffscreenCapture.writePNG(hosting, named: name, into: root, titled: true, settle: 0.3)
-        }
     }
 
     /// Builds documentation data without reading credentials, logs, or the usage database.
