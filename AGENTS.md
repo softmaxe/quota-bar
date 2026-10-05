@@ -12,5 +12,5 @@ Before triaging issues, read `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Use a single-context layout with root `CONTEXT.md` and `docs/adr/`.
+Use a single-context layout with root `GLOSSARY.md` and `docs/adr/`.
 Before exploring the codebase, read `docs/agents/domain.md`.
