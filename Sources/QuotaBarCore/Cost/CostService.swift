@@ -124,7 +124,7 @@ public actor CostService {
         let cache = recorder.cache
         switch provider {
         case .codex:
-            let codexTouched = try CodexLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
+            let codexTouched = try recorder.record(.codex, rateCard: rateCard, env: self.env)
             let openCodeTouched = recorder.record(OpenCodeAdapter(env: self.env), rateCard: rateCard)
             let pi = PiAgentLogScanner.scan(
                 cache: cache,

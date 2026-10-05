@@ -9,6 +9,7 @@ enum UsageRecorderTests {
         Self.claudeReplaysCountOnceAtTheFinalOutput()
         Self.appendedTranscriptResumesWhereItStopped()
         Self.rewrittenTranscriptIsReparsed()
+        Self.rewrittenTranscriptKeepsRecordedMessages()
         Self.midFileFailureLeavesNoRows()
     }
 
@@ -95,7 +96,7 @@ extension UsageRecorderTests {
     }
 
     /// A transcript rewritten in place is not a continuation of what was read before. It is read
-    /// again from the start, and what it no longer contains stops counting.
+    /// again from the start, and messages already recorded from it keep counting.
     fileprivate static func rewrittenTranscriptIsReparsed() {
         let fixture = RecorderFixture(name: "rewrite")
         defer { fixture.remove() }
@@ -111,8 +112,35 @@ extension UsageRecorderTests {
 
         Harness.expectEqual(
             fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
-            TokenTotals(input: 270, output: 27),
-            "a rewritten transcript is recorded from its new contents"
+            TokenTotals(input: 280, output: 28),
+            "a rewritten transcript adds its new contents to what was already recorded"
+        )
+    }
+
+    /// A message that appeared in a transcript was billed. Rewriting the transcript it was first
+    /// recorded from must not lose it, even when a second transcript replayed it and its cursor
+    /// has already moved past it.
+    fileprivate static func rewrittenTranscriptKeepsRecordedMessages() {
+        let fixture = RecorderFixture(name: "rewrite-keep")
+        defer { fixture.remove() }
+        fixture.writeClaudeTranscript("app/first.jsonl", lines: [
+            ClaudeLine.assistant(id: "shared", model: "claude-opus-5", input: 100, output: 10),
+        ])
+        fixture.record(.claude)
+        fixture.writeClaudeTranscript("app/resumed.jsonl", lines: [
+            ClaudeLine.assistant(id: "shared", model: "claude-opus-5", input: 100, output: 10),
+        ])
+        fixture.record(.claude)
+        fixture.writeClaudeTranscript("app/first.jsonl", lines: [
+            ClaudeLine.assistant(id: "other", model: "claude-opus-5", input: 7, output: 1),
+            ClaudeLine.assistant(id: "later", model: "claude-opus-5", input: 20, output: 2),
+        ])
+        fixture.record(.claude)
+
+        Harness.expectEqual(
+            fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
+            TokenTotals(input: 127, output: 13),
+            "a replayed message stays recorded, once, after its first transcript is rewritten"
         )
     }
 
