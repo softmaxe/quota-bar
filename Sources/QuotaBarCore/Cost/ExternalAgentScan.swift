@@ -44,6 +44,26 @@ enum ExternalAgentEligibility {
         return left == right ? .eligible : .ineligible(.accountMismatch)
     }
 
+    /// Reads the sign-in stored under `entry` in an agent's `auth.json` (an object with `type`
+    /// and `accountId`) and checks it against the Codex account. A file either side cannot read
+    /// or decode is indeterminate.
+    static func signIn(authFile: URL, entry: String, env: [String: String]) -> Self {
+        do {
+            let data = try Data(contentsOf: authFile)
+            let codexAccountId = try CodexCredentialsStore.accountId(env: env)
+            let decoder = JSONDecoder()
+            decoder.userInfo[AgentAuthFile.entryKey] = entry
+            guard let signIn = try decoder.decode(AgentAuthFile.self, from: data).signIn else { return .indeterminate }
+            return .matchingCodexAccount(
+                type: signIn.type,
+                accountId: signIn.accountId,
+                codexAccountId: codexAccountId
+            )
+        } catch {
+            return .indeterminate
+        }
+    }
+
     /// Whether this agent's rows count, and what the settings pane should say about it. An
     /// indeterminate account answers neither question, so it returns nil and the caller reports
     /// the scan as failed rather than silently dropping or silently counting the usage.
@@ -53,5 +73,34 @@ enum ExternalAgentEligibility {
         case let .ineligible(reason): (included: false, status: reason)
         case .indeterminate: nil
         }
+    }
+}
+
+/// An agent's `auth.json`, of which only the one entry naming its OpenAI sign-in is decoded, so
+/// other providers' entries in any shape cannot fail the check.
+private struct AgentAuthFile: Decodable {
+    static let entryKey = CodingUserInfoKey(rawValue: "entry")!
+
+    struct SignIn: Decodable {
+        let type: String?
+        let accountId: String?
+    }
+
+    let signIn: SignIn?
+
+    init(from decoder: Decoder) throws {
+        guard let entry = decoder.userInfo[Self.entryKey] as? String,
+              let key = EntryKey(stringValue: entry) else {
+            self.signIn = nil
+            return
+        }
+        self.signIn = try decoder.container(keyedBy: EntryKey.self).decodeIfPresent(SignIn.self, forKey: key)
+    }
+
+    private struct EntryKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
     }
 }

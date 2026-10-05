@@ -28,12 +28,6 @@ enum PiAgentLogScanner {
         let changed: Double
     }
 
-    private struct PiAuth: Decodable {
-        let openAICodex: Entry?
-        struct Entry: Decodable { let type: String?; let accountId: String? }
-        enum CodingKeys: String, CodingKey { case openAICodex = "openai-codex" }
-    }
-
     private struct Row {
         let key: String
         let day: String
@@ -212,19 +206,7 @@ enum PiAgentLogScanner {
         agentDirectory: URL,
         env: [String: String]
     ) -> ExternalAgentEligibility {
-        do {
-            let piData = try Data(contentsOf: agentDirectory.appendingPathComponent("auth.json"))
-            let codexAccountId = try CodexCredentialsStore.accountId(env: env)
-            guard let pi = try JSONDecoder()
-                .decode(PiAuth.self, from: piData).openAICodex else { return .indeterminate }
-            return .matchingCodexAccount(
-                type: pi.type,
-                accountId: pi.accountId,
-                codexAccountId: codexAccountId
-            )
-        } catch {
-            return .indeterminate
-        }
+        .signIn(authFile: agentDirectory.appendingPathComponent("auth.json"), entry: "openai-codex", env: env)
     }
 
     private static func agentDirectory(env: [String: String]) -> URL {

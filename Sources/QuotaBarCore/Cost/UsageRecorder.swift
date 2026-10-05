@@ -51,6 +51,9 @@ package protocol AppendedLogParser {
 /// and each Usage source's merge rule. Long-lived and used serially by the cost module.
 package final class UsageRecorder {
     let cache: CostCache
+    /// Each snapshot source's state that Recorded usage already reflects.
+    private var snapshots: [CostUsageSource: RecordedSnapshot] = [:]
+    private var statuses: [CostUsageSource: ExternalAgentScanStatus] = [:]
 
     package init(databaseURL: URL) throws {
         self.cache = try CostCache(path: databaseURL)
@@ -136,10 +139,12 @@ package final class UsageRecorder {
     }
 
     /// Applies the recording rules to one request and merges it under its Usage source's rule.
+    /// `path` is the appended log a request came from; `batch` flags a snapshot source's rows.
     private func store(
         _ request: ObservedRequest,
         from source: CostUsageSource,
-        path: String,
+        path: String? = nil,
+        batch: SnapshotBatch? = nil,
         rateCard: RateCard
     ) throws {
         let provider = source.provider
@@ -161,6 +166,7 @@ package final class UsageRecorder {
         case .claude:
             // One row per message: a replay keeps the stored row and a larger output supersedes it.
             guard let key = request.key else { throw UsageRecorderError.missingKey(source) }
+            guard let path else { throw UsageRecorderError.unsupportedSource(source) }
             try self.cache.addClaudeMessage(
                 key: key,
                 path: path,
@@ -170,7 +176,22 @@ package final class UsageRecorder {
                 isFast: request.isFast,
                 totals: request.tokens
             )
-        case .codex, .openCode, .piAgent:
+        case .openCode:
+            // One row per part, rewritten only when its content changes. `included` is written
+            // only when the part is first seen.
+            guard let key = request.key else { throw UsageRecorderError.missingKey(source) }
+            guard let batch else { throw UsageRecorderError.unsupportedSource(source) }
+            try self.cache.addOpenCodePart(
+                key: key,
+                included: batch.included,
+                legacyInferred: batch.legacyInferred,
+                day: day,
+                model: model,
+                longContext: longContext,
+                isFast: request.isFast,
+                totals: request.tokens
+            )
+        case .codex, .piAgent:
             throw UsageRecorderError.unsupportedSource(source)
         }
     }
@@ -188,6 +209,129 @@ enum UsageRecorderError: LocalizedError {
         switch self {
         case let .unsupportedSource(source): "\(source.displayName) usage is not recorded from appended logs"
         case let .missingKey(source): "\(source.displayName) reported a request without an identity"
+        }
+    }
+}
+
+// MARK: - Whole-snapshot read mode
+
+/// A Usage source read whole each pass, such as a database another app owns. The adapter reports
+/// what the source holds and whether it counts, and knows nothing about storage.
+package protocol SnapshotAdapter {
+    /// Identity of the source's files at the moment they were examined. While it stays equal the
+    /// source is not read again.
+    associatedtype Stamp: Hashable
+
+    var source: CostUsageSource { get }
+    /// The source's current state, examined without reading its contents.
+    func survey() -> SnapshotSurvey<Stamp>
+    /// Every request the source holds. A `SnapshotReadError` names what failed for the scan status.
+    func requests() throws -> [ObservedRequest]
+}
+
+package enum SnapshotSurvey<Stamp: Hashable> {
+    /// The source is not installed, so there is nothing to record.
+    case absent
+    /// The source cannot be recorded this pass, for the named reason.
+    case failed(reason: String)
+    /// The source is present. `stamp` is nil when its files could not be examined, so it is read
+    /// regardless. `included` decides whether the whole batch counts, and `status` says why not.
+    case present(stamp: Stamp?, included: Bool, status: ExternalAgentScanStatus)
+}
+
+/// A snapshot source that could not be read, with the reason its scan status reports.
+package struct SnapshotReadError: Error {
+    package let reason: String
+
+    package init(_ reason: String) {
+        self.reason = reason
+    }
+}
+
+/// How one snapshot batch's rows are flagged when first stored.
+private struct SnapshotBatch {
+    let included: Bool
+    /// OpenCode rows stored by the first pass after the account check shipped, whose eligibility
+    /// was inferred from the current sign-in rather than known when they were written.
+    let legacyInferred: Bool
+}
+
+/// A snapshot Recorded usage reflects. The time zone decides each row's day and `included` each
+/// row's flag, so a change to either rereads the source even when its files did not change.
+private struct RecordedSnapshot: Equatable {
+    let stamp: AnyHashable
+    let timeZone: String
+    let included: Bool
+}
+
+extension UsageRecorder {
+    /// Records a source read whole: skipped while its snapshot is unchanged, otherwise every
+    /// request is stored in one transaction under one `included` value. A source that fails keeps
+    /// what was recorded before and reports the failure in its scan status. Returns the number of
+    /// requests read.
+    @discardableResult
+    package func record<Adapter: SnapshotAdapter>(_ adapter: Adapter, rateCard: RateCard) -> Int {
+        let source = adapter.source
+        switch adapter.survey() {
+        case .absent:
+            self.settle(source, status: .idle, snapshot: nil)
+            return 0
+        case let .failed(reason):
+            self.settle(source, status: .error(reason), snapshot: nil)
+            return 0
+        case let .present(stamp, included, status):
+            let snapshot = stamp.map {
+                RecordedSnapshot(stamp: AnyHashable($0), timeZone: TimeZone.current.identifier, included: included)
+            }
+            if let snapshot, snapshot == self.snapshots[source] {
+                self.settle(source, status: status, snapshot: snapshot)
+                return 0
+            }
+            do {
+                let requests = try adapter.requests()
+                try self.storeSnapshot(requests, from: source, included: included, rateCard: rateCard)
+                self.settle(source, status: status, snapshot: snapshot)
+                return requests.count
+            } catch {
+                self.settle(source, status: .error((error as? SnapshotReadError)?.reason ?? "database"), snapshot: nil)
+                return 0
+            }
+        }
+    }
+
+    /// The outcome of the last pass over a snapshot source.
+    package func scanStatus(of source: CostUsageSource) -> ExternalAgentScanStatus {
+        self.statuses[source] ?? .idle
+    }
+
+    private func storeSnapshot(
+        _ requests: [ObservedRequest],
+        from source: CostUsageSource,
+        included: Bool,
+        rateCard: RateCard
+    ) throws {
+        // The first OpenCode pass after the account check shipped marks what it includes as
+        // inferred, since those rows may predate the sign-in that now decides them.
+        let legacy = try source == .openCode && included && !self.cache.hasCompletedOpenCodeBackfill()
+        let batch = SnapshotBatch(included: included, legacyInferred: legacy)
+        try self.cache.beginTransaction()
+        do {
+            for request in requests {
+                try self.store(request, from: source, batch: batch, rateCard: rateCard)
+            }
+            if legacy { try self.cache.markOpenCodeBackfillComplete() }
+            try self.cache.commit()
+        } catch {
+            self.cache.rollback()
+            throw error
+        }
+    }
+
+    private func settle(_ source: CostUsageSource, status: ExternalAgentScanStatus, snapshot: RecordedSnapshot?) {
+        self.statuses[source] = status
+        self.snapshots[source] = snapshot
+        if case .error = status {
+            Log.ui.error("\(source.displayName, privacy: .public) usage scan failed; cached usage was kept")
         }
     }
 }
