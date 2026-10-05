@@ -19,10 +19,6 @@ public actor CostService {
     /// What a dropped rate card is rebuilt from.
     private var book: PriceBook
     private let overrideFile: OverrideFile
-    private var piAgentStatus: PiAgentScanStatus = .idle
-    /// The Pi Agent session files the store already reflects, so an unchanged directory is not
-    /// re-read on every Codex refresh.
-    private var piAgentSessions: PiAgentLogScanner.SessionSnapshot?
     /// Readable without the actor so `CostUsageReader` can open the same file on a connection
     /// of its own rather than queueing behind a scan.
     public nonisolated let databaseURL: URL
@@ -88,7 +84,7 @@ public actor CostService {
     }
 
     public func currentPiAgentScanStatus() -> PiAgentScanStatus {
-        self.piAgentStatus
+        self.recorder?.scanStatus(of: .piAgent) ?? .idle
     }
 
     /// Drops the rate card so the next refresh reads the override file again. Cost is derived
@@ -121,23 +117,12 @@ public actor CostService {
 
     /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
     private func scan(_ provider: Provider, recorder: UsageRecorder, rateCard: RateCard) throws -> Int {
-        let cache = recorder.cache
         switch provider {
         case .codex:
             let codexTouched = try recorder.record(.codex, rateCard: rateCard, env: self.env)
             let openCodeTouched = recorder.record(OpenCodeAdapter(env: self.env), rateCard: rateCard)
-            let pi = PiAgentLogScanner.scan(
-                cache: cache,
-                rateCard: rateCard,
-                env: self.env,
-                previous: self.piAgentSessions
-            )
-            self.piAgentSessions = pi.sessions
-            self.piAgentStatus = pi.status
-            if case .error = pi.status {
-                Log.ui.error("Pi Agent usage scan failed; cached usage was kept")
-            }
-            return codexTouched + openCodeTouched + pi.touched
+            let piTouched = recorder.record(PiAgentAdapter(env: self.env), rateCard: rateCard)
+            return codexTouched + openCodeTouched + piTouched
         case .claude:
             return try recorder.record(.claude, rateCard: rateCard, env: self.env)
         }

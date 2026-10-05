@@ -85,7 +85,7 @@ package final class UsageRecorder {
         case .claude:
             return try self.record(ClaudeCodeAdapter(env: env), rateCard: rateCard)
         case .codex:
-            // OpenCode and Pi Agent are still recorded by their own scanners.
+            // The cost module still records OpenCode and Pi Agent itself, through their adapters.
             return try self.record(CodexAdapter(env: env), rateCard: rateCard)
         }
     }
@@ -231,7 +231,18 @@ package final class UsageRecorder {
                 totals: request.tokens
             )
         case .piAgent:
-            throw UsageRecorderError.unsupportedSource(source)
+            // One row per message, rewritten only when its content changes. `included` is written
+            // only when the message is first seen. Pi Agent records no Fast flag.
+            guard let key = request.key else { throw UsageRecorderError.missingKey(source) }
+            guard let batch else { throw UsageRecorderError.unsupportedSource(source) }
+            try self.cache.addPiMessage(
+                key: key,
+                included: batch.included,
+                day: day,
+                model: model,
+                longContext: longContext,
+                totals: request.tokens
+            )
         }
     }
 
