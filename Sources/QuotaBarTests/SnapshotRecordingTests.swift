@@ -9,6 +9,8 @@ enum SnapshotRecordingTests {
         Self.changedSnapshotRewritesChangedRows()
         Self.eligibleAccountIsIncluded()
         Self.ineligibleAccountIsRecordedButNotIncluded()
+        Self.piSessionChangesAreDetected()
+        Self.piAccountDecidesIncluded()
     }
 
     private static let standard = RecordedTier(model: "gpt-5.6-luna", longContext: false, isFast: false)
@@ -77,6 +79,54 @@ enum SnapshotRecordingTests {
             .accountMismatch,
             "an ineligible account reports the mismatch"
         )
+    }
+
+    /// Pi Agent's session directory is reread only when one of its files changes, and a reread
+    /// keeps each message once however many session files repeat it.
+    private static func piSessionChangesAreDetected() {
+        let fixture = RecorderFixture(name: "snapshot-pi-change")
+        defer { fixture.remove() }
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
+
+        let first = fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+        let unchanged = fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+        PiSessionFile.write(root: fixture.root, "project/fork.jsonl", lines: [
+            PiSessionFile.message("one", input: 10),
+            PiSessionFile.message("two", input: 5),
+        ])
+        let changed = fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expectEqual(first, 1, "a new Pi Agent session directory is read")
+        Harness.expectEqual(unchanged, 0, "an unchanged Pi Agent session directory is skipped")
+        Harness.expectEqual(changed, 3, "a changed Pi Agent session directory is reread whole")
+        Harness.expectEqual(
+            fixture.recorded(.codex)[Self.standard]?.input,
+            15,
+            "a message repeated across session files is recorded once"
+        )
+    }
+
+    /// Pi Agent usage counts only when Pi Agent is signed in with OAuth to the account Codex uses.
+    private static func piAccountDecidesIncluded() {
+        for (account, included, status) in [
+            ("account-a", true, ExternalAgentScanStatus.idle),
+            ("account-b", false, .accountMismatch),
+        ] {
+            let fixture = RecorderFixture(name: "snapshot-pi-\(account)")
+            defer { fixture.remove() }
+            PiSessionFile.signIn(root: fixture.root, piAccount: account)
+            PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
+
+            fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+
+            Harness.expectEqual(
+                fixture.recorded(.codex)[Self.standard]?.input,
+                included ? 10 : nil,
+                "Pi Agent usage signed in to \(account) is \(included ? "" : "not ")included"
+            )
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), status, "Pi Agent \(account) scan status")
+        }
     }
 
     private static func writeOpenCodeUsage(_ fixture: RecorderFixture, openCodeAccount: String) {
