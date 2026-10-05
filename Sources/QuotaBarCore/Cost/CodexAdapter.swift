@@ -8,7 +8,18 @@
 
 import Foundation
 
-enum CodexLogScanner {
+/// Turns Codex rollout lines into observed requests. A rollout's lines are not self-contained:
+/// a turn context names the model and service tier for the turns after it, and a token count is
+/// only new if the running total moved. That state travels between scans as opaque saved state.
+package struct CodexAdapter: AppendedLogAdapter {
+    private let env: [String: String]
+
+    package init(env: [String: String] = ProcessInfo.processInfo.environment) {
+        self.env = env
+    }
+
+    package var source: CostUsageSource { .codex }
+
     static func sessionRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
         let home = CodexHome.url(env: env)
         return [
@@ -17,81 +28,42 @@ enum CodexLogScanner {
         ]
     }
 
-    @discardableResult
-    static func scan(
-        cache: CostCache,
-        rateCard: RateCard,
-        env: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> Int {
-        let files = Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: self.sessionRoots(env: env)))
-        let storedPaths = try Self.retainedPaths(cache: cache)
-        let decoder = JSONDecoder()
+    /// One copy per rollout: archiving moves or copies a live rollout into the other root.
+    package func logFiles() -> [URL] {
+        Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env)))
+    }
 
-        var touched = 0
-        for url in files {
-            let urlPath = url.path
-            let sessionID = Self.sessionID(path: urlPath)
-            let path = sessionID.flatMap { storedPaths[$0] } ?? urlPath
-            let previous = cache.cursor(forPath: path)
-            guard let plan = try? LogFileScanner.plan(
-                for: url, previous: previous,
-                matchingSessionCopy: sessionID != nil && (path != urlPath || previous?.inode == 0)
-            ) else { continue }
-            // Deleting the live file may leave an older archive copy. It cannot roll history back.
-            if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
-            guard plan.requiresScan else { continue }
+    package var identifiesSessions: Bool { true }
 
-            // New caches persist the state at the cursor. The replay fallback upgrades caches
-            // written by older app versions without forcing another full parse.
-            var state = Self.restoredState(from: plan.cursor.resumeStateJSON)
-                ?? (plan.cursor.offset > 0
-                    ? Self.resumeState(in: url, before: plan.cursor.offset)
-                    : ResumeState())
+    package func sessionID(path: String) -> String? {
+        Self.sessionID(path: path)?.uuidString
+    }
 
-            try cache.beginTransaction()
-            do {
-                if plan.requiresFullReparse { try cache.forget(path: path) }
-                var parseError: Error?
-                let newOffset = try LogFileScanner.readLines(
-                    of: url,
-                    from: plan.cursor.offset,
-                    upTo: plan.cursor.size,
-                    where: Self.isRelevant
-                ) { buffer in
-                    guard parseError == nil else { return }
-                    do {
-                        try Self.ingest(
-                            line: buffer,
-                            path: path,
-                            cache: cache,
-                            rateCard: rateCard,
-                            decoder: decoder,
-                            state: &state
-                        )
-                    } catch {
-                        parseError = error
-                    }
-                }
-                if let parseError { throw parseError }
-                try cache.setCursor(
-                    FileCursor(
-                        inode: plan.cursor.inode,
-                        size: plan.cursor.size,
-                        offset: newOffset,
-                        prefixDigest: plan.cursor.prefixDigest,
-                        resumeStateJSON: try Self.encodedState(state)
-                    ),
-                    forPath: path,
-                    provider: .codex
-                )
-                try cache.commit()
-                touched += 1
-            } catch {
-                cache.rollback()
-                Log.codex.warning("Skipped \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
+    package func isWanted(_ line: UnsafeRawBufferPointer) -> Bool {
+        Self.isRelevant(line)
+    }
+
+    /// New caches persist the state at the cursor. The replay fallback upgrades caches written by
+    /// older app versions without forcing another full parse.
+    package func parser(for file: URL, resumingAt offset: Int64, savedState: String?) -> Parser {
+        let state = Self.restoredState(from: savedState)
+            ?? (offset > 0 ? Self.resumeState(in: file, before: offset) : ResumeState())
+        return Parser(state: state)
+    }
+
+    package struct Parser: AppendedLogParser {
+        private var state: ResumeState
+        private let decoder = JSONDecoder()
+
+        fileprivate init(state: ResumeState) {
+            self.state = state
         }
-        return touched
+
+        package var savedState: String? { try? CodexAdapter.encodedState(self.state) }
+
+        package mutating func request(in line: UnsafeRawBufferPointer) -> ObservedRequest? {
+            CodexAdapter.request(in: line, decoder: self.decoder, state: &self.state)
+        }
     }
 
     /// Standard rollout names end in the session UUID, which survives archive moves and copies.
@@ -135,39 +107,8 @@ enum CodexLogScanner {
         return (others + byID.values).sorted { $0.path < $1.path }.map(\.url)
     }
 
-    private static func retainedPaths(cache: CostCache) throws -> [UUID: String] {
-        var paths: [UUID: String] = [:]
-        let tracked = try cache.codexTrackedPaths()
-        try cache.beginTransaction()
-        do {
-            for path in tracked {
-                guard let id = Self.sessionID(path: path) else { continue }
-                if paths[id] == nil {
-                    paths[id] = path
-                    if !FileManager.default.fileExists(atPath: path),
-                       let cursor = cache.cursor(forPath: path), cursor.inode != 0 {
-                        // Zero records observed deletion. A restored copy can resume, while an
-                        // atomic replacement of a file that stayed present still forces a reparse.
-                        try cache.setCursor(FileCursor(
-                            inode: 0, size: cursor.size, offset: cursor.offset,
-                            prefixDigest: cursor.prefixDigest, resumeStateJSON: cursor.resumeStateJSON
-                        ), forPath: path, provider: .codex)
-                    }
-                } else {
-                    // Older versions could count a rollout in both roots. Keep its longest scan.
-                    try cache.forget(path: path)
-                }
-            }
-            try cache.commit()
-        } catch {
-            cache.rollback()
-            throw error
-        }
-        return paths
-    }
-
     /// What a resumed scan has to know about the bytes it is skipping past.
-    private struct ResumeState: Codable {
+    fileprivate struct ResumeState: Codable {
         /// Model announced by the most recent turn_context, as the log names it. Caches written
         /// by earlier versions hold the model's id instead, which resolves to itself.
         var model: String?
@@ -186,7 +127,7 @@ enum CodexLogScanner {
         return try? JSONDecoder().decode(ResumeState.self, from: Data(json.utf8))
     }
 
-    private static func encodedState(_ state: ResumeState) throws -> String {
+    fileprivate static func encodedState(_ state: ResumeState) throws -> String {
         let data = try JSONEncoder().encode(state)
         guard let json = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
@@ -194,7 +135,7 @@ enum CodexLogScanner {
         return json
     }
 
-    /// The fields of a rollout line the scanner reads. Everything else is skipped unparsed.
+    /// The fields of a rollout line the adapter reads. Everything else is skipped unparsed.
     private struct Line: Decodable {
         let type: LooseValue<String>?
         let timestamp: LooseValue<String>?
@@ -230,29 +171,26 @@ enum CodexLogScanner {
         }
     }
 
-    private static func ingest(
-        line: UnsafeRawBufferPointer,
-        path: String,
-        cache: CostCache,
-        rateCard: RateCard,
+    private static func request(
+        in line: UnsafeRawBufferPointer,
         decoder: JSONDecoder,
         state: inout ResumeState
-    ) throws {
-        guard let root = decoder.decodeLine(Line.self, from: line) else { return }
+    ) -> ObservedRequest? {
+        guard let root = decoder.decodeLine(Line.self, from: line) else { return nil }
         let payload = root.payload.loose()
-        if Self.applyContext(root: root, payload: payload, state: &state) { return }
+        if Self.applyContext(root: root, payload: payload, state: &state) { return nil }
 
         guard root.type.loose() == "event_msg",
               payload?.type.loose() == "token_count",
               let info = payload?.info.loose(),
-              let usage = info.last_token_usage.loose() else { return }
+              let usage = info.last_token_usage.loose() else { return nil }
 
         // Codex re-emits a token_count when the rate-limit block refreshes without a new turn.
         // Those events repeat the previous last_token_usage while the running total stands still,
         // so the running total is what tells a real turn from a replay.
         let runningTotal = info.runningTotal
         defer { if let runningTotal { state.lastTotalUsage = runningTotal } }
-        if let runningTotal, runningTotal == state.lastTotalUsage { return }
+        if let runningTotal, runningTotal == state.lastTotalUsage { return nil }
 
         // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
         // writes both carved out of it. Peel them off in turn so each bucket is priced once.
@@ -266,29 +204,19 @@ enum CodexLogScanner {
             cacheWrite: cacheWrite,
             cacheRead: cacheRead
         )
-        guard totals.total > 0 else { return }
+        guard totals.total > 0 else { return nil }
 
         guard let timestamp = root.timestamp.loose(),
-              let date = ISO8601.parse(timestamp) else { return }
+              let date = ISO8601.parse(timestamp) else { return nil }
 
-        // Older rollouts predate turn_context; count their tokens but leave them unpriced. The
-        // model is stored under its id so dated names and aliases aggregate as one model.
-        let model = state.model.map { rateCard.modelID(for: $0, provider: .codex) } ?? CostPricing.unknownModel
-        // The long-context tier belongs to the individual turn, not to the day's total.
-        let day = DayKey.make(from: date)
-        try cache.addCodexTokens(
-            path: path,
-            day: day,
-            model: model,
-            longContext: rateCard.isLongContext(
-                totals,
-                model: model,
-                provider: .codex,
-                day: day,
-                fast: state.serviceTier.isFast
-            ),
-            isFast: state.serviceTier.isFast,
-            totals: totals
+        // Older rollouts predate turn_context; their model stays nil, so their tokens count but
+        // stay unpriced. Codex events have no identity, so there is no dedupe key.
+        return ObservedRequest(
+            key: nil,
+            timestamp: date,
+            model: state.model,
+            tokens: totals,
+            isFast: state.serviceTier.isFast
         )
     }
 
