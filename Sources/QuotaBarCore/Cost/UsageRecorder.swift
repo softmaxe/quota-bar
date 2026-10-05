@@ -77,7 +77,8 @@ package final class UsageRecorder {
     }
 
     /// Reads what each of the adapter's files gained since the last scan. A file that was
-    /// rewritten rather than appended to is reread from the start after its rows are dropped. A
+    /// rewritten rather than appended to is reread from the start, after its rows are dropped
+    /// when its Usage source's merge rule requires it (see `dropsRowsOnRewrite`). A
     /// file that fails partway leaves no rows and keeps its cursor, so a retry cannot double it.
     @discardableResult
     package func record(_ adapter: some AppendedLogAdapter, rateCard: RateCard) throws -> Int {
@@ -90,7 +91,9 @@ package final class UsageRecorder {
 
             try self.cache.beginTransaction()
             do {
-                if plan.requiresFullReparse { try self.cache.forget(path: url.path) }
+                if plan.requiresFullReparse, Self.dropsRowsOnRewrite(adapter.source) {
+                    try self.cache.forget(path: url.path)
+                }
                 var parser = try adapter.parser(
                     for: url,
                     resumingAt: plan.cursor.offset,
@@ -173,6 +176,14 @@ package final class UsageRecorder {
         case .codex, .openCode, .piAgent:
             throw UsageRecorderError.unsupportedSource(source)
         }
+    }
+
+    /// Whether a rewritten log's rows are dropped before it is reread. Codex rows accumulate per
+    /// path, so rereading without dropping them would double them. Claude Code rows are one per
+    /// message and a reread re-upserts them; a message that appeared in a transcript was billed,
+    /// and it may already belong to another transcript whose cursor is past it, so it is kept.
+    private static func dropsRowsOnRewrite(_ source: CostUsageSource) -> Bool {
+        source != .claude
     }
 
     private static func log(_ provider: Provider) -> Logger {
