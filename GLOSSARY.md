@@ -4,8 +4,12 @@ A macOS menu bar app that shows Codex and Claude quota and estimates API cost fr
 
 ## Pricing
 
+**Usage source**:
+A local tool whose session logs QuotaBar reads token usage from: Codex, Claude Code, OpenCode, or Pi Agent. Each counts toward one provider's usage.
+_Avoid_: scanner, log source, agent
+
 **Recorded usage**:
-Token usage saved from local sessions, attributed to its producing tool, model, and local-calendar day. Its Fast and Long-context tier attributes are retained, while cost is derived from the Rate card when read.
+Token usage saved from local sessions, attributed to its Usage source, model, and local-calendar day. Its Fast and Long-context tier attributes are retained, while cost is derived from the Rate card when read.
 _Avoid_: stored cost, cached cost
 
 **Price book**:

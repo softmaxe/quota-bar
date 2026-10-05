@@ -13,7 +13,7 @@ public struct ModelUsageTotal: Sendable, Equatable {
 /// Owns the persistent usage store and produces cost snapshots. An actor because the SQLite connection is
 /// single-writer and scans run off the main thread.
 public actor CostService {
-    private var cache: CostCache?
+    private var recorder: UsageRecorder?
     /// The rates of the current refresh. nil until the override file is next read.
     private var rateCard: RateCard?
     /// What a dropped rate card is rebuilt from.
@@ -55,12 +55,12 @@ public actor CostService {
 
     public func refresh(_ provider: Provider) async -> CostSnapshot? {
         do {
-            let cache = try self.openCache()
+            let recorder = try self.openRecorder()
             // One rate card for the whole refresh, so the scan and the pricing never disagree.
             let rateCard = self.currentRateCard()
 
             let started = Date()
-            let touched = try self.scan(provider, cache: cache, rateCard: rateCard)
+            let touched = try self.scan(provider, recorder: recorder, rateCard: rateCard)
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
@@ -70,7 +70,7 @@ public actor CostService {
 
             return try CostAggregator.snapshot(
                 provider: provider,
-                reader: cache.recordedUsageReader,
+                reader: recorder.recordedUsageReader,
                 rateCard: rateCard
             )
         } catch {
@@ -107,11 +107,11 @@ public actor CostService {
         self.book = rateCard.book
     }
 
-    private func openCache() throws -> CostCache {
-        if let cache = self.cache { return cache }
-        let cache = try CostCache(path: self.databaseURL)
-        self.cache = cache
-        return cache
+    private func openRecorder() throws -> UsageRecorder {
+        if let recorder = self.recorder { return recorder }
+        let recorder = try UsageRecorder(databaseURL: self.databaseURL)
+        self.recorder = recorder
+        return recorder
     }
 
     /// Read from disk once, then again only after `invalidatePricing`.
@@ -123,7 +123,8 @@ public actor CostService {
     }
 
     /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
-    private func scan(_ provider: Provider, cache: CostCache, rateCard: RateCard) throws -> Int {
+    private func scan(_ provider: Provider, recorder: UsageRecorder, rateCard: RateCard) throws -> Int {
+        let cache = recorder.cache
         switch provider {
         case .codex:
             let codexTouched = try CodexLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
@@ -151,7 +152,7 @@ public actor CostService {
             }
             return codexTouched + openCode.touched + pi.touched
         case .claude:
-            return try ClaudeLogScanner.scan(cache: cache, rateCard: rateCard, env: self.env)
+            return try recorder.record(.claude, rateCard: rateCard, env: self.env)
         }
     }
 
