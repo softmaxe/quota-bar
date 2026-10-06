@@ -1,49 +1,14 @@
-import Darwin
 import Foundation
 import SQLite3
 
-enum OpenCodeLogScanner {
-    struct Result {
-        let touched: Int
-        let status: OpenCodeScanStatus
-        /// The database this result was read from, when every row was stored. Passing it to the
-        /// next scan lets an unchanged database skip the full query.
-        var database: DatabaseSnapshot? = nil
-    }
-
-    /// Identity of the database and its write-ahead log at the moment they were read, with the
-    /// time zone that decides each row's day and whether rows count. Rows are upserted by part
-    /// key and an identical row is left untouched, so re-reading the same input cannot change the
-    /// store.
-    struct DatabaseSnapshot: Equatable {
+/// Turns OpenCode's database into observed requests. OpenCode keeps every session in one SQLite
+/// database it owns, so the database is read whole, on its own read-only connection, whenever its
+/// files change.
+package struct OpenCodeAdapter: SnapshotAdapter {
+    /// Identity of the database and its write-ahead log at the moment they were examined. A nil
+    /// entry is a file that does not exist.
+    package struct Stamp: Hashable {
         fileprivate let files: [FileStamp?]
-        fileprivate let timeZone: String
-        fileprivate let included: Bool
-    }
-
-    fileprivate struct FileStamp: Equatable {
-        let device: Int32
-        let inode: UInt64
-        let size: Int64
-        let modified: Double
-        let changed: Double
-    }
-
-    private struct AuthFile: Decodable {
-        let openai: OpenAI?
-
-        struct OpenAI: Decodable {
-            let type: String?
-            let accountId: String?
-        }
-    }
-
-    private struct Row {
-        let key: String
-        let day: String
-        let model: String
-        let isFast: Bool
-        let totals: TokenTotals
     }
 
     private struct FastToggle {
@@ -51,134 +16,54 @@ enum OpenCodeLogScanner {
         let isFast: Bool
     }
 
-    static func scan(
-        cache: CostCache,
-        rateCard: RateCard,
-        env: [String: String],
-        previous: DatabaseSnapshot? = nil
-    ) -> Result {
-        let dataDirectory = self.dataDirectory(env: env)
-        let databaseURL = dataDirectory.appendingPathComponent("opencode.db")
-        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            return Result(touched: 0, status: .idle)
-        }
+    package var source: SnapshotSource { .openCode }
+    private let env: [String: String]
+    private let dataDirectory: URL
 
-        let eligibility = self.eligibility(dataDirectory: dataDirectory, env: env)
-        guard case .indeterminate = eligibility else {
-            return self.scanDatabase(
-                databaseURL,
-                eligibility: eligibility,
-                cache: cache,
-                rateCard: rateCard,
-                previous: previous
-            )
-        }
-        return Result(touched: 0, status: .error("auth"))
+    package init(env: [String: String] = ProcessInfo.processInfo.environment) {
+        self.env = env
+        self.dataDirectory = Self.dataDirectory(env: env)
     }
 
-    private static func scanDatabase(
-        _ url: URL,
-        eligibility: ExternalAgentEligibility,
-        cache: CostCache,
-        rateCard: RateCard,
-        previous: DatabaseSnapshot?
-    ) -> Result {
-        let snapshot = eligibility.resolved.flatMap { self.snapshot(of: url, included: $0.included) }
-        if let snapshot, snapshot == previous, let status = eligibility.resolved?.status {
-            return Result(touched: 0, status: status, database: snapshot)
-        }
+    private var databaseURL: URL { self.dataDirectory.appendingPathComponent("opencode.db") }
 
+    package func survey() -> SnapshotSurvey<Stamp> {
+        ExternalAgentEligibility.survey(
+            installedAt: self.databaseURL,
+            authFile: self.dataDirectory.appendingPathComponent("auth.json"),
+            entry: "openai",
+            env: self.env,
+            stamp: self.stamp
+        )
+    }
+
+    package func requests() throws -> [ObservedRequest] {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+        guard sqlite3_open_v2(self.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             if let db { sqlite3_close(db) }
-            return Result(touched: 0, status: .error("database"))
+            throw SnapshotReadError(.database)
         }
         defer { sqlite3_close(db) }
 
         do {
-            try self.validateSchema(db)
-            try self.exec(db, "BEGIN")
-            let rows = try self.readRows(db)
-            try self.exec(db, "COMMIT")
-
-            guard let (included, status) = eligibility.resolved else {
-                return Result(touched: 0, status: .error("auth"))
-            }
-
-            let backfillCompleted = try cache.hasCompletedOpenCodeBackfill()
-            let legacy = included && !backfillCompleted
-            try cache.beginTransaction()
-            do {
-                for row in rows {
-                    let model = rateCard.modelID(for: row.model, provider: .codex)
-                    try cache.addOpenCodePart(
-                        key: row.key,
-                        included: included,
-                        legacyInferred: legacy,
-                        day: row.day,
-                        model: model,
-                        longContext: rateCard.isLongContext(
-                            row.totals,
-                            model: model,
-                            provider: .codex,
-                            day: row.day,
-                            fast: row.isFast
-                        ),
-                        isFast: row.isFast,
-                        totals: row.totals
-                    )
-                }
-                if legacy { try cache.markOpenCodeBackfillComplete() }
-                try cache.commit()
-            } catch {
-                cache.rollback()
-                throw error
-            }
-            return Result(touched: rows.count, status: status, database: snapshot)
+            try Self.validateSchema(db)
+            // One read transaction, so the parts and the Fast toggles come from the same state.
+            try Self.exec(db, "BEGIN")
+            let requests = try Self.readRequests(db)
+            try Self.exec(db, "COMMIT")
+            return requests
         } catch {
-            try? self.exec(db, "ROLLBACK")
-            return Result(touched: 0, status: .error("schema"))
+            try? Self.exec(db, "ROLLBACK")
+            throw SnapshotReadError(.schema, underlying: error)
         }
     }
 
-    /// Nil when either file cannot be examined, so the scan queries the database.
-    private static func snapshot(of url: URL, included: Bool) -> DatabaseSnapshot? {
-        var files: [FileStamp?] = []
-        for path in [url.path, url.path + "-wal"] {
-            var info = Darwin.stat()
-            if fstatat(AT_FDCWD, path, &info, 0) == 0 {
-                files.append(FileStamp(
-                    device: info.st_dev,
-                    inode: info.st_ino,
-                    size: info.st_size,
-                    modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
-                    changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
-                ))
-            } else if errno == ENOENT {
-                files.append(nil)
-            } else {
-                return nil
-            }
-        }
-        return DatabaseSnapshot(files: files, timeZone: TimeZone.current.identifier, included: included)
-    }
-
-    private static func eligibility(
-        dataDirectory: URL,
-        env: [String: String]
-    ) -> ExternalAgentEligibility {
+    /// Nil when either file cannot be examined, so the database is queried regardless.
+    private func stamp() -> Stamp? {
         do {
-            let openCodeData = try Data(contentsOf: dataDirectory.appendingPathComponent("auth.json"))
-            let codexAccountId = try CodexCredentialsStore.accountId(env: env)
-            guard let openCode = try JSONDecoder()
-                .decode(AuthFile.self, from: openCodeData).openai else { return .indeterminate }
-            return .matchingCodexAccount(
-                type: openCode.type,
-                accountId: openCode.accountId,
-                codexAccountId: codexAccountId
-            )
+            return Stamp(files: try [self.databaseURL.path, self.databaseURL.path + "-wal"].map(FileStamp.examine))
         } catch {
-            return .indeterminate
+            return nil
         }
     }
 
@@ -216,7 +101,7 @@ enum OpenCodeLogScanner {
         }
     }
 
-    private static func readRows(_ db: OpaquePointer) throws -> [Row] {
+    private static func readRequests(_ db: OpaquePointer) throws -> [ObservedRequest] {
         // Native OpenAI responses can leave the effective tier in part metadata. The
         // opencodex-fast plugin injects the request after that metadata is built, so its ignored
         // ON/OFF messages are the only durable state signal and act as a fallback.
@@ -256,7 +141,7 @@ enum OpenCodeLogScanner {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw ScanError.schema }
-        var rows: [Row] = []
+        var requests: [ObservedRequest] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard let keyText = sqlite3_column_text(stmt, 0),
                   let modelText = sqlite3_column_text(stmt, 2) else { continue }
@@ -271,17 +156,17 @@ enum OpenCodeLogScanner {
             let seconds = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime
             guard seconds > 0 else { continue }
             let explicitTier = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
-            rows.append(Row(
+            requests.append(ObservedRequest(
                 key: String(cString: keyText),
-                day: DayKey.make(from: Date(timeIntervalSince1970: seconds)),
+                timestamp: Date(timeIntervalSince1970: seconds),
                 model: String(cString: modelText),
+                tokens: totals,
                 isFast: explicitTier.map { CostPricing.CodexServiceTier.parse($0).isFast }
-                    ?? self.fastMode(at: rawTime, toggles: fastToggles),
-                totals: totals
+                    ?? self.fastMode(at: rawTime, toggles: fastToggles)
             ))
         }
         guard sqlite3_errcode(db) == SQLITE_OK || sqlite3_errcode(db) == SQLITE_DONE else { throw ScanError.read }
-        return rows
+        return requests
     }
 
     private static func readFastToggles(_ db: OpaquePointer) throws -> [FastToggle] {

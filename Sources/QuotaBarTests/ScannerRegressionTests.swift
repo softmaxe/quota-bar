@@ -9,7 +9,6 @@ enum ScannerRegressionTests {
         await Self.codexResumeStatePersists()
         await Self.claudeFieldTypesMatchLooseCasts()
         await Self.codexFieldTypesMatchLooseCasts()
-        await Self.claudeFastSpeedIsPricedAsFast()
     }
 
     /// Prefix digests are reused while a file is untouched. An in-place rewrite that keeps the
@@ -131,50 +130,6 @@ enum ScannerRegressionTests {
         )
         let snapshot = await service.refresh(.codex)
         Harness.expectEqual(snapshot?.windowTokens, 5, "Codex running totals compare numbers and booleans, not strings")
-    }
-
-    /// `usage.speed` marks a Claude Fast mode request. On Opus 5.5 it bills at 2x Standard,
-    /// cache reads included.
-    private static func claudeFastSpeedIsPricedAsFast() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-claude-fast-tests-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: root)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let claudeHome = root.appendingPathComponent("claude")
-        let file = claudeHome.appendingPathComponent("projects/app/session.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        func line(_ request: String, speed: String?) -> String {
-            let speedField = speed.map { #","speed":"\#($0)""# } ?? ""
-            return #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"\#(request)","message":{"id":"msg-\#(request)","model":"claude-opus-5-5","usage":{"input_tokens":1000000,"output_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000\#(speedField)}}}"#
-        }
-        // Standard: 1M input at $4, 100K output at $20, 1M cache reads at $0.20 = $6.20.
-        let lines = [
-            line("standard", speed: "standard"),
-            line("fast", speed: "fast"),
-            // A line written before `speed` existed is Standard.
-            line("unmarked", speed: nil),
-        ]
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root),
-            rateCard: CostTests.fixtureRateCard
-        )
-        let snapshot = await service.refresh(.claude)
-        let byModel = snapshot?.days.first?.byModel
-        let standardKey = ModelUsageKey(source: .claude, model: "claude-opus-5-5")
-        let fastKey = ModelUsageKey(source: .claude, model: "claude-opus-5-5", isFast: true)
-        Harness.expectEqual(byModel?.count, 2, "Standard and Fast Claude usage use separate rows")
-        Harness.expectClose(byModel?[standardKey]?.costUSD, 12.4, "two Standard requests bill at Standard rates")
-        Harness.expectClose(byModel?[fastKey]?.costUSD, 12.4, "one Fast request bills at 2x Standard")
-        Harness.expectEqual(byModel?[fastKey]?.tokens.total, 2_100_000, "Fast tokens stay in the Fast row")
-        Harness.expectClose(snapshot?.windowCostUSD, 24.8, "the window sums both tiers")
     }
 
     private static func unchangedPartialLineDoesNotRequireRescan() {

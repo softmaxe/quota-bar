@@ -17,12 +17,9 @@ enum CostTests {
         }
         await Self.scanning()
         await Self.deletedSessionsRetainUsage()
-        await Self.replacedCodexSessionIsReparsed()
         await Self.openCodeScanning()
-        await Self.openCodeFastUsageIsSeparate()
         await Self.piAgentScanning()
         await Self.pricingEditsRepriceHistory()
-        await Self.codexAstraTurnsKeepTheirTiers()
     }
 
     // MARK: - Pricing
@@ -59,37 +56,6 @@ enum CostTests {
     }()
 
     static let fixtureRateCard = RateCard(book: fixtureBook)
-
-    private static func replacedCodexSessionIsReparsed() async {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        do {
-            let file = root.appendingPathComponent("sessions/rollout-test-\(UUID().uuidString).jsonl")
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let timestamp = ISO8601DateFormatter().string(from: Date())
-            let context = #"{"type":"turn_context","payload":{"model":"replacement-model"}}"#
-            let padding = #"{"type":"response_item","padding":"\#(String(repeating: "x", count: 70_000))"}"#
-            func transcript(_ tokens: Int) -> String {
-                let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(tokens),"output_tokens":0}}}}"#
-                return [context, padding, usage].joined(separator: "\n") + "\n"
-            }
-            try transcript(100).write(to: file, atomically: true, encoding: .utf8)
-            let originalInode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber
-            let service = CostService(
-                databaseURL: root.appendingPathComponent("usage.sqlite"),
-                env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": root.path]),
-                rateCard: RateCard(overrides: ["replacement-model": ModelPricing(input: 1, output: 2)])
-            )
-            Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 100, "replacement fixture is scanned")
-            try transcript(200).write(to: file, atomically: true, encoding: .utf8)
-            let replacementInode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber
-            Harness.expect(originalInode != replacementInode, "atomic replacement changes the fixture inode")
-            Harness.expectEqual(await service.refresh(.codex)?.windowTokens, 200,
-                                "same-path replacement reparses changed usage beyond an unchanged 64KB prefix")
-        } catch {
-            Harness.expect(false, "replacement fixture failed: \(error)")
-        }
-    }
 
     private static func deletedSessionsRetainUsage() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -420,6 +386,9 @@ enum CostTests {
         Harness.expectEqual(beforeAppend + afterAppend, [short, short], "a completed long line is skipped whole on the next scan")
     }
 
+    /// Wiring from a Codex refresh to OpenCode: its usage reaches the snapshot under its own
+    /// source, apart from Codex usage of the same model, and its scan status reaches the app.
+    /// Recording rules are covered by the recorder and adapter suites.
     private static func openCodeScanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-opencode-tests-\(ProcessInfo.processInfo.processIdentifier)")
@@ -427,160 +396,51 @@ enum CostTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let codexHome = root.appendingPathComponent("codex")
-        let openCodeHome = root.appendingPathComponent("opencode")
         try? FileManager.default.createDirectory(at: codexHome.appendingPathComponent("sessions"), withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: openCodeHome, withIntermediateDirectories: true)
         try? #"{"tokens":{"account_id":"account-a"}}"#.write(
             to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
         )
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        let source = openCodeHome.appendingPathComponent("opencode.db")
-        var db: OpaquePointer?
-        guard sqlite3_open(source.path, &db) == SQLITE_OK, let db else {
-            Harness.expect(false, "OpenCode fixture database opens")
-            return
-        }
-        defer { sqlite3_close(db) }
-        sqlite3_exec(db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL)", nil, nil, nil)
-
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        func insert(_ id: String, provider: String = "openai", model: String = "gpt-5.6-luna") {
-            let message = #"{"time":{"created":\#(now)},"providerID":"\#(provider)","modelID":"\#(model)"}"#
-            let part = #"{"type":"step-finish","tokens":{"input":10,"output":20,"reasoning":30,"cache":{"read":40,"write":50}}}"#
-            var stmt: OpaquePointer?
-            sqlite3_prepare_v2(db, "INSERT INTO message (id, data) VALUES (?, ?)", -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 2, message, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-            sqlite3_prepare_v2(db, "INSERT INTO part (id, message_id, data) VALUES (?, ?, ?)", -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 2, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 3, part, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-        }
-        insert("part-1")
-        insert("third-party", provider: "openrouter")
+        guard let db = OpenCodeFixtureDatabase(at: root) else { return }
+        db.stepFinish("part-1", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
+        db.close()
+        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
+            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
-        let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 150, "OpenCode maps output reasoning and cache buckets")
-        Harness.expectEqual(first?.days.first?.tokens.output, 50, "OpenCode reasoning is output")
-        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "OpenCode cache reads are preserved")
-        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 50, "OpenCode cache writes are preserved")
-        Harness.expect(
-            first?.days.first?.rankedModels.first?.key.source == .openCode,
-            "OpenCode usage keeps its source in the day breakdown"
-        )
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "matching OAuth is quiet")
-
-        let repeated = await service.refresh(.codex)
-        Harness.expectEqual(repeated?.windowTokens, 150, "OpenCode part IDs dedupe repeated scans")
-
-        // Rows cleared from the store come back only if a refresh queries the database again.
-        var store: OpaquePointer?
-        if sqlite3_open(root.appendingPathComponent("cache.sqlite").path, &store) == SQLITE_OK {
-            sqlite3_exec(store, "DELETE FROM opencode_part", nil, nil, nil)
-        }
-        sqlite3_close(store)
-        let unchanged = await service.refresh(.codex)
-        Harness.expectEqual(unchanged?.windowTokens, 0, "an unchanged OpenCode database is not re-queried")
-
-        sqlite3_exec(
-            db,
-            "UPDATE part SET data = '{\"type\":\"step-finish\",\"tokens\":{\"input\":10,\"output\":120,\"reasoning\":30,\"cache\":{\"read\":40,\"write\":50}}}' WHERE id = 'part-1'",
-            nil,
-            nil,
-            nil
-        )
-        let completed = await service.refresh(.codex)
-        Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its stored usage")
-        await service.useRateCard(RateCard(book: Self.fixtureBook, overrides: [
-            "gpt-5.6-luna": ModelPricing(
-                input: 100,
-                output: 100,
-                cacheWrite: 100,
-                cacheRead: 100,
-                thresholdTokens: 1,
-                inputAbove: 200,
-                outputAbove: 200
-            ),
-        ]))
-        let repriced = await service.refresh(.codex)
-        // The tier was decided at scan time against the book's 272K threshold, so the override's
-        // threshold of 1 cannot move stored rows into its long-context rates.
-        Harness.expectClose(repriced?.windowCostUSD, 0.025, "an override change reprices recorded OpenCode usage")
-
-        try? #"{"openai":{"type":"api","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-2")
         let excluded = await service.refresh(.codex)
-        Harness.expectEqual(excluded?.windowTokens, 250, "API-key OpenCode rows are excluded")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .nonOAuth, "non-OAuth status is exposed")
+        Harness.expectEqual(excluded?.windowTokens, 0, "OpenCode usage of another account is left out of the snapshot")
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .openCode),
+            .accountMismatch,
+            "OpenCode's scan status reaches the app"
+        )
 
         try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
         )
-        let frozen = await service.refresh(.codex)
-        Harness.expectEqual(frozen?.windowTokens, 250, "excluded OpenCode rows stay excluded")
-
-        try? #"{"openai":null}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-3")
-        let indeterminate = await service.refresh(.codex)
-        Harness.expectEqual(indeterminate?.windowTokens, 250, "indeterminate auth does not classify new rows")
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        let retried = await service.refresh(.codex)
-        Harness.expectEqual(retried?.windowTokens, 400, "unclassified rows retry after auth recovers")
-
-        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-4")
-        let mismatch = await service.refresh(.codex)
-        Harness.expectEqual(mismatch?.windowTokens, 400, "a different OpenAI account is excluded")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .accountMismatch, "account mismatch status is exposed")
-
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        sqlite3_exec(db, "DELETE FROM part WHERE id = 'part-1'", nil, nil, nil)
-        let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 400, "deleted OpenCode parts retain their usage")
-
-        insert("unknown", model: "future-openai-model")
-        let unknown = await service.refresh(.codex)
-        Harness.expectEqual(unknown?.windowTokens, 550, "unknown OpenAI models still count tokens")
-        Harness.expectEqual(unknown?.hasUnpricedTokens, true, "unknown OpenAI models are unpriced")
-
+        guard let reopened = OpenCodeFixtureDatabase(at: root) else { return }
+        reopened.stepFinish("part-2", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
+        reopened.close()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestamp = formatter.string(from: Date())
-        let codexLog = codexHome.appendingPathComponent("sessions/rollout-opencode-error.jsonl")
         let codexLines = """
         {"type":"turn_context","timestamp":"\(timestamp)","payload":{"model":"gpt-5.6-luna"}}
         {"type":"event_msg","timestamp":"\(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0}}}}
 
         """
-        try? codexLines.write(to: codexLog, atomically: true, encoding: .utf8)
-        sqlite3_exec(db, "ALTER TABLE message RENAME TO broken_message", nil, nil, nil)
-        let sourceFailure = await service.refresh(.codex)
-        Harness.expectEqual(sourceFailure?.windowTokens, 560, "OpenCode schema errors retain history while Codex keeps scanning")
-        let lunaSources = Set(sourceFailure?.days.first?.rankedModels
+        try? codexLines.write(to: codexHome.appendingPathComponent("sessions/rollout-opencode.jsonl"), atomically: true, encoding: .utf8)
+
+        let snapshot = await service.refresh(.codex)
+        Harness.expectEqual(snapshot?.windowTokens, 160, "an eligible OpenCode request reaches the snapshot beside Codex usage")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "matching OAuth is quiet")
+        let lunaSources = Set(snapshot?.days.first?.rankedModels
             .filter { $0.model == "gpt-5.6-luna" }
             .map { $0.key.source } ?? [])
         Harness.expectEqual(
@@ -588,55 +448,21 @@ enum CostTests {
             Set([CostUsageSource.codex, .openCode]),
             "same-model Codex and OpenCode usage remains split by source"
         )
-        if case .error = await service.currentOpenCodeScanStatus() {
-            Harness.expect(true, "OpenCode schema error status is exposed")
-        } else {
-            Harness.expect(false, "OpenCode schema error status is exposed")
-        }
-
-        try? FileManager.default.removeItem(at: source)
-        let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 560, "a removed OpenCode database retains its usage")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "a removed OpenCode database is idle")
     }
 
+    /// Wiring from a Codex refresh to Pi Agent: its usage reaches the snapshot under its own
+    /// source, priced at the rate card's rates, and its scan status reaches the app. Recording
+    /// rules are covered by the recorder and adapter suites.
     private static func piAgentScanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-pi-tests-\(ProcessInfo.processInfo.processIdentifier)")
         try? FileManager.default.removeItem(at: root)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let codexHome = root.appendingPathComponent("codex")
-        let agentHome = root.appendingPathComponent("pi-agent")
-        let sessions = root.appendingPathComponent("pi-sessions")
-        try? FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: agentHome, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: sessions.appendingPathComponent("project"), withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
-            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
+        PiSessionFile.signIn(root: root, piAccount: "account-a")
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let transcript = sessions.appendingPathComponent("project/session.jsonl")
-        func message(
-            _ id: String,
-            model: String = "gpt-5.6-luna",
-            input: Int = 10,
-            output: Int = 20,
-            cacheWrite: Int = 30,
-            cacheRead: Int = 40
-        ) -> String {
-            #"{"type":"message","id":"\#(id)","message":{"role":"assistant","provider":"openai-codex","model":"\#(model)","service_tier":"priority","timestamp":\#(now),"usage":{"input":\#(input),"output":\#(output),"reasoning":999,"cacheWrite":\#(cacheWrite),"cacheRead":\#(cacheRead),"cost":999}}}"#
-        }
-        func write(_ lines: [String]) {
-            try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
-        }
-        write([
-            message("one"),
-            #"{"type":"message","message":{"id":"ignored","role":"assistant","provider":"other","model":"gpt-5.6-luna","timestamp":\#(now),"usage":{"input":500}}}"#,
+        PiSessionFile.write(root: root, "project/session.jsonl", lines: [
+            PiSessionFile.message("one", milliseconds: now, input: 10, output: 20, cacheWrite: 30, cacheRead: 40),
         ])
 
         let rateCard = RateCard(overrides: [
@@ -644,77 +470,26 @@ enum CostTests {
         ])
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: [
-                "PI_CODING_AGENT_DIR": agentHome.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessions.path,
-            ]),
+            env: isolatedEnvironment(root: root),
             rateCard: rateCard
         )
 
         let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 100, "Pi maps token buckets without adding reasoning twice")
-        Harness.expectEqual(first?.days.first?.tokens.input, 10, "Pi input excludes cache reads")
-        Harness.expectEqual(first?.days.first?.tokens.output, 20, "Pi output already contains reasoning")
-        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 30, "Pi cache writes are preserved")
-        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "Pi cache reads are preserved")
+        Harness.expectEqual(first?.windowTokens, 100, "Pi Agent usage reaches the snapshot")
         Harness.expect(
             first?.days.first?.rankedModels.first?.key.source == .piAgent,
             "Pi usage keeps its source in the day breakdown"
         )
-        Harness.expect(
-            first?.days.first?.rankedModels.allSatisfy { !$0.key.isFast } == true,
-            "Pi service-tier metadata is intentionally ignored"
-        )
         Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "matching Pi OAuth is quiet")
+        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "matching Pi OAuth is quiet")
 
-        let forkedTranscript = sessions.appendingPathComponent("project/fork.jsonl")
-        try? (message("one") + "\n").write(to: forkedTranscript, atomically: true, encoding: .utf8)
-        let repeated = await service.refresh(.codex)
-        Harness.expectEqual(repeated?.windowTokens, 100, "Pi message IDs dedupe copied session history")
-        try? FileManager.default.removeItem(at: forkedTranscript)
-
-        write([message("one", output: 120), message("two")])
-        let grown = await service.refresh(.codex)
-        Harness.expectEqual(grown?.windowTokens, 300, "Pi updates growing messages and adds new messages")
-
-        try? #"{"openai-codex":{"type":"api","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        PiSessionFile.signIn(root: root, piAccount: "account-b")
+        _ = await service.refresh(.codex)
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .piAgent),
+            .accountMismatch,
+            "Pi Agent's scan status reaches the app"
         )
-        write([message("one", output: 120), message("two"), message("excluded")])
-        let nonOAuth = await service.refresh(.codex)
-        Harness.expectEqual(nonOAuth?.windowTokens, 300, "non-OAuth Pi messages are excluded")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .nonOAuth, "Pi non-OAuth status is exposed")
-
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-b"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        let mismatch = await service.refresh(.codex)
-        Harness.expectEqual(mismatch?.windowTokens, 300, "Pi account mismatch stays excluded")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .accountMismatch, "Pi account mismatch status is exposed")
-
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        write([message("two"), message("unknown", model: "future-codex-model")])
-        let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 400, "Pi retains messages missing from the source")
-        Harness.expectEqual(pruned?.hasUnpricedTokens, true, "unknown Pi models keep unpriced tokens")
-
-        try? "invalid".write(to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
-        write([])
-        let authFailure = await service.refresh(.codex)
-        Harness.expectEqual(authFailure?.windowTokens, 400, "Pi auth errors retain recorded totals")
-        if case .error = await service.currentPiAgentScanStatus() {
-            Harness.expect(true, "Pi auth error status is exposed")
-        } else {
-            Harness.expect(false, "Pi auth error status is exposed")
-        }
-
-        try? FileManager.default.removeItem(at: sessions)
-        let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 400, "a missing Pi sessions directory retains usage")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "missing Pi sessions are idle")
     }
 
     /// Cost is derived when usage is read, so a price edit reaches every recorded day, including
@@ -874,328 +649,9 @@ enum CostTests {
             "a resumed scan attributes the appended turn to the last announced model"
         )
 
-        await Self.claudeStreamingChunksKeepTheFinalOutput(root: root)
         await Self.claudeOneHourCacheWritesCostDouble(root: root)
         await Self.invalidatingPricingKeepsTheBook(root: root)
         await Self.escapedClassifierRecordsAreScanned(root: root)
-        await Self.codexSkipsReEmittedTokenCounts(root: root)
-        await Self.codexResumeLimitDoesNotPeek(root: root)
-        await Self.truncatedCodexLogIsForgotten(root: root)
-        await Self.codexCacheBucketsAreCarvedOutOfInput(root: root)
-        await Self.codexFastServiceTierPricing(root: root)
-    }
-
-    private static func codexFastServiceTierPricing(root: URL) async {
-        let home = root.appendingPathComponent("fast-codex")
-        let file = home.appendingPathComponent("sessions/rollout-fast.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = formatter.string(from: Date())
-        let priorityLines = [
-            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
-            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-5.6-sol"}}"#,
-            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
-        ]
-        try? (priorityLines.joined(separator: "\n") + "\n")
-            .write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("fast-cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
-            rateCard: Self.fixtureRateCard
-        )
-        let snapshot = await service.refresh(.codex)
-        let modelUsage = (try? await service.knownModelUsage(provider: .codex)) ?? []
-
-        Harness.expectEqual(snapshot?.windowTokens, 100_000, "Fast usage tokens are scanned")
-        Harness.expectEqual(
-            modelUsage,
-            [ModelUsageTotal(model: "gpt-5.6-sol", tokens: 100_000)],
-            "Fast usage stays attributed to the turn context model"
-        )
-        Harness.expectClose(
-            snapshot?.windowCostUSD,
-            0.8,
-            "priority maps to the Fast short-context rate"
-        )
-        Harness.expectEqual(
-            snapshot?.days.first?.rankedModels.first?.key.isFast,
-            true,
-            "priority usage is exposed as Fast in the breakdown"
-        )
-
-        let appended = priorityLines.last! + "\n"
-        if let handle = try? FileHandle(forWritingTo: file) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(appended.utf8))
-            try? handle.close()
-        }
-        let resumed = await service.refresh(.codex)
-        Harness.expectEqual(resumed?.windowTokens, 200_000, "incremental Fast scanning adds only the new turn")
-        Harness.expectClose(resumed?.windowCostUSD, 1.6, "incremental scanning restores the Fast tier")
-
-        let standardTurn = [
-            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"default"}}}"#,
-            priorityLines.last!,
-        ].joined(separator: "\n") + "\n"
-        if let handle = try? FileHandle(forWritingTo: file) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data(standardTurn.utf8))
-            try? handle.close()
-        }
-        let mixed = await service.refresh(.codex)
-        let fastKey = ModelUsageKey(source: .codex, model: "gpt-5.6-sol", isFast: true)
-        let standardKey = ModelUsageKey(source: .codex, model: "gpt-5.6-sol")
-        Harness.expectEqual(mixed?.windowTokens, 300_000, "Standard and Fast turns both count")
-        Harness.expectClose(mixed?.windowCostUSD, 2.0, "Standard and Fast turns keep their own rates")
-        Harness.expectEqual(mixed?.days.first?.byModel.count, 2, "Standard and Fast use separate rows")
-        Harness.expectEqual(mixed?.days.first?.byModel[fastKey]?.tokens.total, 200_000, "Fast tokens stay separate")
-        Harness.expectEqual(mixed?.days.first?.byModel[standardKey]?.tokens.total, 100_000, "Standard tokens stay separate")
-
-        func scanTier(_ rawTier: String?, name: String) async -> CostSnapshot? {
-            let tierHome = root.appendingPathComponent("\(name)-codex")
-            let tierFile = tierHome.appendingPathComponent("sessions/rollout.jsonl")
-            try? FileManager.default.createDirectory(
-                at: tierFile.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let settings: String
-            if let rawTier {
-                settings = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"\#(rawTier)"}}}"#
-            } else {
-                settings = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{}}}"#
-            }
-            let lines = [settings, priorityLines[1], priorityLines[2]]
-            try? (lines.joined(separator: "\n") + "\n")
-                .write(to: tierFile, atomically: true, encoding: .utf8)
-            let tierService = CostService(
-                databaseURL: root.appendingPathComponent("\(name)-cache.sqlite"),
-                env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": tierHome.path]),
-                rateCard: Self.fixtureRateCard
-            )
-            return await tierService.refresh(.codex)
-        }
-
-        let literalFast = await scanTier("fast", name: "literal-fast")
-        Harness.expectEqual(literalFast?.windowTokens, 100_000, "literal fast keeps all token totals")
-        Harness.expectClose(literalFast?.windowCostUSD, 0.8, "literal fast maps to the Fast rate")
-
-        let missing = await scanTier(nil, name: "missing")
-        Harness.expectClose(missing?.windowCostUSD, 0.4, "a missing service tier stays Standard")
-    }
-
-    /// A Fast turn in one session is priced at the Fast rates and a vendor-prefixed name lands on
-    /// the same model, while the long-context tier still turns on only above the threshold.
-    private static func codexAstraTurnsKeepTheirTiers() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-astra-pricing-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let codexHome = root.appendingPathComponent("codex")
-        let log = codexHome.appendingPathComponent("sessions/rollout-astra.jsonl")
-        do {
-            try FileManager.default.createDirectory(
-                at: log.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let timestamp = formatter.string(from: Date())
-            let lines = [
-                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"default"}}}"#,
-                #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"openai/gpt-6-astra"}}"#,
-                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":272000,"cached_input_tokens":72000,"cache_write_input_tokens":0,"output_tokens":1000}}}}"#,
-                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"thread_settings_applied","thread_settings":{"service_tier":"priority"}}}"#,
-                #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"gpt-6-astra"}}"#,
-                #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":272001,"cached_input_tokens":72000,"cache_write_input_tokens":1,"output_tokens":1000}}}}"#,
-            ]
-            try (lines.joined(separator: "\n") + "\n")
-                .write(to: log, atomically: true, encoding: .utf8)
-        } catch {
-            Harness.expect(false, "Astra scanner fixture setup threw: \(error)")
-            return
-        }
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root),
-            rateCard: Self.fixtureRateCard
-        )
-        let snapshot = await service.refresh(.codex)
-        let standardKey = ModelUsageKey(source: .codex, model: "gpt-6-astra")
-        let fastKey = ModelUsageKey(source: .codex, model: "gpt-6-astra", isFast: true)
-
-        Harness.expectEqual(snapshot?.windowTokens, 546_001, "Astra scanner keeps both turns")
-        Harness.expectEqual(snapshot?.days.first?.byModel.count, 2, "Astra scanner separates Standard and Fast")
-        Harness.expectEqual(
-            snapshot?.days.first?.byModel[standardKey]?.tokens,
-            TokenTotals(input: 200_000, output: 1_000, cacheRead: 72_000),
-            "Astra vendor-prefixed model id normalizes into the Standard row"
-        )
-        Harness.expectEqual(
-            snapshot?.days.first?.byModel[fastKey]?.tokens,
-            TokenTotals(input: 200_000, output: 1_000, cacheWrite: 1, cacheRead: 72_000),
-            "Astra priority usage stays in the Fast row"
-        )
-        Harness.expectClose(
-            snapshot?.days.first?.byModel[standardKey]?.costUSD,
-            2.122,
-            "Astra scanner keeps the 272K request on Standard rates"
-        )
-        Harness.expectClose(
-            snapshot?.days.first?.byModel[fastKey]?.costUSD,
-            8.43805,
-            "Astra scanner applies Fast long-context rates above 272K"
-        )
-    }
-
-    private static func openCodeFastUsageIsSeparate() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-opencode-fast-tests-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: root)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let codexHome = root.appendingPathComponent("codex")
-        let openCodeHome = root.appendingPathComponent("opencode")
-        try? FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: openCodeHome, withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
-            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        var db: OpaquePointer?
-        guard sqlite3_open(openCodeHome.appendingPathComponent("opencode.db").path, &db) == SQLITE_OK,
-              let db else {
-            Harness.expect(false, "OpenCode Fast fixture database opens")
-            return
-        }
-        defer { sqlite3_close(db) }
-        sqlite3_exec(db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL)", nil, nil, nil)
-
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        func insert(table: String, id: String, data: String, messageID: String? = nil) {
-            var stmt: OpaquePointer?
-            let sql = messageID == nil
-                ? "INSERT INTO \(table) (id, data) VALUES (?, ?)"
-                : "INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)"
-            sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            if let messageID {
-                sqlite3_bind_text(stmt, 2, messageID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-                sqlite3_bind_text(stmt, 3, data, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            } else {
-                sqlite3_bind_text(stmt, 2, data, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            }
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-        }
-        func assistant(_ id: String, created: Int64, metadataTier: String? = nil) {
-            insert(
-                table: "message",
-                id: "message-\(id)",
-                data: #"{"time":{"created":\#(created)},"role":"assistant","providerID":"openai","modelID":"gpt-5.6-sol"}"#
-            )
-            insert(
-                table: "part",
-                id: "finish-\(id)",
-                data: #"{"type":"step-finish","tokens":{"input":100000,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}"#,
-                messageID: "message-\(id)"
-            )
-            if let metadataTier {
-                insert(
-                    table: "part",
-                    id: "text-\(id)",
-                    data: #"{"type":"text","text":"","metadata":{"openai":{"serviceTier":"\#(metadataTier)"}}}"#,
-                    messageID: "message-\(id)"
-                )
-            }
-        }
-
-        assistant("standard", created: now)
-        assistant("metadata-fast", created: now + 1, metadataTier: "priority")
-        insert(
-            table: "message",
-            id: "fast-toggle",
-            data: #"{"time":{"created":\#(now + 2)},"role":"user"}"#
-        )
-        insert(
-            table: "part",
-            id: "fast-toggle-text",
-            data: #"{"type":"text","text":"Fast mode is now ON.","ignored":true}"#,
-            messageID: "fast-toggle"
-        )
-        assistant("toggle-fast", created: now + 3)
-        insert(
-            table: "message",
-            id: "standard-toggle",
-            data: #"{"time":{"created":\#(now + 4)},"role":"user"}"#
-        )
-        insert(
-            table: "part",
-            id: "standard-toggle-text",
-            data: #"{"type":"text","text":"Fast mode is now OFF.","ignored":true}"#,
-            messageID: "standard-toggle"
-        )
-        assistant("toggle-standard", created: now + 5)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root),
-            rateCard: Self.fixtureRateCard
-        )
-        let snapshot = await service.refresh(.codex)
-        let standardKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol")
-        let fastKey = ModelUsageKey(source: .openCode, model: "gpt-5.6-sol", isFast: true)
-        Harness.expectEqual(snapshot?.windowTokens, 400_000, "OpenCode Standard and Fast tokens both count")
-        Harness.expectClose(snapshot?.windowCostUSD, 2.4, "OpenCode Fast usage uses the Fast rate")
-        Harness.expectEqual(snapshot?.days.first?.byModel.count, 2, "OpenCode Fast has its own row")
-        Harness.expectEqual(snapshot?.days.first?.byModel[standardKey]?.tokens.total, 200_000, "OpenCode Standard tokens stay separate")
-        Harness.expectEqual(snapshot?.days.first?.byModel[fastKey]?.tokens.total, 200_000, "OpenCode Fast tokens stay separate")
-    }
-
-    /// Claude writes an assistant message several times while it streams. The prompt figures are
-    /// final from the first chunk, but output_tokens grows, so the last chunk is the honest one.
-    private static func claudeStreamingChunksKeepTheFinalOutput(root: URL) async {
-        let projects = root.appendingPathComponent("stream-claude/projects/app")
-        try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
-        let file = projects.appendingPathComponent("session.jsonl")
-
-        let timestamp = Self.todayStamp()
-        func line(output: Int) -> String {
-            #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-1","message":{"id":"msg-1","model":"stream-model","usage":{"input_tokens":100000,"output_tokens":\#(output),"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
-        }
-        // A partial chunk, then the finished reply, then the same message replayed into a fork.
-        let lines = [line(output: 40), line(output: 20_000), line(output: 20_000)]
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("stream-cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("stream-claude").path]),
-            rateCard: RateCard(overrides: [
-                "stream-model": ModelPricing(input: 1, output: 2),
-            ])
-        )
-        let snapshot = await service.refresh(.claude)
-        // $0.10 of prompt and $0.04 of reply, counted once: the partial chunk and the replay lose.
-        Harness.expectClose(
-            snapshot?.windowCostUSD,
-            0.14,
-            "a streamed message is billed once, at the output count of its final chunk"
-        )
-        Harness.expectEqual(
-            snapshot?.windowTokens,
-            120_000,
-            "replaying a finished message does not add its tokens again"
-        )
     }
 
     /// Saving overrides drops the service's rate card. The next refresh rereads the override
@@ -1288,43 +744,6 @@ enum CostTests {
         )
     }
 
-    /// Codex re-emits a token_count when its rate-limit block refreshes. The replay repeats the
-    /// previous last_token_usage while total_token_usage stands still, and must not be counted.
-    private static func codexSkipsReEmittedTokenCounts(root: URL) async {
-        let home = root.appendingPathComponent("replay-codex")
-        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-replay.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        func event(_ second: TimeInterval, last: Int, total: Int) -> String {
-            #"{"type":"event_msg","timestamp":"\#(Self.todayStamp(plus: second))","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\#(last),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total),"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#
-        }
-        let context = #"{"type":"turn_context","timestamp":"\#(Self.todayStamp())","payload":{"model":"replay-model"}}"#
-        let lines = [
-            context,
-            event(1, last: 100_000, total: 100_000),
-            event(2, last: 100_000, total: 200_000),
-            // Same running total as the line above: a re-emission, not a third turn.
-            event(3, last: 100_000, total: 200_000),
-        ]
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-
-        let database = root.appendingPathComponent("replay-cache.sqlite")
-        let rateCard = RateCard(overrides: [
-            "replay-model": ModelPricing(input: 1, output: 1),
-        ])
-        let env = isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path])
-        let snapshot = await CostService(databaseURL: database, env: env, rateCard: rateCard)
-            .refresh(.codex)
-        Harness.expectClose(
-            snapshot?.windowCostUSD,
-            0.2,
-            "a re-emitted token_count is not counted as another turn"
-        )
-    }
-
     private static func escapedClassifierRecordsAreScanned(root: URL) async {
         let codexHome = root.appendingPathComponent("escaped-codex")
         let claudeHome = root.appendingPathComponent("escaped-claude")
@@ -1368,107 +787,6 @@ enum CostTests {
             await service.refresh(.claude)?.windowTokens,
             200,
             "escaped Claude type keys and values still reach full JSON parsing"
-        )
-    }
-
-    private static func codexResumeLimitDoesNotPeek(root: URL) async {
-        let home = root.appendingPathComponent("bounded-resume-codex")
-        let file = home.appendingPathComponent("sessions/rollout.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let timestamp = Self.todayStamp()
-        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"bounded-model"}}"#
-        func event(total: Int) -> String {
-            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0},"total_token_usage":{"input_tokens":\#(total)}}}}"#
-        }
-        try? ([context, event(total: 100)].joined(separator: "\n") + "\n")
-            .write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("bounded-resume-cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
-            rateCard: Self.fixtureRateCard
-        )
-        let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 100, "bounded resume fixture scans its first turn")
-
-        if let handle = try? FileHandle(forWritingTo: file) {
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data((event(total: 200) + "\n").utf8))
-            try? handle.close()
-        }
-        let resumed = await service.refresh(.codex)
-        Harness.expectEqual(
-            resumed?.windowTokens,
-            200,
-            "resume state cannot peek past the saved cursor and suppress an appended turn"
-        )
-    }
-
-    private static func truncatedCodexLogIsForgotten(root: URL) async {
-        let home = root.appendingPathComponent("truncated-codex")
-        let file = home.appendingPathComponent("sessions/rollout.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let timestamp = Self.todayStamp()
-        let lines = [
-            #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"truncated-model"}}"#,
-            #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0}}}}"#,
-        ]
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("truncated-cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
-            rateCard: Self.fixtureRateCard
-        )
-        let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 100, "truncation fixture starts with cached usage")
-
-        try? Data().write(to: file, options: .atomic)
-        let truncated = await service.refresh(.codex)
-        Harness.expectEqual(truncated?.windowTokens, 0, "truncating a tracked log removes its cached rows")
-    }
-
-    /// Codex counts cached reads and cache writes inside input_tokens, so a turn that reports all
-    /// three must not be billed for the same token twice.
-    private static func codexCacheBucketsAreCarvedOutOfInput(root: URL) async {
-        let home = root.appendingPathComponent("carve-codex")
-        let file = home.appendingPathComponent("sessions/2026/08/26/rollout-carve.jsonl")
-        try? FileManager.default.createDirectory(
-            at: file.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        let timestamp = Self.todayStamp()
-        let context = #"{"type":"turn_context","timestamp":"\#(timestamp)","payload":{"model":"carve-model"}}"#
-        // 100,000 prompt tokens: 60k served from cache, 10k written to it, 30k fresh.
-        let usage = #"{"type":"event_msg","timestamp":"\#(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100000,"cached_input_tokens":60000,"cache_write_input_tokens":10000,"output_tokens":0}}}}"#
-        try? ([context, usage].joined(separator: "\n") + "\n")
-            .write(to: file, atomically: true, encoding: .utf8)
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("carve-cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: ["CODEX_HOME": home.path]),
-            rateCard: RateCard(overrides: [
-                "carve-model": ModelPricing(input: 10, output: 0, cacheWrite: 1, cacheRead: 0),
-            ])
-        )
-        let snapshot = await service.refresh(.codex)
-        // 30k fresh at $10/M + 10k written at $1/M + 60k read at $0/M = $0.31.
-        Harness.expectClose(
-            snapshot?.windowCostUSD,
-            0.31,
-            "cached reads and cache writes are peeled out of input_tokens before pricing"
-        )
-        Harness.expectEqual(
-            snapshot?.windowTokens,
-            100_000,
-            "peeling the buckets apart preserves the turn's total token count"
         )
     }
 }

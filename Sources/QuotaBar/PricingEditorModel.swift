@@ -28,7 +28,7 @@ enum PricingModelFilterPolicy {
         day: String = DayKey.today()
     ) -> [String] {
         let settingsModels = rateCard.settingsModels(for: provider)
-        let seen = usage.map { rateCard.modelID(for: $0.model, provider: provider) }
+        let seen = rateCard.modelUsage(usage, provider: provider).map(\.model)
         let seenSet = Set(seen.filter { !$0.isEmpty && $0 != CostPricing.unknownModel })
         let unpriced = seenSet.filter { name in
             !settingsModels.contains(name) && rateCard.rates(for: name, provider: provider, day: day) == nil
@@ -168,7 +168,7 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var usageReadError: String?
     @Published private(set) var hasLoadedUsage = false
     @Published private(set) var isReadingUsage = false
-    @Published private(set) var externalScanStatuses: [String] = []
+    @Published private(set) var scanStatusMessages: [String] = []
     @Published private(set) var hasUnsavedChanges = false
     @Published private(set) var validationErrors: [String: [PricingField: String]] = [:]
     @Published private(set) var saveStatus: PricingSaveStatus = .idle
@@ -243,10 +243,9 @@ final class PricingEditorModel: ObservableObject {
         }
 
         await self.readUsage(reloading: RateCard.onDisk())
-        self.externalScanStatuses = await [
-            self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
-            self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
-        ].compactMap { $0 }
+        self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
+            $0.status.message(agent: $0.source.displayName)
+        }
     }
 
     /// A retry refreshes only usage, so editing and saving remain independent of its result.
@@ -308,7 +307,6 @@ final class PricingEditorModel: ObservableObject {
 
         for provider in Provider.allCases {
             let usage = usageByProvider[provider] ?? []
-            let seen = usage.map(\.model)
             let names = PricingModelFilterPolicy.visibleModels(
                 provider: provider,
                 usage: usage,
@@ -316,10 +314,9 @@ final class PricingEditorModel: ObservableObject {
                 day: today
             )
 
-            let seenSet = Set(seen.map { rateCard.modelID(for: $0, provider: provider) })
-            let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
-                (rateCard.modelID(for: $0.model, provider: provider), $0.tokens)
-            })
+            let resolved = rateCard.modelUsage(usage, provider: provider)
+            let seenSet = Set(resolved.map(\.model))
+            let usageTokens = Dictionary(uniqueKeysWithValues: resolved.map { ($0.model, $0.tokens) })
             let settingsModels = rateCard.settingsModels(for: provider)
 
             for name in names {
@@ -393,11 +390,10 @@ final class PricingEditorModel: ObservableObject {
                   original != row || self.pendingRestores.contains(row.id) else { continue }
             // A model may no longer be visible, but its pending edit or Restore still belongs
             // to the user. Retain it and its saved rates while updating the usage metadata.
-            let matching = (usage[row.provider] ?? []).filter {
-                rateCard.modelID(for: $0.model, provider: row.provider) == row.model
-            }
-            row.seenInLogs = !matching.isEmpty
-            row.usageTokens = matching.reduce(0) { $0 + $1.tokens }
+            let matching = rateCard.modelUsage(usage[row.provider] ?? [], provider: row.provider)
+                .first { $0.model == row.model }
+            row.seenInLogs = matching != nil
+            row.usageTokens = matching?.tokens ?? 0
             original.seenInLogs = row.seenInLogs
             original.usageTokens = row.usageTokens
             merged.append(row)

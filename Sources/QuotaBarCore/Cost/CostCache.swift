@@ -35,13 +35,17 @@ package struct FileCursor {
     }
 }
 
+/// Recorded usage storage. Its write operations are the Usage recorder's: opening a cache takes a
+/// `RecordingAccess`, which only the recorder's file can create, and the recorder keeps the one it
+/// opens private, so nothing else can change Recorded usage. Everyone else reads through
+/// `RecordedUsageReader`.
 final class CostCache {
     private var db: OpaquePointer?
     /// Per-row and per-file statements, compiled once per connection. Scans run them hundreds of
     /// thousands of times, and compiling the upserts cost more than executing them.
     private var statements: [String: OpaquePointer] = [:]
 
-    init(path: URL) throws {
+    init(path: URL, access _: RecordingAccess) throws {
         try FileManager.default.createDirectory(
             at: path.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -215,12 +219,13 @@ final class CostCache {
 
     // MARK: - Cursors
 
-    /// Largest completed scan first, for choosing one retained copy of a Codex rollout.
-    func codexTrackedPaths() throws -> [String] {
+    /// Largest completed scan first, for choosing one retained copy of a session's log.
+    func trackedPaths(provider: Provider) throws -> [String] {
         let stmt = try self.prepared(
-            "SELECT path FROM file_cursor WHERE provider = 'codex' ORDER BY offset DESC, size DESC, path"
+            "SELECT path FROM file_cursor WHERE provider = ? ORDER BY offset DESC, size DESC, path"
         )
         defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, provider.rawValue, -1, sqliteTransient)
         var paths: [String] = []
         var result = sqlite3_step(stmt)
         while result == SQLITE_ROW {

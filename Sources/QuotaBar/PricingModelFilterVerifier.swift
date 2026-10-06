@@ -3,10 +3,16 @@ import QuotaBarCore
 import Foundation
 
 /// Proves that the settings pane keeps the selected API models and only shows used, unpriced
-/// models from the local logs.
+/// models from the local logs, with an alias's usage counted under the model it names.
 @MainActor
 enum PricingModelFilterVerifier {
     static func run() -> Never {
+        Task { await Self.verify() }
+        RunLoop.main.run()
+        fatalError("verification run loop stopped")
+    }
+
+    private static func verify() async -> Never {
         var failures: [String] = []
         let bundled = RateCard()
 
@@ -146,6 +152,31 @@ enum PricingModelFilterVerifier {
         self.expect(
             merged["gpt-5.6-terra"] == nil && merged["custom-model"] == nil,
             "clearing or resetting a visible row did not remove its override",
+            failures: &failures
+        )
+
+        // `gpt-5.6` is the price book's alias of `gpt-5.6-sol`: the pane shows one row for the
+        // model, seen in the logs, with the alias's and the ID's usage added together.
+        let pricing = PricingEditorModel(
+            costService: CostService(rateCard: bundled),
+            fixtures: PricingEditorModel.PreviewFixtures(
+                usage: [.codex: [
+                    ModelUsageTotal(model: "gpt-5.6", tokens: 100),
+                    ModelUsageTotal(model: "gpt-5.6-sol", tokens: 50),
+                ]],
+                rateCard: bundled
+            )
+        )
+        await pricing.load()
+        let sol = pricing.rows.first { $0.id == "codex|gpt-5.6-sol" }
+        self.expect(
+            sol?.seenInLogs == true && sol?.usageTokens == 150,
+            "alias and model ID usage did not add up on one row: \(String(describing: sol?.usageTokens))",
+            failures: &failures
+        )
+        self.expect(
+            !pricing.rows.contains { $0.model == "gpt-5.6" },
+            "an alias got a row of its own",
             failures: &failures
         )
 
