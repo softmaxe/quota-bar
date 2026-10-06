@@ -60,6 +60,16 @@ enum SourceFailureTests {
         Harness.expectEqual(tokens[.codex], 100, "the snapshot keeps previously recorded Codex usage")
         Harness.expectEqual(tokens[.openCode], 10, "the snapshot shows OpenCode usage")
         Harness.expectEqual(tokens[.piAgent], 5, "the snapshot shows Pi Agent usage")
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .codex),
+            .error("database"),
+            "the app sees Codex's failed scan status"
+        )
+        Harness.expectEqual(
+            await service.currentScanStatuses().map(\.source),
+            [.codex, .claude, .openCode, .piAgent],
+            "the app sees every Usage source's scan status in display order"
+        )
     }
 
     /// The Claude Code scan fails because another writer holds the database: the refresh still
@@ -94,6 +104,11 @@ enum SourceFailureTests {
             fixture.recorder?.scanStatus(of: .claude),
             .error("database"),
             "Claude Code scan status reports the failure"
+        )
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .claude),
+            .error("database"),
+            "the app sees Claude Code's failed scan status"
         )
     }
 

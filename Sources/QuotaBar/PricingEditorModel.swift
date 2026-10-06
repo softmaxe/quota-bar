@@ -168,7 +168,7 @@ final class PricingEditorModel: ObservableObject {
     @Published private(set) var usageReadError: String?
     @Published private(set) var hasLoadedUsage = false
     @Published private(set) var isReadingUsage = false
-    @Published private(set) var externalScanStatuses: [String] = []
+    @Published private(set) var scanStatusMessages: [String] = []
     @Published private(set) var hasUnsavedChanges = false
     @Published private(set) var validationErrors: [String: [PricingField: String]] = [:]
     @Published private(set) var saveStatus: PricingSaveStatus = .idle
@@ -243,10 +243,9 @@ final class PricingEditorModel: ObservableObject {
         }
 
         await self.readUsage(reloading: RateCard.onDisk())
-        self.externalScanStatuses = await [
-            self.costService.currentOpenCodeScanStatus().message(agent: "OpenCode"),
-            self.costService.currentPiAgentScanStatus().message(agent: "Pi Agent"),
-        ].compactMap { $0 }
+        self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
+            $0.status.message(agent: $0.source.displayName)
+        }
     }
 
     /// A retry refreshes only usage, so editing and saving remain independent of its result.

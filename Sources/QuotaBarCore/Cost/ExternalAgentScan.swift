@@ -1,9 +1,9 @@
 import Darwin
 import Foundation
 
-/// The outcome of scanning one agent that writes into Codex's column. OpenCode and Pi Agent both
-/// ride on the user's OpenAI account, so both report the same four outcomes and only the name in
-/// the sentence differs.
+/// The outcome of scanning one Usage source. Any source can fail; OpenCode and Pi Agent also ride
+/// on the user's OpenAI account, so they can be left out for an account that is not Codex's. Only
+/// the name in the sentence differs between sources.
 public enum ExternalAgentScanStatus: Sendable, Equatable {
     case idle
     case accountMismatch
@@ -19,9 +19,6 @@ public enum ExternalAgentScanStatus: Sendable, Equatable {
         }
     }
 }
-
-public typealias OpenCodeScanStatus = ExternalAgentScanStatus
-public typealias PiAgentScanStatus = ExternalAgentScanStatus
 
 /// Whether one agent's usage counts toward the Codex total.
 enum ExternalAgentEligibility {

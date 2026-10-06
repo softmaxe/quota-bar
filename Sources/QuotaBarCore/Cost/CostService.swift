@@ -79,12 +79,16 @@ public actor CostService {
         try CostUsageReader.knownModelUsage(provider: provider, databaseURL: self.databaseURL)
     }
 
-    public func currentOpenCodeScanStatus() -> OpenCodeScanStatus {
-        self.recorder?.scanStatus(of: .openCode) ?? .idle
+    /// The outcome of the last scan of a Usage source.
+    public func currentScanStatus(of source: CostUsageSource) -> ExternalAgentScanStatus {
+        self.recorder?.scanStatus(of: source) ?? .idle
     }
 
-    public func currentPiAgentScanStatus() -> PiAgentScanStatus {
-        self.recorder?.scanStatus(of: .piAgent) ?? .idle
+    /// Every Usage source's last scan outcome, in display order.
+    public func currentScanStatuses() -> [(source: CostUsageSource, status: ExternalAgentScanStatus)] {
+        CostUsageSource.all
+            .sorted { $0.displayOrder < $1.displayOrder }
+            .map { (source: $0, status: self.currentScanStatus(of: $0)) }
     }
 
     /// Drops the rate card so the next refresh reads the override file again. Cost is derived

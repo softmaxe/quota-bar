@@ -447,7 +447,7 @@ enum CostTests {
             first?.days.first?.rankedModels.first?.key.source == .openCode,
             "OpenCode usage keeps its source in the day breakdown"
         )
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "matching OAuth is quiet")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "matching OAuth is quiet")
 
         let repeated = await service.refresh(.codex)
         Harness.expectEqual(repeated?.windowTokens, 150, "OpenCode part IDs dedupe repeated scans")
@@ -492,7 +492,7 @@ enum CostTests {
         insert("part-2")
         let excluded = await service.refresh(.codex)
         Harness.expectEqual(excluded?.windowTokens, 250, "API-key OpenCode rows are excluded")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .nonOAuth, "non-OAuth status is exposed")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .nonOAuth, "non-OAuth status is exposed")
 
         try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
             to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
@@ -518,7 +518,7 @@ enum CostTests {
         insert("part-4")
         let mismatch = await service.refresh(.codex)
         Harness.expectEqual(mismatch?.windowTokens, 400, "a different OpenAI account is excluded")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .accountMismatch, "account mismatch status is exposed")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .accountMismatch, "account mismatch status is exposed")
 
         try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
             to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
@@ -554,7 +554,7 @@ enum CostTests {
             Set([CostUsageSource.codex, .openCode]),
             "same-model Codex and OpenCode usage remains split by source"
         )
-        if case .error = await service.currentOpenCodeScanStatus() {
+        if case .error = await service.currentScanStatus(of: .openCode) {
             Harness.expect(true, "OpenCode schema error status is exposed")
         } else {
             Harness.expect(false, "OpenCode schema error status is exposed")
@@ -563,7 +563,7 @@ enum CostTests {
         try? FileManager.default.removeItem(at: source)
         let removed = await service.refresh(.codex)
         Harness.expectEqual(removed?.windowTokens, 560, "a removed OpenCode database retains its usage")
-        Harness.expectEqual(await service.currentOpenCodeScanStatus(), .idle, "a removed OpenCode database is idle")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "a removed OpenCode database is idle")
     }
 
     private static func piAgentScanning() async {
@@ -632,7 +632,7 @@ enum CostTests {
             "Pi service-tier metadata is intentionally ignored"
         )
         Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "matching Pi OAuth is quiet")
+        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "matching Pi OAuth is quiet")
 
         let forkedTranscript = sessions.appendingPathComponent("project/fork.jsonl")
         try? (message("one") + "\n").write(to: forkedTranscript, atomically: true, encoding: .utf8)
@@ -650,14 +650,14 @@ enum CostTests {
         write([message("one", output: 120), message("two"), message("excluded")])
         let nonOAuth = await service.refresh(.codex)
         Harness.expectEqual(nonOAuth?.windowTokens, 300, "non-OAuth Pi messages are excluded")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .nonOAuth, "Pi non-OAuth status is exposed")
+        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .nonOAuth, "Pi non-OAuth status is exposed")
 
         try? #"{"openai-codex":{"type":"oauth","accountId":"account-b"}}"#.write(
             to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
         )
         let mismatch = await service.refresh(.codex)
         Harness.expectEqual(mismatch?.windowTokens, 300, "Pi account mismatch stays excluded")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .accountMismatch, "Pi account mismatch status is exposed")
+        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .accountMismatch, "Pi account mismatch status is exposed")
 
         try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
             to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
@@ -671,7 +671,7 @@ enum CostTests {
         write([])
         let authFailure = await service.refresh(.codex)
         Harness.expectEqual(authFailure?.windowTokens, 400, "Pi auth errors retain recorded totals")
-        if case .error = await service.currentPiAgentScanStatus() {
+        if case .error = await service.currentScanStatus(of: .piAgent) {
             Harness.expect(true, "Pi auth error status is exposed")
         } else {
             Harness.expect(false, "Pi auth error status is exposed")
@@ -680,7 +680,7 @@ enum CostTests {
         try? FileManager.default.removeItem(at: sessions)
         let removed = await service.refresh(.codex)
         Harness.expectEqual(removed?.windowTokens, 400, "a missing Pi sessions directory retains usage")
-        Harness.expectEqual(await service.currentPiAgentScanStatus(), .idle, "missing Pi sessions are idle")
+        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "missing Pi sessions are idle")
     }
 
     /// Cost is derived when usage is read, so a price edit reaches every recorded day, including
