@@ -30,14 +30,17 @@ enum CostAggregator {
             var dayUnpricedTokens = 0
 
             for (key, totals) in buckets {
-                let usageKey = ModelUsageKey(source: key.source, model: key.model, isFast: key.isFast)
+                // Usage is recorded under the name its log reported; group and price it under
+                // the model ID this rate card resolves that name to.
+                let model = rateCard.modelID(recordedAs: key.model, provider: provider)
+                let usageKey = ModelUsageKey(source: key.source, model: model, isFast: key.isFast)
                 dayTokens[usageKey, default: TokenTotals()] += totals
-                modelTokens[key.model, default: 0] += totals.total
+                modelTokens[model, default: 0] += totals.total
                 guard totals.total > 0 else { continue }
 
                 if let cost = rateCard.cost(
                     of: totals,
-                    model: key.model,
+                    model: model,
                     provider: provider,
                     day: dayKey,
                     fast: key.isFast,
@@ -46,7 +49,7 @@ enum CostAggregator {
                     dayCost += cost
                     dayPriced = true
                     dayCostByModel[usageKey, default: 0] += cost
-                    modelCost[key.model, default: 0] += cost
+                    modelCost[model, default: 0] += cost
                 } else {
                     hasUnpriced = true
                     dayUnpricedTokens += totals.total

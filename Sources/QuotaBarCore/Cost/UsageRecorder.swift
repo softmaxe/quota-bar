@@ -187,16 +187,18 @@ package final class UsageRecorder {
         rateCard: RateCard
     ) throws {
         let provider = source.provider
-        // Normalize before storing so `claude-opus-5` and `claude-opus-5-20260101` aggregate as
-        // one model rather than competing for the top-model slot.
-        let model = request.model.map { rateCard.modelID(for: $0, provider: provider) } ?? CostPricing.unknownModel
+        // Store the name the log reported, cleaned up so `claude-opus-5` and
+        // `claude-opus-5-20260101` aggregate as one model. Aliases are resolved to model IDs when
+        // usage is read, so an alias a later price book adds still prices this usage.
+        let model = request.model.map { ModelNames.stripped($0, provider: provider) } ?? CostPricing.unknownModel
         let day = DayKey.make(from: request.timestamp)
         // The Long-context tier is a property of the individual request, so it has to be decided
-        // here; deciding it from a day's aggregate would rewrite history. The price is not: it is
-        // derived from the stored tokens whenever they are read.
+        // here, against the model ID this rate card resolves the name to; deciding it from a
+        // day's aggregate would rewrite history. The price is not: it is derived from the stored
+        // tokens whenever they are read.
         let longContext = rateCard.isLongContext(
             request.tokens,
-            model: model,
+            model: rateCard.modelID(recordedAs: model, provider: provider),
             provider: provider,
             day: day,
             fast: request.isFast

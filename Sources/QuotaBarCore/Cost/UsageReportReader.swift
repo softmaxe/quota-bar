@@ -225,9 +225,12 @@ public enum UsageReportReader {
                 cacheWrite: Int64(row.tokens.cacheWrite),
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
+            // Usage is recorded under the name its log reported; group and price it under the
+            // model ID this rate card resolves that name to.
+            let model = rateCard.modelID(recordedAs: row.tier.model, provider: row.tier.source.provider)
             if let cost = rateCard.cost(
                 of: row.tokens,
-                model: row.tier.model,
+                model: model,
                 provider: row.tier.source.provider,
                 day: row.day,
                 fast: row.tier.isFast,
@@ -237,10 +240,10 @@ public enum UsageReportReader {
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
             }
-            _ = try usage.snapshot(label: "\(row.tier.source.displayName) \(row.day) \(row.tier.model)")
+            _ = try usage.snapshot(label: "\(row.tier.source.displayName) \(row.day) \(model)")
             try total.add(usage)
             try dayTotals[row.day, default: CheckedUsage()].add(usage)
-            try modelTotals[row.tier.model, default: CheckedUsage()].add(usage)
+            try modelTotals[model, default: CheckedUsage()].add(usage)
             try sourceTotals[row.tier.source, default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
         }

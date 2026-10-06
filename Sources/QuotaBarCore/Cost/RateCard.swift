@@ -24,16 +24,23 @@ public struct RateCard: Sendable {
         RateCard(book: self.book)
     }
 
-    /// The id a model is stored and priced under: `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`,
+    /// The id a model is priced and grouped under: `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`,
     /// `anthropic.claude-opus-5-v1:0` -> `claude-opus-5`, and an alias the book lists -> the model
     /// it stands for.
     public func modelID(for name: String, provider: Provider) -> String {
-        self.book.canonicalID(for: ModelNames.stripped(name, provider: provider), provider: provider)
+        self.modelID(recordedAs: ModelNames.stripped(name, provider: provider), provider: provider)
+    }
+
+    /// The id recorded usage is priced and grouped under. Recorded usage keeps the cleaned-up
+    /// name its log reported, so an alias resolves here, against the card usage is read with, and
+    /// an alias a later book adds prices usage recorded before it. An id resolves to itself.
+    public func modelID(recordedAs name: String, provider: Provider) -> String {
+        self.book.canonicalID(for: name, provider: provider)
     }
 
     /// Rates in force for a model on `day` (`yyyy-MM-dd`), or nil when nothing prices it. `model`
-    /// is a model id as `modelID(for:provider:)` gives it, which is how usage is stored; it is
-    /// looked up as is, so recorded usage is priced under the name it was recorded with.
+    /// is a model id as `modelID(for:provider:)` gives it and is looked up as is, so a recorded
+    /// name must be resolved first.
     public func rates(for model: String, provider: Provider, day: String, fast: Bool = false) -> ModelPricing? {
         guard model != CostPricing.unknownModel, !model.isEmpty else { return nil }
         // Fast is a multiple of the book's Standard rates; an override states Standard rates only,
