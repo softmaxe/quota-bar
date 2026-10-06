@@ -66,7 +66,7 @@ enum CodexAdapterTests {
 
         Harness.expectEqual(resumed.count, 1, "the re-emitted count across the boundary is skipped")
         Harness.expectEqual(resumed.first?.model, "gpt-5.6-sol", "the resumed turn keeps the earlier model")
-        Harness.expectEqual(resumed.first?.isFast, true, "the resumed turn keeps the earlier priority tier")
+        Harness.expectEqual(resumed.first?.isFast, true, "the resumed turn stays Fast after an earlier `priority` service tier")
     }
 
     /// Rollouts written before Codex logged turn_context still count, with no model to price.

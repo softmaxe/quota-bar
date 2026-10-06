@@ -37,7 +37,7 @@ enum CodexRecordingTests {
         Harness.expectEqual(
             usage[RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: true)],
             TokenTotals(input: 400, output: 40),
-            "turns after a priority turn context are recorded as Fast"
+            "turns after a turn context with the `priority` service tier are recorded as Fast"
         )
         Harness.expectEqual(usage.count, 2, "each tier is recorded separately")
     }

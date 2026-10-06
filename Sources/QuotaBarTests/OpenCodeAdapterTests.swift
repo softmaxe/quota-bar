@@ -71,8 +71,8 @@ enum OpenCodeAdapterTests {
             uniquingKeysWith: { first, _ in first }
         )
         Harness.expectEqual(fast["standard"], false, "a request before any toggle is Standard")
-        Harness.expectEqual(fast["message-tier"], true, "a priority tier on the message is Fast")
-        Harness.expectEqual(fast["metadata-tier"], true, "a priority tier in part metadata is Fast")
+        Harness.expectEqual(fast["message-tier"], true, "a message whose service tier is `priority` is Fast")
+        Harness.expectEqual(fast["metadata-tier"], true, "part metadata whose service tier is `priority` is Fast")
         Harness.expectEqual(fast["toggled-on"], true, "a request after Fast mode is turned on is Fast")
         Harness.expectEqual(fast["explicit-default"], false, "an explicit tier outranks the toggle")
         Harness.expectEqual(fast["toggled-off"], false, "a request after Fast mode is turned off is Standard")
