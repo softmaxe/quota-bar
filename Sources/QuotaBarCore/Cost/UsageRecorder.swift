@@ -61,7 +61,8 @@ package protocol AppendedLogParser {
 /// local-calendar day, model ID resolution, the Long-context tier, resuming files, transactions,
 /// and each Usage source's merge rule. Long-lived and used serially by the cost module.
 package final class UsageRecorder {
-    let cache: CostCache
+    /// Recorded usage storage. Only the recorder holds a connection that writes it.
+    private let cache: CostCache
     /// Each snapshot source's state that Recorded usage already reflects.
     private var snapshots: [CostUsageSource: RecordedSnapshot] = [:]
     private var statuses: [CostUsageSource: ExternalAgentScanStatus] = [:]
@@ -81,12 +82,23 @@ package final class UsageRecorder {
         rateCard: RateCard,
         env: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int {
-        switch provider {
-        case .claude:
-            return try self.record(ClaudeCodeAdapter(env: env), rateCard: rateCard)
-        case .codex:
-            // The cost module still records OpenCode and Pi Agent itself, through their adapters.
-            return try self.record(CodexAdapter(env: env), rateCard: rateCard)
+        // `CostUsageSource.provider` alone decides which sources count toward a provider. Cases
+        // are visited in declaration order, so Codex is recorded before OpenCode and Pi Agent,
+        // and a Codex failure ends the refresh before they are read.
+        var touched = 0
+        for source in CostUsageSource.allCases where source.provider == provider {
+            touched += try self.record(source, rateCard: rateCard, env: env)
+        }
+        return touched
+    }
+
+    /// Which adapter reads a Usage source's logs.
+    private func record(_ source: CostUsageSource, rateCard: RateCard, env: [String: String]) throws -> Int {
+        switch source {
+        case .claude: try self.record(ClaudeCodeAdapter(env: env), rateCard: rateCard)
+        case .codex: try self.record(CodexAdapter(env: env), rateCard: rateCard)
+        case .openCode: self.record(OpenCodeAdapter(env: env), rateCard: rateCard)
+        case .piAgent: self.record(PiAgentAdapter(env: env), rateCard: rateCard)
         }
     }
 

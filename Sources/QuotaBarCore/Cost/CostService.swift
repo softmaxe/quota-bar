@@ -53,7 +53,7 @@ public actor CostService {
             let rateCard = self.currentRateCard()
 
             let started = Date()
-            let touched = try self.scan(provider, recorder: recorder, rateCard: rateCard)
+            let touched = try recorder.record(provider, rateCard: rateCard, env: self.env)
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
@@ -114,18 +114,4 @@ public actor CostService {
         self.rateCard = rateCard
         return rateCard
     }
-
-    /// Which scanner reads a provider's logs. The only place that mapping is spelled out.
-    private func scan(_ provider: Provider, recorder: UsageRecorder, rateCard: RateCard) throws -> Int {
-        switch provider {
-        case .codex:
-            let codexTouched = try recorder.record(.codex, rateCard: rateCard, env: self.env)
-            let openCodeTouched = recorder.record(OpenCodeAdapter(env: self.env), rateCard: rateCard)
-            let piTouched = recorder.record(PiAgentAdapter(env: self.env), rateCard: rateCard)
-            return codexTouched + openCodeTouched + piTouched
-        case .claude:
-            return try recorder.record(.claude, rateCard: rateCard, env: self.env)
-        }
-    }
-
 }

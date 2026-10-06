@@ -35,6 +35,9 @@ package struct FileCursor {
     }
 }
 
+/// Recorded usage storage. Its write operations are the Usage recorder's: the recorder opens the
+/// only writing connection and keeps it private, so nothing else can change Recorded usage.
+/// Everyone else reads through `RecordedUsageReader`.
 final class CostCache {
     private var db: OpaquePointer?
     /// Per-row and per-file statements, compiled once per connection. Scans run them hundreds of
