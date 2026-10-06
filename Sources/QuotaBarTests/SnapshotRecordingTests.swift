@@ -11,6 +11,7 @@ enum SnapshotRecordingTests {
         Self.ineligibleAccountIsRecordedButNotIncluded()
         Self.piSessionChangesAreDetected()
         Self.piAccountDecidesIncluded()
+        Self.codexProviderRecordsExternalAgents()
     }
 
     private static let standard = RecordedTier(model: "gpt-5.6-luna", longContext: false, isFast: false)
@@ -127,6 +128,30 @@ enum SnapshotRecordingTests {
             )
             Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), status, "Pi Agent \(account) scan status")
         }
+    }
+
+    /// OpenCode and Pi Agent usage counts toward the Codex provider, so recording the provider
+    /// records them too and reports each one's scan status.
+    private static func codexProviderRecordsExternalAgents() {
+        let fixture = RecorderFixture(name: "snapshot-codex-provider")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-b")
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 5)])
+
+        fixture.record(.codex)
+
+        Harness.expectEqual(
+            fixture.recorded(.codex)[Self.standard]?.input,
+            10,
+            "recording Codex records OpenCode usage, and Pi Agent usage of another account is left out"
+        )
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "OpenCode status after recording Codex")
+        Harness.expectEqual(
+            fixture.recorder?.scanStatus(of: .piAgent),
+            .accountMismatch,
+            "Pi Agent status after recording Codex"
+        )
     }
 
     private static func writeOpenCodeUsage(_ fixture: RecorderFixture, openCodeAccount: String) {
