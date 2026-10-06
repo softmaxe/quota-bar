@@ -8,6 +8,7 @@ enum OpenCodeAdapterTests {
         Self.stepFinishesFromOpenAIBecomeRequests()
         Self.unexpectedSchemaIsAnError()
         Self.fastComesFromTheTierOrTheToggle()
+        Self.signInIsCheckedBeforeTheDatabase()
     }
 
     /// Each OpenAI `step-finish` part is one request keyed by its part id. Reasoning is output,
@@ -76,6 +77,25 @@ enum OpenCodeAdapterTests {
         Harness.expectEqual(fast["toggled-on"], true, "a request after Fast mode is turned on is Fast")
         Harness.expectEqual(fast["explicit-default"], false, "an explicit tier outranks the toggle")
         Harness.expectEqual(fast["toggled-off"], false, "a request after Fast mode is turned off is Standard")
+    }
+
+    /// A sign-in that cannot be checked fails the survey as `auth` before the database is
+    /// opened, so it is the reason reported even when the database is unreadable too.
+    private static func signInIsCheckedBeforeTheDatabase() {
+        let root = Self.temporaryRoot("auth-first")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("opencode")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? Data("not a database".utf8).write(to: directory.appendingPathComponent("opencode.db"))
+        try? #"{"openai":null}"#.write(to: directory.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+
+        let failedOnAuth: Bool
+        if case .failed(.auth) = OpenCodeAdapter(env: isolatedEnvironment(root: root)).survey() {
+            failedOnAuth = true
+        } else {
+            failedOnAuth = false
+        }
+        Harness.expect(failedOnAuth, "an uncheckable sign-in is reported before an unreadable database")
     }
 
     private static func requests(root: URL) -> [ObservedRequest]? {
