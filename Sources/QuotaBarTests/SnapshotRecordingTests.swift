@@ -13,6 +13,121 @@ enum SnapshotRecordingTests {
         Self.piSessionChangesAreDetected()
         Self.piAccountDecidesIncluded()
         Self.codexProviderRecordsExternalAgents()
+        Self.rowsMissingFromALaterSnapshotAreKept()
+        Self.nonOAuthSignInIsNotIncluded()
+        Self.uncheckableSignInRecordsNothingUntilItRecovers()
+        Self.excludedRowsStayExcluded()
+        Self.unreadableSourceKeepsRecordedUsage()
+        Self.removedSourceIsIdleAndKeepsRecordedUsage()
+    }
+
+    /// Recorded usage is durable history: a request the source no longer holds still counts.
+    private static func rowsMissingFromALaterSnapshotAreKept() {
+        let fixture = RecorderFixture(name: "snapshot-shrink")
+        defer { fixture.remove() }
+
+        fixture.recorder?.record(
+            FakeSnapshotAdapter(stamp: 1, batch: [.part("a", input: 10), .part("b", input: 5)]),
+            rateCard: RateCard()
+        )
+        fixture.recorder?.record(FakeSnapshotAdapter(stamp: 2, batch: [.part("b", input: 5)]), rateCard: RateCard())
+
+        Harness.expectEqual(
+            fixture.recorded(.codex)[Self.standard]?.input,
+            15,
+            "a request missing from a later snapshot keeps counting"
+        )
+    }
+
+    /// An API-key sign-in is not the Codex account's OAuth, so its usage is not counted.
+    private static func nonOAuthSignInIsNotIncluded() {
+        let fixture = RecorderFixture(name: "snapshot-non-oauth")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        Self.signInOpenCode(fixture, #"{"openai":{"type":"api","accountId":"account-a"}}"#)
+
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expect(fixture.recorded(.codex).isEmpty, "a non-OAuth sign-in's usage is not included")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .nonOAuth, "a non-OAuth sign-in is reported")
+    }
+
+    /// A sign-in that cannot be checked decides nothing: no request is recorded, so none is
+    /// flagged wrongly, and the next pass after the sign-in recovers records them.
+    private static func uncheckableSignInRecordsNothingUntilItRecovers() {
+        let fixture = RecorderFixture(name: "snapshot-uncheckable")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        Self.signInOpenCode(fixture, #"{"openai":null}"#)
+
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expect(fixture.recorded(.codex).isEmpty, "nothing is recorded while the sign-in cannot be checked")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .error("auth"), "an uncheckable sign-in fails the scan")
+
+        Self.signInOpenCode(fixture, #"{"openai":{"type":"oauth","accountId":"account-a"}}"#)
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "the usage is recorded once the sign-in recovers")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "the recovered scan is quiet")
+    }
+
+    /// Whether a request counts is settled when it is first recorded. Signing in to the Codex
+    /// account later includes new requests, not the ones recorded as someone else's.
+    private static func excludedRowsStayExcluded() {
+        let fixture = RecorderFixture(name: "snapshot-stay-excluded")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-b")
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Self.signInOpenCode(fixture, #"{"openai":{"type":"oauth","accountId":"account-a"}}"#)
+        guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
+        db.stepFinish("part-2", created: 1_788_264_000_000, model: "gpt-5.6-luna", input: 5)
+        db.close()
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expectEqual(
+            fixture.recorded(.codex)[Self.standard]?.input,
+            5,
+            "a request recorded as excluded stays excluded; a new one is included"
+        )
+    }
+
+    /// A source that cannot be read keeps what was recorded from it and reports why.
+    private static func unreadableSourceKeepsRecordedUsage() {
+        let fixture = RecorderFixture(name: "snapshot-unreadable")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
+        db.execute("ALTER TABLE message RENAME TO broken_message")
+        db.close()
+        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "usage recorded before the failure still counts")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .error("schema"), "an unreadable database reports its schema")
+    }
+
+    /// A source that is no longer installed is idle, and what was recorded from it still counts.
+    private static func removedSourceIsIdleAndKeepsRecordedUsage() {
+        let fixture = RecorderFixture(name: "snapshot-removed")
+        defer { fixture.remove() }
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
+        fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+
+        try? FileManager.default.removeItem(at: fixture.root.appendingPathComponent("pi/sessions"))
+        fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
+
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "usage of a removed source still counts")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "a removed source is idle")
+    }
+
+    private static func signInOpenCode(_ fixture: RecorderFixture, _ json: String) {
+        try? json.write(
+            to: fixture.root.appendingPathComponent("opencode/auth.json"), atomically: true, encoding: .utf8
+        )
     }
 
     private static let standard = RecordedTier(model: "gpt-5.6-luna", longContext: false, isFast: false)

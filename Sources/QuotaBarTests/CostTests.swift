@@ -386,6 +386,9 @@ enum CostTests {
         Harness.expectEqual(beforeAppend + afterAppend, [short, short], "a completed long line is skipped whole on the next scan")
     }
 
+    /// Wiring from a Codex refresh to OpenCode: its usage reaches the snapshot under its own
+    /// source, apart from Codex usage of the same model, and its scan status reaches the app.
+    /// Recording rules are covered by the recorder and adapter suites.
     private static func openCodeScanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-opencode-tests-\(ProcessInfo.processInfo.processIdentifier)")
@@ -393,160 +396,51 @@ enum CostTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let codexHome = root.appendingPathComponent("codex")
-        let openCodeHome = root.appendingPathComponent("opencode")
         try? FileManager.default.createDirectory(at: codexHome.appendingPathComponent("sessions"), withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: openCodeHome, withIntermediateDirectories: true)
         try? #"{"tokens":{"account_id":"account-a"}}"#.write(
             to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
         )
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        let source = openCodeHome.appendingPathComponent("opencode.db")
-        var db: OpaquePointer?
-        guard sqlite3_open(source.path, &db) == SQLITE_OK, let db else {
-            Harness.expect(false, "OpenCode fixture database opens")
-            return
-        }
-        defer { sqlite3_close(db) }
-        sqlite3_exec(db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
-        sqlite3_exec(db, "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL)", nil, nil, nil)
-
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        func insert(_ id: String, provider: String = "openai", model: String = "gpt-5.6-luna") {
-            let message = #"{"time":{"created":\#(now)},"providerID":"\#(provider)","modelID":"\#(model)"}"#
-            let part = #"{"type":"step-finish","tokens":{"input":10,"output":20,"reasoning":30,"cache":{"read":40,"write":50}}}"#
-            var stmt: OpaquePointer?
-            sqlite3_prepare_v2(db, "INSERT INTO message (id, data) VALUES (?, ?)", -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 2, message, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-            sqlite3_prepare_v2(db, "INSERT INTO part (id, message_id, data) VALUES (?, ?, ?)", -1, &stmt, nil)
-            sqlite3_bind_text(stmt, 1, id, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 2, "message-\(id)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 3, part, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_step(stmt)
-            sqlite3_finalize(stmt)
-        }
-        insert("part-1")
-        insert("third-party", provider: "openrouter")
+        guard let db = OpenCodeFixtureDatabase(at: root) else { return }
+        db.stepFinish("part-1", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
+        db.close()
+        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
+            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        )
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
             env: isolatedEnvironment(root: root),
             rateCard: Self.fixtureRateCard
         )
-        let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 150, "OpenCode maps output reasoning and cache buckets")
-        Harness.expectEqual(first?.days.first?.tokens.output, 50, "OpenCode reasoning is output")
-        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "OpenCode cache reads are preserved")
-        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 50, "OpenCode cache writes are preserved")
-        Harness.expect(
-            first?.days.first?.rankedModels.first?.key.source == .openCode,
-            "OpenCode usage keeps its source in the day breakdown"
-        )
-        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "matching OAuth is quiet")
-
-        let repeated = await service.refresh(.codex)
-        Harness.expectEqual(repeated?.windowTokens, 150, "OpenCode part IDs dedupe repeated scans")
-
-        // Rows cleared from the store come back only if a refresh queries the database again.
-        var store: OpaquePointer?
-        if sqlite3_open(root.appendingPathComponent("cache.sqlite").path, &store) == SQLITE_OK {
-            sqlite3_exec(store, "DELETE FROM opencode_part", nil, nil, nil)
-        }
-        sqlite3_close(store)
-        let unchanged = await service.refresh(.codex)
-        Harness.expectEqual(unchanged?.windowTokens, 0, "an unchanged OpenCode database is not re-queried")
-
-        sqlite3_exec(
-            db,
-            "UPDATE part SET data = '{\"type\":\"step-finish\",\"tokens\":{\"input\":10,\"output\":120,\"reasoning\":30,\"cache\":{\"read\":40,\"write\":50}}}' WHERE id = 'part-1'",
-            nil,
-            nil,
-            nil
-        )
-        let completed = await service.refresh(.codex)
-        Harness.expectEqual(completed?.windowTokens, 250, "a growing OpenCode part updates its stored usage")
-        await service.useRateCard(RateCard(book: Self.fixtureBook, overrides: [
-            "gpt-5.6-luna": ModelPricing(
-                input: 100,
-                output: 100,
-                cacheWrite: 100,
-                cacheRead: 100,
-                thresholdTokens: 1,
-                inputAbove: 200,
-                outputAbove: 200
-            ),
-        ]))
-        let repriced = await service.refresh(.codex)
-        // The tier was decided at scan time against the book's 272K threshold, so the override's
-        // threshold of 1 cannot move stored rows into its long-context rates.
-        Harness.expectClose(repriced?.windowCostUSD, 0.025, "an override change reprices recorded OpenCode usage")
-
-        try? #"{"openai":{"type":"api","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-2")
         let excluded = await service.refresh(.codex)
-        Harness.expectEqual(excluded?.windowTokens, 250, "API-key OpenCode rows are excluded")
-        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .nonOAuth, "non-OAuth status is exposed")
+        Harness.expectEqual(excluded?.windowTokens, 0, "OpenCode usage of another account is left out of the snapshot")
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .openCode),
+            .accountMismatch,
+            "OpenCode's scan status reaches the app"
+        )
 
         try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
         )
-        let frozen = await service.refresh(.codex)
-        Harness.expectEqual(frozen?.windowTokens, 250, "excluded OpenCode rows stay excluded")
-
-        try? #"{"openai":null}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-3")
-        let indeterminate = await service.refresh(.codex)
-        Harness.expectEqual(indeterminate?.windowTokens, 250, "indeterminate auth does not classify new rows")
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        let retried = await service.refresh(.codex)
-        Harness.expectEqual(retried?.windowTokens, 400, "unclassified rows retry after auth recovers")
-
-        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        insert("part-4")
-        let mismatch = await service.refresh(.codex)
-        Harness.expectEqual(mismatch?.windowTokens, 400, "a different OpenAI account is excluded")
-        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .accountMismatch, "account mismatch status is exposed")
-
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: openCodeHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        sqlite3_exec(db, "DELETE FROM part WHERE id = 'part-1'", nil, nil, nil)
-        let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 400, "deleted OpenCode parts retain their usage")
-
-        insert("unknown", model: "future-openai-model")
-        let unknown = await service.refresh(.codex)
-        Harness.expectEqual(unknown?.windowTokens, 550, "unknown OpenAI models still count tokens")
-        Harness.expectEqual(unknown?.hasUnpricedTokens, true, "unknown OpenAI models are unpriced")
-
+        guard let reopened = OpenCodeFixtureDatabase(at: root) else { return }
+        reopened.stepFinish("part-2", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
+        reopened.close()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestamp = formatter.string(from: Date())
-        let codexLog = codexHome.appendingPathComponent("sessions/rollout-opencode-error.jsonl")
         let codexLines = """
         {"type":"turn_context","timestamp":"\(timestamp)","payload":{"model":"gpt-5.6-luna"}}
         {"type":"event_msg","timestamp":"\(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0}}}}
 
         """
-        try? codexLines.write(to: codexLog, atomically: true, encoding: .utf8)
-        sqlite3_exec(db, "ALTER TABLE message RENAME TO broken_message", nil, nil, nil)
-        let sourceFailure = await service.refresh(.codex)
-        Harness.expectEqual(sourceFailure?.windowTokens, 560, "OpenCode schema errors retain history while Codex keeps scanning")
-        let lunaSources = Set(sourceFailure?.days.first?.rankedModels
+        try? codexLines.write(to: codexHome.appendingPathComponent("sessions/rollout-opencode.jsonl"), atomically: true, encoding: .utf8)
+
+        let snapshot = await service.refresh(.codex)
+        Harness.expectEqual(snapshot?.windowTokens, 160, "an eligible OpenCode request reaches the snapshot beside Codex usage")
+        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "matching OAuth is quiet")
+        let lunaSources = Set(snapshot?.days.first?.rankedModels
             .filter { $0.model == "gpt-5.6-luna" }
             .map { $0.key.source } ?? [])
         Harness.expectEqual(
@@ -554,55 +448,21 @@ enum CostTests {
             Set([CostUsageSource.codex, .openCode]),
             "same-model Codex and OpenCode usage remains split by source"
         )
-        if case .error = await service.currentScanStatus(of: .openCode) {
-            Harness.expect(true, "OpenCode schema error status is exposed")
-        } else {
-            Harness.expect(false, "OpenCode schema error status is exposed")
-        }
-
-        try? FileManager.default.removeItem(at: source)
-        let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 560, "a removed OpenCode database retains its usage")
-        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "a removed OpenCode database is idle")
     }
 
+    /// Wiring from a Codex refresh to Pi Agent: its usage reaches the snapshot under its own
+    /// source, priced at the rate card's rates, and its scan status reaches the app. Recording
+    /// rules are covered by the recorder and adapter suites.
     private static func piAgentScanning() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("quotabar-pi-tests-\(ProcessInfo.processInfo.processIdentifier)")
         try? FileManager.default.removeItem(at: root)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let codexHome = root.appendingPathComponent("codex")
-        let agentHome = root.appendingPathComponent("pi-agent")
-        let sessions = root.appendingPathComponent("pi-sessions")
-        try? FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: agentHome, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: sessions.appendingPathComponent("project"), withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
-            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
+        PiSessionFile.signIn(root: root, piAccount: "account-a")
         let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let transcript = sessions.appendingPathComponent("project/session.jsonl")
-        func message(
-            _ id: String,
-            model: String = "gpt-5.6-luna",
-            input: Int = 10,
-            output: Int = 20,
-            cacheWrite: Int = 30,
-            cacheRead: Int = 40
-        ) -> String {
-            #"{"type":"message","id":"\#(id)","message":{"role":"assistant","provider":"openai-codex","model":"\#(model)","service_tier":"priority","timestamp":\#(now),"usage":{"input":\#(input),"output":\#(output),"reasoning":999,"cacheWrite":\#(cacheWrite),"cacheRead":\#(cacheRead),"cost":999}}}"#
-        }
-        func write(_ lines: [String]) {
-            try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
-        }
-        write([
-            message("one"),
-            #"{"type":"message","message":{"id":"ignored","role":"assistant","provider":"other","model":"gpt-5.6-luna","timestamp":\#(now),"usage":{"input":500}}}"#,
+        PiSessionFile.write(root: root, "project/session.jsonl", lines: [
+            PiSessionFile.message("one", milliseconds: now, input: 10, output: 20, cacheWrite: 30, cacheRead: 40),
         ])
 
         let rateCard = RateCard(overrides: [
@@ -610,77 +470,26 @@ enum CostTests {
         ])
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root, overriding: [
-                "PI_CODING_AGENT_DIR": agentHome.path,
-                "PI_CODING_AGENT_SESSION_DIR": sessions.path,
-            ]),
+            env: isolatedEnvironment(root: root),
             rateCard: rateCard
         )
 
         let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 100, "Pi maps token buckets without adding reasoning twice")
-        Harness.expectEqual(first?.days.first?.tokens.input, 10, "Pi input excludes cache reads")
-        Harness.expectEqual(first?.days.first?.tokens.output, 20, "Pi output already contains reasoning")
-        Harness.expectEqual(first?.days.first?.tokens.cacheWrite, 30, "Pi cache writes are preserved")
-        Harness.expectEqual(first?.days.first?.tokens.cacheRead, 40, "Pi cache reads are preserved")
+        Harness.expectEqual(first?.windowTokens, 100, "Pi Agent usage reaches the snapshot")
         Harness.expect(
             first?.days.first?.rankedModels.first?.key.source == .piAgent,
             "Pi usage keeps its source in the day breakdown"
         )
-        Harness.expect(
-            first?.days.first?.rankedModels.allSatisfy { !$0.key.isFast } == true,
-            "Pi service-tier metadata is intentionally ignored"
-        )
         Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
         Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "matching Pi OAuth is quiet")
 
-        let forkedTranscript = sessions.appendingPathComponent("project/fork.jsonl")
-        try? (message("one") + "\n").write(to: forkedTranscript, atomically: true, encoding: .utf8)
-        let repeated = await service.refresh(.codex)
-        Harness.expectEqual(repeated?.windowTokens, 100, "Pi message IDs dedupe copied session history")
-        try? FileManager.default.removeItem(at: forkedTranscript)
-
-        write([message("one", output: 120), message("two")])
-        let grown = await service.refresh(.codex)
-        Harness.expectEqual(grown?.windowTokens, 300, "Pi updates growing messages and adds new messages")
-
-        try? #"{"openai-codex":{"type":"api","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+        PiSessionFile.signIn(root: root, piAccount: "account-b")
+        _ = await service.refresh(.codex)
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .piAgent),
+            .accountMismatch,
+            "Pi Agent's scan status reaches the app"
         )
-        write([message("one", output: 120), message("two"), message("excluded")])
-        let nonOAuth = await service.refresh(.codex)
-        Harness.expectEqual(nonOAuth?.windowTokens, 300, "non-OAuth Pi messages are excluded")
-        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .nonOAuth, "Pi non-OAuth status is exposed")
-
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-b"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        let mismatch = await service.refresh(.codex)
-        Harness.expectEqual(mismatch?.windowTokens, 300, "Pi account mismatch stays excluded")
-        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .accountMismatch, "Pi account mismatch status is exposed")
-
-        try? #"{"openai-codex":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        write([message("two"), message("unknown", model: "future-codex-model")])
-        let pruned = await service.refresh(.codex)
-        Harness.expectEqual(pruned?.windowTokens, 400, "Pi retains messages missing from the source")
-        Harness.expectEqual(pruned?.hasUnpricedTokens, true, "unknown Pi models keep unpriced tokens")
-
-        try? "invalid".write(to: agentHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
-        write([])
-        let authFailure = await service.refresh(.codex)
-        Harness.expectEqual(authFailure?.windowTokens, 400, "Pi auth errors retain recorded totals")
-        if case .error = await service.currentScanStatus(of: .piAgent) {
-            Harness.expect(true, "Pi auth error status is exposed")
-        } else {
-            Harness.expect(false, "Pi auth error status is exposed")
-        }
-
-        try? FileManager.default.removeItem(at: sessions)
-        let removed = await service.refresh(.codex)
-        Harness.expectEqual(removed?.windowTokens, 400, "a missing Pi sessions directory retains usage")
-        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "missing Pi sessions are idle")
     }
 
     /// Cost is derived when usage is read, so a price edit reaches every recorded day, including
