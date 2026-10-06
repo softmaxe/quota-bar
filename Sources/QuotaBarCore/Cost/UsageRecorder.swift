@@ -34,6 +34,12 @@ package enum ScanFailure: String {
     case schema
 }
 
+/// Proof that the caller is the Usage recorder. Only this file can create one, and opening the
+/// writable `CostCache` takes one, so storage writes are unreachable outside the recorder.
+struct RecordingAccess {
+    fileprivate init() {}
+}
+
 /// Turns what Usage sources' logs report into Recorded usage. It owns every recording rule: the
 /// local-calendar day, the Long-context tier, resuming files, transactions, and each Usage
 /// source's merge rule. Long-lived and used serially by the cost module.
@@ -45,7 +51,7 @@ package final class UsageRecorder {
     private var statuses: [CostUsageSource: ExternalAgentScanStatus] = [:]
 
     package init(databaseURL: URL) throws {
-        self.cache = try CostCache(path: databaseURL)
+        self.cache = try CostCache(path: databaseURL, access: RecordingAccess())
     }
 
     /// Borrows the recorder's connection; read only between recordings.

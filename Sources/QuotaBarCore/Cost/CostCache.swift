@@ -35,16 +35,17 @@ package struct FileCursor {
     }
 }
 
-/// Recorded usage storage. Its write operations are the Usage recorder's: the recorder opens the
-/// only writing connection and keeps it private, so nothing else can change Recorded usage.
-/// Everyone else reads through `RecordedUsageReader`.
+/// Recorded usage storage. Its write operations are the Usage recorder's: opening a cache takes a
+/// `RecordingAccess`, which only the recorder's file can create, and the recorder keeps the one it
+/// opens private, so nothing else can change Recorded usage. Everyone else reads through
+/// `RecordedUsageReader`.
 final class CostCache {
     private var db: OpaquePointer?
     /// Per-row and per-file statements, compiled once per connection. Scans run them hundreds of
     /// thousands of times, and compiling the upserts cost more than executing them.
     private var statements: [String: OpaquePointer] = [:]
 
-    init(path: URL) throws {
+    init(path: URL, access _: RecordingAccess) throws {
         try FileManager.default.createDirectory(
             at: path.deletingLastPathComponent(),
             withIntermediateDirectories: true
