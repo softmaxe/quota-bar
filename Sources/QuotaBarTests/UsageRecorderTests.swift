@@ -276,11 +276,7 @@ struct RecorderFixture {
     }
 
     func record(_ provider: Provider, rateCard: RateCard = RateCard()) {
-        do {
-            try self.recorder?.record(provider, rateCard: rateCard, env: self.env)
-        } catch {
-            Harness.expect(false, "recording \(provider.rawValue) threw: \(error)")
-        }
+        self.recorder?.record(provider, rateCard: rateCard, env: self.env)
     }
 
     /// Recorded usage of a provider summed across days, keyed by model and tier.
