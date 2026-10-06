@@ -8,7 +8,7 @@ enum UsageRecorderTests {
         Self.claudeRequestsSettleLongContextAndFast()
         Self.claudeReplaysCountOnceAtTheFinalOutput()
         Self.appendedTranscriptResumesWhereItStopped()
-        Self.rewrittenTranscriptIsReparsed()
+        Self.rewrittenTranscriptKeepsMessagesRewrittenAway()
         Self.rewrittenTranscriptKeepsRecordedMessages()
         Self.midFileFailureLeavesNoRows()
     }
@@ -95,9 +95,9 @@ extension UsageRecorderTests {
         )
     }
 
-    /// A transcript rewritten in place is not a continuation of what was read before. It is read
-    /// again from the start, and messages already recorded from it keep counting.
-    fileprivate static func rewrittenTranscriptIsReparsed() {
+    /// A transcript rewritten in place is read again from the start. Its new messages are added,
+    /// and a message the rewrite removed stays recorded, since it was billed.
+    fileprivate static func rewrittenTranscriptKeepsMessagesRewrittenAway() {
         let fixture = RecorderFixture(name: "rewrite")
         defer { fixture.remove() }
         fixture.writeClaudeTranscript("app/session.jsonl", lines: [
@@ -113,7 +113,7 @@ extension UsageRecorderTests {
         Harness.expectEqual(
             fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
             TokenTotals(input: 280, output: 28),
-            "a rewritten transcript adds its new contents to what was already recorded"
+            "the removed message still counts beside the rewritten transcript's new messages"
         )
     }
 
