@@ -7,6 +7,7 @@ enum SnapshotRecordingTests {
     static func run() {
         Self.unchangedSnapshotIsSkipped()
         Self.changedSnapshotRewritesChangedRows()
+        Self.fastRequestsAreRecordedAsFast()
         Self.eligibleAccountIsIncluded()
         Self.ineligibleAccountIsRecordedButNotIncluded()
         Self.piSessionChangesAreDetected()
@@ -50,6 +51,27 @@ enum SnapshotRecordingTests {
             fixture.recorded(.codex)[Self.standard]?.input,
             35,
             "a changed snapshot rewrites a grown row and adds a new one, once each"
+        )
+    }
+
+    /// A Fast request in a snapshot is recorded in its own Fast tier, apart from Standard usage of
+    /// the same model.
+    private static func fastRequestsAreRecordedAsFast() {
+        let fixture = RecorderFixture(name: "snapshot-fast")
+        defer { fixture.remove() }
+
+        fixture.recorder?.record(
+            FakeSnapshotAdapter(stamp: 1, batch: [.part("a", input: 10), .part("b", input: 7, isFast: true)]),
+            rateCard: RateCard()
+        )
+
+        Harness.expectEqual(
+            fixture.recorded(.codex),
+            [
+                Self.standard: TokenTotals(input: 10),
+                RecordedTier(model: "gpt-5.6-luna", longContext: false, isFast: true): TokenTotals(input: 7),
+            ],
+            "Fast and Standard requests are recorded in separate tiers"
         )
     }
 
@@ -180,13 +202,13 @@ private struct FakeSnapshotAdapter: SnapshotAdapter {
 }
 
 private extension ObservedRequest {
-    static func part(_ key: String, input: Int) -> ObservedRequest {
+    static func part(_ key: String, input: Int, isFast: Bool = false) -> ObservedRequest {
         ObservedRequest(
             key: key,
             timestamp: Date(timeIntervalSince1970: 1_788_264_000),
             model: "gpt-5.6-luna",
             tokens: TokenTotals(input: input),
-            isFast: false
+            isFast: isFast
         )
     }
 }

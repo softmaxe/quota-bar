@@ -8,6 +8,7 @@ enum CodexAdapterTests {
         Self.replayedTokenCountsAreSkipped()
         Self.turnContextCarriesAcrossParsers()
         Self.rolloutsWithoutTurnContextHaveNoModel()
+        Self.threadSettingsDecideFast()
     }
 
     private static let adapter = CodexAdapter(env: [:])
@@ -73,5 +74,22 @@ enum CodexAdapterTests {
         let observed = Self.requests([CodexLine.tokenCount(input: 100, output: 10, total: 110)]).requests
         Harness.expectEqual(observed.count, 1, "a turn before any turn context is still a request")
         Harness.expectEqual(observed.first?.model, nil, "a turn before any turn context has no model")
+    }
+
+    /// Codex announces the service tier in `thread_settings_applied`. Priority and fast are Fast;
+    /// default, or a settings event without a tier, is Standard.
+    private static func threadSettingsDecideFast() {
+        func isFast(_ tier: String?) -> Bool? {
+            let settings = tier.map { #"{"service_tier":"\#($0)"}"# } ?? "{}"
+            return Self.requests([
+                #"{"type":"event_msg","timestamp":"2026-09-01T12:00:00Z","payload":{"type":"thread_settings_applied","thread_settings":\#(settings)}}"#,
+                CodexLine.turnContext(model: "gpt-5.6-sol"),
+                CodexLine.tokenCount(input: 100, output: 10, total: 110),
+            ]).requests.first?.isFast
+        }
+        Harness.expectEqual(isFast("priority"), true, "a priority thread setting is Fast")
+        Harness.expectEqual(isFast("fast"), true, "a literal fast thread setting is Fast")
+        Harness.expectEqual(isFast("default"), false, "a default thread setting is Standard")
+        Harness.expectEqual(isFast(nil), false, "a thread setting without a tier is Standard")
     }
 }

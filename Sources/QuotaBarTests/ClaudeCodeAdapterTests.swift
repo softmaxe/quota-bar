@@ -8,6 +8,7 @@ enum ClaudeCodeAdapterTests {
         Self.dedupeKeyFallsBackToTheLineUUID()
         Self.syntheticMessagesAreNotRequests()
         Self.cacheBucketsMapToTokenTotals()
+        Self.onlyFastSpeedIsFast()
     }
 
     private static func request(_ line: String) -> ObservedRequest? {
@@ -52,5 +53,13 @@ enum ClaudeCodeAdapterTests {
             "each usage field lands in its token bucket"
         )
         Harness.expectEqual(Self.request(line)?.isFast, false, "a line without speed is Standard")
+    }
+
+    /// `usage.speed` is "fast" for a Fast mode request and "standard" otherwise.
+    private static func onlyFastSpeedIsFast() {
+        let fast = ClaudeLine.assistant(id: "f", model: "claude-opus-5-5", input: 1, output: 1, speed: "fast")
+        let standard = ClaudeLine.assistant(id: "s", model: "claude-opus-5-5", input: 1, output: 1, speed: "standard")
+        Harness.expectEqual(Self.request(fast)?.isFast, true, "a fast-speed line is Fast")
+        Harness.expectEqual(Self.request(standard)?.isFast, false, "a standard-speed line is Standard")
     }
 }
