@@ -53,7 +53,7 @@ public actor CostService {
             let rateCard = self.currentRateCard()
 
             let started = Date()
-            let touched = try recorder.record(provider, rateCard: rateCard, env: self.env)
+            let touched = recorder.record(provider, rateCard: rateCard, env: self.env)
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
