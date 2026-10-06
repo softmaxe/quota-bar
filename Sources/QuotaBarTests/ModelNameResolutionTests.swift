@@ -80,12 +80,16 @@ enum ModelNameResolutionTests {
         }
 
         do {
-            // The pricing settings resolve each recorded name and look its rates up by model ID.
-            let usage = try await service.knownModelUsage(provider: .claude)
-            let settingsModels = Set(usage.map { laterCard.modelID(for: $0.model, provider: .claude) })
-            Harness.expectEqual(settingsModels, ["claude-later"], "the pricing settings see one canonical model")
+            // The pricing settings regroup the recorded usage with `RateCard.modelUsage` and look
+            // each model's rates up by the ID it returns.
+            let usage = laterCard.modelUsage(try await service.knownModelUsage(provider: .claude), provider: .claude)
+            Harness.expectEqual(
+                usage,
+                [ModelUsageTotal(model: "claude-later", tokens: 4_000_000)],
+                "the pricing settings add the alias, its spellings, and the model ID into one model"
+            )
             Harness.expect(
-                settingsModels.allSatisfy { laterCard.rates(for: $0, provider: .claude, day: DayKey.today()) != nil },
+                laterCard.rates(for: "claude-later", provider: .claude, day: DayKey.today()) != nil,
                 "the pricing settings agree that the model is priced"
             )
         } catch {

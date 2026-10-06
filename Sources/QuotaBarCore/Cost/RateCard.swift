@@ -38,6 +38,15 @@ public struct RateCard: Sendable {
         self.book.canonicalID(for: name, provider: provider)
     }
 
+    /// Usage totals regrouped under the model ID each name resolves to on this card, most-used
+    /// first. An alias, its dated or vendor-prefixed spellings, and the ID itself are one model,
+    /// so their totals add up.
+    public func modelUsage(_ usage: [ModelUsageTotal], provider: Provider) -> [ModelUsageTotal] {
+        let tokens = Dictionary(usage.map { (self.modelID(for: $0.model, provider: provider), $0.tokens) }, uniquingKeysWith: +)
+        return tokens.map { ModelUsageTotal(model: $0.key, tokens: $0.value) }
+            .sorted { $0.tokens != $1.tokens ? $0.tokens > $1.tokens : $0.model < $1.model }
+    }
+
     /// Rates in force for a model on `day` (`yyyy-MM-dd`), or nil when nothing prices it. `model`
     /// is a model id as `modelID(for:provider:)` gives it and is looked up as is, so a recorded
     /// name must be resolved first.
