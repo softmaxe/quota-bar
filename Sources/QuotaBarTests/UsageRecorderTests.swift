@@ -281,7 +281,7 @@ struct RecorderFixture {
         do {
             let reader = try RecordedUsageReader(databaseURL: self.databaseURL)
             var totals: [RecordedTier: TokenTotals] = [:]
-            for (_, tiers) in try reader.dailyUsage(provider: provider, fromDay: "0000-00-00") {
+            for (_, tiers) in try reader.dailyUsage(provider: provider, fromDay: "0000-00-00", rateCard: RateCard()) {
                 for (tier, tokens) in tiers {
                     let key = RecordedTier(model: tier.model, longContext: tier.longContext, isFast: tier.isFast)
                     totals[key, default: TokenTotals()] += tokens

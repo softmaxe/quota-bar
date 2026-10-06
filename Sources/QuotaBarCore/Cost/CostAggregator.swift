@@ -12,7 +12,11 @@ enum CostAggregator {
         calendar: Calendar = .current
     ) throws -> CostSnapshot {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
-        let rows = try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar))
+        let rows = try reader.dailyUsage(
+            provider: provider,
+            fromDay: DayKey.make(from: start, calendar: calendar),
+            rateCard: rateCard
+        )
 
         var days: [CostDay] = []
         // Cost and token totals per model across the whole window, for picking the top model.
@@ -30,9 +34,7 @@ enum CostAggregator {
             var dayUnpricedTokens = 0
 
             for (key, totals) in buckets {
-                // Usage is recorded under the name its log reported; group and price it under
-                // the model ID this rate card resolves that name to.
-                let model = rateCard.modelID(recordedAs: key.model, provider: provider)
+                let model = key.model
                 let usageKey = ModelUsageKey(source: key.source, model: model, isFast: key.isFast)
                 dayTokens[usageKey, default: TokenTotals()] += totals
                 modelTokens[model, default: 0] += totals.total

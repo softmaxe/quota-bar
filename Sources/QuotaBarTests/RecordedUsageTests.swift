@@ -66,7 +66,7 @@ enum RecordedUsageTests {
     private static func dailyUsage() throws {
         let fixture = try RecordedUsageFixture()
         let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
-        let codex = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3))
+        let codex = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3), rateCard: RateCard())
         Harness.expectEqual(Set(codex.keys), Set([fixture.day(-3), fixture.day(-2), fixture.day(), fixture.day(1)]),
                             "daily usage keeps recorded zero and future days but does not invent missing days")
         let earlier = codex[fixture.day(-2)]?.values.first
@@ -84,7 +84,7 @@ enum RecordedUsageTests {
                             "excluded external rows do not count")
         Harness.expectEqual(codex[fixture.day(-3)]?.values.first?.total, 0, "recorded zero usage survives")
 
-        let claude = try reader.dailyUsage(provider: .claude, fromDay: fixture.day(-3))
+        let claude = try reader.dailyUsage(provider: .claude, fromDay: fixture.day(-3), rateCard: RateCard())
         Harness.expectEqual(Set(claude.values.flatMap { $0.keys.map(\.source) }), Set([.claude]),
                             "Claude stays in its own provider grouping")
         Harness.expectEqual(claude.values.flatMap { $0.values }.reduce(0) { $0 + $1.total }, 20,
@@ -96,7 +96,7 @@ enum RecordedUsageTests {
             INSERT INTO claude_message VALUES
             ('claude-fast', 'claude-fast', '\(fixture.day())', 'claude-model', 0, 1, 9, 1, 0, 0, 0);
             """)
-        let claudeToday = try reader.dailyUsage(provider: .claude, fromDay: fixture.day())[fixture.day()] ?? [:]
+        let claudeToday = try reader.dailyUsage(provider: .claude, fromDay: fixture.day(), rateCard: RateCard())[fixture.day()] ?? [:]
         Harness.expectEqual(claudeToday.first { $0.key.isFast }?.value.total, 10,
                             "Claude Fast mode keeps its own recorded bucket")
         Harness.expectEqual(claudeToday.count, 2, "Claude Standard and Fast stay separate")
@@ -108,7 +108,7 @@ enum RecordedUsageTests {
             try fixture.addOverflow(source: source)
             let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
             do {
-                _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3))
+                _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(-3), rateCard: RateCard())
                 Harness.expect(false, "\(source) execution failure returned empty or partial daily usage")
             } catch RecordedUsageReaderError.queryFailed(let message) {
                 Harness.expect(message.contains("integer overflow"),
@@ -120,7 +120,7 @@ enum RecordedUsageTests {
         try fixture.execute("DROP TABLE pi_message")
         let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
         Harness.expectThrows("menu reads continue to require every provider source table") {
-            _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day())
+            _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(), rateCard: RateCard())
         }
         let absent = fixture.directory.appendingPathComponent("absent.sqlite")
         Harness.expectThrows("the shared reader propagates open failures") {
@@ -136,7 +136,7 @@ enum RecordedUsageTests {
             INSERT INTO codex_day VALUES ('large', '\(fixture.day())', 'large', 0, 0, \(large), 0, 0, 0, 0);
             """)
         let rows = try RecordedUsageReader(databaseURL: fixture.databaseURL)
-            .dailyUsage(provider: .codex, fromDay: fixture.day())
+            .dailyUsage(provider: .codex, fromDay: fixture.day(), rateCard: RateCard())
         Harness.expectEqual(rows[fixture.day()]?.values.first?.input, large,
                             "menu reads do not inherit export's JavaScript safe-integer limit")
         Harness.expectEqual(try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL),

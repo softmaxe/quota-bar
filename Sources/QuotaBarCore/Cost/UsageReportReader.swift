@@ -196,6 +196,7 @@ public enum UsageReportReader {
             rows = try reader.reportUsage(
                 fromDay: range.keys[0],
                 throughDay: range.keys[windowDays - 1],
+                rateCard: rateCard,
                 afterSchemaDiscovery: afterSchemaDiscovery
             )
         } catch let error as RecordedUsageReaderError {
@@ -225,9 +226,7 @@ public enum UsageReportReader {
                 cacheWrite: Int64(row.tokens.cacheWrite),
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
-            // Usage is recorded under the name its log reported; group and price it under the
-            // model ID this rate card resolves that name to.
-            let model = rateCard.modelID(recordedAs: row.tier.model, provider: row.tier.source.provider)
+            let model = row.tier.model
             if let cost = rateCard.cost(
                 of: row.tokens,
                 model: model,

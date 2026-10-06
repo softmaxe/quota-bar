@@ -1,11 +1,13 @@
 import Foundation
 import SQLite3
 
-/// Reads recorded tokens without scanning logs, changing schema, or applying rates.
-/// Each instance uses one SQLite connection and must be used serially.
+/// Reads recorded tokens without scanning logs, changing schema, or applying rates. Daily and
+/// report rows come grouped under the model ID the read's rate card resolves each recorded name
+/// to. Each instance uses one SQLite connection and must be used serially.
 package final class RecordedUsageReader {
     package struct ModelTier: Hashable {
         package let source: CostUsageSource
+        /// The model ID the read's rate card resolves the recorded name to.
         package let model: String
         package let longContext: Bool
         package let isFast: Bool
@@ -74,12 +76,14 @@ package final class RecordedUsageReader {
     /// SQLite's integer decoding remains unchanged; report-specific validation is separate.
     package func dailyUsage(
         provider: Provider,
-        fromDay: String
+        fromDay: String,
+        rateCard: RateCard
     ) throws -> [String: [ModelTier: TokenTotals]] {
         let rows = try self.readDailyUsage(
             tables: Self.sourceTables.filter { $0.provider == provider },
             fromDay: fromDay,
             throughDay: nil,
+            rateCard: rateCard,
             validateForReport: false
         )
         var days: [String: [ModelTier: TokenTotals]] = [:]
@@ -94,6 +98,7 @@ package final class RecordedUsageReader {
     package func reportUsage(
         fromDay: String,
         throughDay: String,
+        rateCard: RateCard,
         afterSchemaDiscovery: (() throws -> Void)? = nil
     ) throws -> [DayUsage] {
         try self.query("BEGIN TRANSACTION") { _ in }
@@ -108,6 +113,7 @@ package final class RecordedUsageReader {
             tables: tables,
             fromDay: fromDay,
             throughDay: throughDay,
+            rateCard: rateCard,
             validateForReport: true
         )
         try self.query("COMMIT") { _ in }
@@ -153,6 +159,7 @@ package final class RecordedUsageReader {
         tables: [SourceTable],
         fromDay: String,
         throughDay: String?,
+        rateCard: RateCard,
         validateForReport: Bool
     ) throws -> [DayUsage] {
         var rows: [DayUsage] = []
@@ -177,9 +184,12 @@ package final class RecordedUsageReader {
                         "\(source.source.displayName) contains invalid values on \(day)"
                     )
                 }
+                // Usage is recorded under the name its log reported; it is grouped and priced
+                // under the model ID this rate card resolves that name to, so an alias a later
+                // price book adds prices usage recorded before it.
                 let tier = ModelTier(
                     source: source.source,
-                    model: model,
+                    model: rateCard.modelID(recordedAs: model, provider: source.provider),
                     longContext: sqlite3_column_int64(statement, 2) != 0,
                     isFast: sqlite3_column_int64(statement, 3) != 0
                 )
