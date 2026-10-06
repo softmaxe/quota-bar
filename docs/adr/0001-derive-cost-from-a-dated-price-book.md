@@ -16,5 +16,6 @@ Up to 1.0.7, each row's cost was computed at scan time and frozen in SQLite, and
 
 - A past day keeps its old price only if the book has a period for it. When a provider changes a price, add a period starting on the change date. Do not edit the old rates.
 - Saving an override reprices all recorded usage of that model. The pricing settings say so.
+- Model names are resolved at read time too. Recorded usage keeps the name its log reported, with vendor prefix and date suffix removed, and the rate card maps an alias to its model ID when usage is read. An alias added in a later book prices usage recorded before it, and rows stored under a model ID resolve to themselves, so no migration is needed.
 - The long-context tier is still decided at scan time, because it depends on each request's size and rows are aggregated per day. A model scanned before the book knew its threshold stays at the base tier.
 - The schema migration drops `cost_usd` and `unpriced_tokens`. An older release opening the migrated database cannot write OpenCode or Pi Agent rows until it is upgraded again.

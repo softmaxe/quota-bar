@@ -9,7 +9,7 @@ A local tool whose session logs QuotaBar reads token usage from: Codex, Claude C
 _Avoid_: scanner, log source, agent
 
 **Recorded usage**:
-Token usage saved from local sessions, attributed to its Usage source, model, and local-calendar day. Its Fast and Long-context tier attributes are retained, while cost is derived from the Rate card when read.
+Token usage saved from local sessions, attributed to its Usage source, model, and local-calendar day. The model is kept as the name the log reported, with vendor prefix and date suffix removed, and the Rate card resolves it to a model ID when read. Its Fast and Long-context tier attributes are retained, while cost is derived from the Rate card when read.
 _Avoid_: stored cost, cached cost
 
 **Price book**:

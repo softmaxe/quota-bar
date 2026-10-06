@@ -74,31 +74,46 @@ package final class UsageRecorder {
     /// Borrows the recorder's connection; read only between recordings.
     package var recordedUsageReader: RecordedUsageReader { self.cache.recordedUsageReader }
 
-    /// Records every Usage source whose usage counts toward `provider`. Returns the number of
-    /// files that contributed new bytes.
+    /// Records every Usage source whose usage counts toward `provider`. A source that fails
+    /// keeps what was recorded before and reports the failure in its scan status, so it never
+    /// hides the others. Returns the number of files that contributed new bytes.
     @discardableResult
     package func record(
         _ provider: Provider,
         rateCard: RateCard,
         env: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> Int {
-        // `CostUsageSource.provider` alone decides which sources count toward a provider. Cases
-        // are visited in declaration order, so Codex is recorded before OpenCode and Pi Agent,
-        // and a Codex failure ends the refresh before they are read.
+    ) -> Int {
+        // `CostUsageSource.provider` alone decides which sources count toward a provider.
         var touched = 0
         for source in CostUsageSource.allCases where source.provider == provider {
-            touched += try self.record(source, rateCard: rateCard, env: env)
+            touched += self.record(source, rateCard: rateCard, env: env)
         }
         return touched
     }
 
     /// Which adapter reads a Usage source's logs.
-    private func record(_ source: CostUsageSource, rateCard: RateCard, env: [String: String]) throws -> Int {
+    private func record(_ source: CostUsageSource, rateCard: RateCard, env: [String: String]) -> Int {
         switch source {
-        case .claude: try self.record(ClaudeCodeAdapter(env: env), rateCard: rateCard)
-        case .codex: try self.record(CodexAdapter(env: env), rateCard: rateCard)
+        case .claude: self.recordSettling(ClaudeCodeAdapter(env: env), rateCard: rateCard)
+        case .codex: self.recordSettling(CodexAdapter(env: env), rateCard: rateCard)
         case .openCode: self.record(OpenCodeAdapter(env: env), rateCard: rateCard)
         case .piAgent: self.record(PiAgentAdapter(env: env), rateCard: rateCard)
+        }
+    }
+
+    /// Records an appended-log source and settles its scan status. Per-file failures are already
+    /// skipped inside the pass; what reaches here failed the whole source.
+    private func recordSettling(_ adapter: some AppendedLogAdapter, rateCard: RateCard) -> Int {
+        do {
+            let touched = try self.record(adapter, rateCard: rateCard)
+            self.settle(adapter.source, status: .idle, snapshot: nil)
+            return touched
+        } catch {
+            Self.log(adapter.source.provider).error(
+                "\(adapter.source.displayName, privacy: .public) usage scan failed: \(error.localizedDescription, privacy: .public)"
+            )
+            self.settle(adapter.source, status: .error("database"), snapshot: nil)
+            return 0
         }
     }
 
@@ -187,16 +202,18 @@ package final class UsageRecorder {
         rateCard: RateCard
     ) throws {
         let provider = source.provider
-        // Normalize before storing so `claude-opus-5` and `claude-opus-5-20260101` aggregate as
-        // one model rather than competing for the top-model slot.
-        let model = request.model.map { rateCard.modelID(for: $0, provider: provider) } ?? CostPricing.unknownModel
+        // Store the name the log reported, cleaned up so `claude-opus-5` and
+        // `claude-opus-5-20260101` aggregate as one model. Aliases are resolved to model IDs when
+        // usage is read, so an alias a later price book adds still prices this usage.
+        let model = request.model.map { ModelNames.stripped($0, provider: provider) } ?? CostPricing.unknownModel
         let day = DayKey.make(from: request.timestamp)
         // The Long-context tier is a property of the individual request, so it has to be decided
-        // here; deciding it from a day's aggregate would rewrite history. The price is not: it is
-        // derived from the stored tokens whenever they are read.
+        // here, against the model ID this rate card resolves the name to; deciding it from a
+        // day's aggregate would rewrite history. The price is not: it is derived from the stored
+        // tokens whenever they are read.
         let longContext = rateCard.isLongContext(
             request.tokens,
-            model: model,
+            model: rateCard.modelID(recordedAs: model, provider: provider),
             provider: provider,
             day: day,
             fast: request.isFast
@@ -404,7 +421,7 @@ extension UsageRecorder {
         }
     }
 
-    /// The outcome of the last pass over a snapshot source.
+    /// The outcome of the last pass over a Usage source.
     package func scanStatus(of source: CostUsageSource) -> ExternalAgentScanStatus {
         self.statuses[source] ?? .idle
     }

@@ -317,9 +317,10 @@ final class PricingEditorModel: ObservableObject {
             )
 
             let seenSet = Set(seen.map { rateCard.modelID(for: $0, provider: provider) })
-            let usageTokens = Dictionary(uniqueKeysWithValues: usage.map {
+            // Several recorded names (an alias and its model ID) can resolve to one model.
+            let usageTokens = Dictionary(usage.map {
                 (rateCard.modelID(for: $0.model, provider: provider), $0.tokens)
-            })
+            }, uniquingKeysWith: +)
             let settingsModels = rateCard.settingsModels(for: provider)
 
             for name in names {
