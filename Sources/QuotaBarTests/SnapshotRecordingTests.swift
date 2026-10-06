@@ -196,7 +196,7 @@ private struct FakeSnapshotAdapter: SnapshotAdapter {
     let stamp: Int
     let batch: [ObservedRequest]
 
-    var source: CostUsageSource { .openCode }
+    var source: SnapshotSource { .openCode }
     func survey() -> SnapshotSurvey<Int> { .present(stamp: self.stamp, included: true, status: .idle) }
     func requests() throws -> [ObservedRequest] { self.batch }
 }

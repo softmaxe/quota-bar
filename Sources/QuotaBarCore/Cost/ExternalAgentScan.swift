@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The outcome of scanning one agent that writes into Codex's column. OpenCode and Pi Agent both
@@ -64,6 +65,28 @@ enum ExternalAgentEligibility {
         }
     }
 
+    /// How an agent riding on the Codex account is surveyed: absent until `marker` exists, failed
+    /// while its sign-in cannot be checked, otherwise present with the batch's `included` flag and
+    /// status. The sign-in is checked before `stamp` examines the agent's files, and a
+    /// `SnapshotReadError` thrown there fails the survey for its reason.
+    static func survey<Stamp: Hashable>(
+        installedAt marker: URL,
+        authFile: URL,
+        entry: String,
+        env: [String: String],
+        stamp: () throws -> Stamp?
+    ) -> SnapshotSurvey<Stamp> {
+        guard FileManager.default.fileExists(atPath: marker.path) else { return .absent }
+        guard let (included, status) = Self.signIn(authFile: authFile, entry: entry, env: env).resolved else {
+            return .failed(.auth)
+        }
+        do {
+            return .present(stamp: try stamp(), included: included, status: status)
+        } catch {
+            return .failed((error as? SnapshotReadError)?.failure ?? .sessions)
+        }
+    }
+
     /// Whether this agent's rows count, and what the settings pane should say about it. An
     /// indeterminate account answers neither question, so it returns nil and the caller reports
     /// the scan as failed rather than silently dropping or silently counting the usage.
@@ -102,5 +125,31 @@ private struct AgentAuthFile: Decodable {
         var intValue: Int? { nil }
         init?(stringValue: String) { self.stringValue = stringValue }
         init?(intValue: Int) { nil }
+    }
+}
+
+/// Identity of one file at the moment it was examined: which file it is and when it last
+/// changed. A snapshot source whose files keep their stamps is not read again.
+struct FileStamp: Hashable {
+    let device: Int32
+    let inode: UInt64
+    let size: Int64
+    let modified: Double
+    let changed: Double
+
+    /// nil when no file exists at `path`. Throws when it exists but cannot be examined.
+    static func examine(_ path: String) throws -> FileStamp? {
+        var info = Darwin.stat()
+        guard fstatat(AT_FDCWD, path, &info, 0) == 0 else {
+            if errno == ENOENT { return nil }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return FileStamp(
+            device: info.st_dev,
+            inode: info.st_ino,
+            size: info.st_size,
+            modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
+            changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
+        )
     }
 }

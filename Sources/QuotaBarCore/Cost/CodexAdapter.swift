@@ -18,7 +18,7 @@ package struct CodexAdapter: AppendedLogAdapter {
         self.env = env
     }
 
-    package var source: CostUsageSource { .codex }
+    package var source: AppendedLogSource { .codex }
 
     static func sessionRoots(env: [String: String] = ProcessInfo.processInfo.environment) -> [URL] {
         let home = CodexHome.url(env: env)
@@ -30,24 +30,51 @@ package struct CodexAdapter: AppendedLogAdapter {
 
     /// One copy per rollout: archiving moves or copies a live rollout into the other root.
     package func logFiles() -> [URL] {
-        Self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env)))
+        self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env)))
     }
 
-    package var identifiesSessions: Bool { true }
-
+    /// Standard rollout names end in the session UUID, which survives archive moves and copies.
+    /// Unrecognised names keep their path identity to avoid merging unrelated logs.
+    /// Reads the path's bytes, because building a `URL` and counting characters dominated a refresh.
+    /// Real rollout names are ASCII, one character per byte. Other names keep `Character`
+    /// matching, where a combining mark can merge neighbouring bytes into one character.
     package func sessionID(path: String) -> String? {
-        Self.sessionID(path: path)?.uuidString
+        var path = path
+        return path.withUTF8 { bytes in
+            let file = bytes[(bytes.lastIndex(of: UInt8(ascii: "/")).map { $0 + 1 } ?? 0)...]
+            guard file.allSatisfy({ $0 < 0x80 }) else {
+                let file = Substring(String(decoding: file, as: UTF8.self))
+                let name = file.hasSuffix(".jsonl") ? file.dropLast(6) : file
+                guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
+                return UUID(uuidString: String(name.suffix(36)))?.uuidString
+            }
+            let name = file.suffix(6).elementsEqual(".jsonl".utf8) ? file.dropLast(6) : file
+            guard name.count >= 44, name.starts(with: "rollout-".utf8) else { return nil }
+            return UUID(uuidString: String(decoding: name.suffix(36), as: UTF8.self))?.uuidString
+        }
     }
 
     package func isWanted(_ line: UnsafeRawBufferPointer) -> Bool {
-        Self.isRelevant(line)
+        switch JSONLogClassifier.topLevelType(in: line) {
+        case .indeterminate:
+            return true
+        case .turnContext:
+            return true
+        case .eventMessage:
+            switch JSONLogClassifier.payloadType(in: line) {
+            case .indeterminate, .threadSettingsApplied, .tokenCount: return true
+            default: return false
+            }
+        default:
+            return false
+        }
     }
 
     /// New caches persist the state at the cursor. The replay fallback upgrades caches written by
     /// older app versions without forcing another full parse.
     package func parser(for file: URL, resumingAt offset: Int64, savedState: String?) -> Parser {
         let state = Self.restoredState(from: savedState)
-            ?? (offset > 0 ? Self.resumeState(in: file, before: offset) : ResumeState())
+            ?? (offset > 0 ? self.resumeState(in: file, before: offset) : ResumeState())
         return Parser(state: state)
     }
 
@@ -62,39 +89,59 @@ package struct CodexAdapter: AppendedLogAdapter {
         package var savedState: String? { try? CodexAdapter.encodedState(self.state) }
 
         package mutating func request(in line: UnsafeRawBufferPointer) -> ObservedRequest? {
-            CodexAdapter.request(in: line, decoder: self.decoder, state: &self.state)
+            guard let root = self.decoder.decodeLine(Line.self, from: line) else { return nil }
+            let payload = root.payload.loose()
+            if CodexAdapter.applyContext(root: root, payload: payload, state: &self.state) { return nil }
+
+            guard root.type.loose() == "event_msg",
+                  payload?.type.loose() == "token_count",
+                  let info = payload?.info.loose(),
+                  let usage = info.last_token_usage.loose() else { return nil }
+
+            // Codex re-emits a token_count when the rate-limit block refreshes without a new turn.
+            // Those events repeat the previous last_token_usage while the running total stands
+            // still, so the running total is what tells a real turn from a replay.
+            let runningTotal = info.runningTotal
+            defer { if let runningTotal { self.state.lastTotalUsage = runningTotal } }
+            if let runningTotal, runningTotal == self.state.lastTotalUsage { return nil }
+
+            // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
+            // writes both carved out of it. Peel them off in turn so each bucket is priced once.
+            let rawInput = max(0, usage.input_tokens.intValue)
+            let cacheRead = min(max(0, usage.cached_input_tokens.intValue), rawInput)
+            let cacheWrite = min(max(0, usage.cache_write_input_tokens.intValue), rawInput - cacheRead)
+            let totals = TokenTotals(
+                input: rawInput - cacheRead - cacheWrite,
+                // reasoning_output_tokens is a subset of output_tokens, which is what OpenAI bills.
+                output: usage.output_tokens.intValue,
+                cacheWrite: cacheWrite,
+                cacheRead: cacheRead
+            )
+            guard totals.total > 0 else { return nil }
+
+            guard let timestamp = root.timestamp.loose(),
+                  let date = ISO8601.parse(timestamp) else { return nil }
+
+            // Older rollouts predate turn_context; their model stays nil, so their tokens count
+            // but stay unpriced. Codex events have no identity, so there is no dedupe key.
+            return ObservedRequest(
+                key: nil,
+                timestamp: date,
+                model: self.state.model,
+                tokens: totals,
+                isFast: self.state.serviceTier.isFast
+            )
         }
     }
 
-    /// Standard rollout names end in the session UUID, which survives archive moves and copies.
-    /// Unrecognised names keep their path identity to avoid merging unrelated logs.
-    /// Reads the path's bytes, because building a `URL` and counting characters dominated a refresh.
-    /// Real rollout names are ASCII, one character per byte. Other names keep `Character`
-    /// matching, where a combining mark can merge neighbouring bytes into one character.
-    private static func sessionID(path: String) -> UUID? {
-        var path = path
-        return path.withUTF8 { bytes in
-            let file = bytes[(bytes.lastIndex(of: UInt8(ascii: "/")).map { $0 + 1 } ?? 0)...]
-            guard file.allSatisfy({ $0 < 0x80 }) else {
-                let file = Substring(String(decoding: file, as: UTF8.self))
-                let name = file.hasSuffix(".jsonl") ? file.dropLast(6) : file
-                guard name.hasPrefix("rollout-"), name.count >= 44 else { return nil }
-                return UUID(uuidString: String(name.suffix(36)))
-            }
-            let name = file.suffix(6).elementsEqual(".jsonl".utf8) ? file.dropLast(6) : file
-            guard name.count >= 44, name.starts(with: "rollout-".utf8) else { return nil }
-            return UUID(uuidString: String(decoding: name.suffix(36), as: UTF8.self))
-        }
-    }
-
-    private static func uniqueRollouts(_ files: [URL]) -> [URL] {
+    private func uniqueRollouts(_ files: [URL]) -> [URL] {
         // Sort on paths computed once; `URL.path` builds a new string on every call, and a
         // comparison sort would otherwise build two per comparison.
         let sorted = files.map { (url: $0, path: $0.path) }.sorted { $0.path < $1.path }
-        var byID: [UUID: (url: URL, path: String)] = [:]
+        var byID: [String: (url: URL, path: String)] = [:]
         var others: [(url: URL, path: String)] = []
         for entry in sorted {
-            guard let id = Self.sessionID(path: entry.path) else { others.append(entry); continue }
+            guard let id = self.sessionID(path: entry.path) else { others.append(entry); continue }
             if let previous = byID[id] {
                 // A live copy may have more turns than the archived one.
                 let size = (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -171,82 +218,17 @@ package struct CodexAdapter: AppendedLogAdapter {
         }
     }
 
-    private static func request(
-        in line: UnsafeRawBufferPointer,
-        decoder: JSONDecoder,
-        state: inout ResumeState
-    ) -> ObservedRequest? {
-        guard let root = decoder.decodeLine(Line.self, from: line) else { return nil }
-        let payload = root.payload.loose()
-        if Self.applyContext(root: root, payload: payload, state: &state) { return nil }
-
-        guard root.type.loose() == "event_msg",
-              payload?.type.loose() == "token_count",
-              let info = payload?.info.loose(),
-              let usage = info.last_token_usage.loose() else { return nil }
-
-        // Codex re-emits a token_count when the rate-limit block refreshes without a new turn.
-        // Those events repeat the previous last_token_usage while the running total stands still,
-        // so the running total is what tells a real turn from a replay.
-        let runningTotal = info.runningTotal
-        defer { if let runningTotal { state.lastTotalUsage = runningTotal } }
-        if let runningTotal, runningTotal == state.lastTotalUsage { return nil }
-
-        // Codex reports input_tokens as the whole prompt, with the cached reads and the cache
-        // writes both carved out of it. Peel them off in turn so each bucket is priced once.
-        let rawInput = max(0, usage.input_tokens.intValue)
-        let cacheRead = min(max(0, usage.cached_input_tokens.intValue), rawInput)
-        let cacheWrite = min(max(0, usage.cache_write_input_tokens.intValue), rawInput - cacheRead)
-        let totals = TokenTotals(
-            input: rawInput - cacheRead - cacheWrite,
-            // reasoning_output_tokens is a subset of output_tokens, which is what OpenAI bills.
-            output: usage.output_tokens.intValue,
-            cacheWrite: cacheWrite,
-            cacheRead: cacheRead
-        )
-        guard totals.total > 0 else { return nil }
-
-        guard let timestamp = root.timestamp.loose(),
-              let date = ISO8601.parse(timestamp) else { return nil }
-
-        // Older rollouts predate turn_context; their model stays nil, so their tokens count but
-        // stay unpriced. Codex events have no identity, so there is no dedupe key.
-        return ObservedRequest(
-            key: nil,
-            timestamp: date,
-            model: state.model,
-            tokens: totals,
-            isFast: state.serviceTier.isFast
-        )
-    }
-
-    private static func isRelevant(_ buffer: UnsafeRawBufferPointer) -> Bool {
-        switch JSONLogClassifier.topLevelType(in: buffer) {
-        case .indeterminate:
-            return true
-        case .turnContext:
-            return true
-        case .eventMessage:
-            switch JSONLogClassifier.payloadType(in: buffer) {
-            case .indeterminate, .threadSettingsApplied, .tokenCount: return true
-            default: return false
-            }
-        default:
-            return false
-        }
-    }
-
     /// Replays the bytes before `offset` to recover the state a resumed scan would otherwise
     /// have lost. Bounded by `offset`: reading past it would pick up a model announced in the
     /// appended region and attribute the turns before it to the wrong model.
-    private static func resumeState(in url: URL, before offset: Int64) -> ResumeState {
+    private func resumeState(in url: URL, before offset: Int64) -> ResumeState {
         var state = ResumeState()
         let decoder = JSONDecoder()
-        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset, where: Self.isRelevant) { buffer in
+        _ = try? LogFileScanner.readLines(of: url, from: 0, upTo: offset, where: self.isWanted) { buffer in
             guard let root = decoder.decodeLine(Line.self, from: buffer),
                   let payload = root.payload.loose() else { return }
 
-            if Self.applyContext(root: root, payload: payload, state: &state) { return }
+            if CodexAdapter.applyContext(root: root, payload: payload, state: &state) { return }
 
             guard root.type.loose() == "event_msg",
                   payload.type.loose() == "token_count",

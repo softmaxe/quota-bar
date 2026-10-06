@@ -44,7 +44,7 @@ public struct TokenTotals: Sendable, Equatable {
 }
 
 /// The local tool that produced a usage record.
-public enum CostUsageSource: String, Sendable, Hashable, CaseIterable {
+public enum CostUsageSource: String, Sendable, Hashable {
     case codex
     case openCode
     case piAgent

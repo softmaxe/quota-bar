@@ -16,7 +16,7 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
         self.env = env
     }
 
-    package var source: CostUsageSource { .claude }
+    package var source: AppendedLogSource { .claude }
 
     static func projectRoots(env: [String: String]) -> [URL] {
         if let configDir = env["CLAUDE_CONFIG_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),

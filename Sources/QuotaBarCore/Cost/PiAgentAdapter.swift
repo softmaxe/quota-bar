@@ -9,19 +9,10 @@ package struct PiAgentAdapter: SnapshotAdapter {
     /// Identity of every session file at the moment it was examined.
     package struct Stamp: Hashable {
         fileprivate let directory: String
-        fileprivate let files: [SessionFile]
+        fileprivate let files: [String: FileStamp]
     }
 
-    fileprivate struct SessionFile: Hashable {
-        let path: String
-        let device: Int32
-        let inode: UInt64
-        let size: Int64
-        let modified: Double
-        let changed: Double
-    }
-
-    package var source: CostUsageSource { .piAgent }
+    package var source: SnapshotSource { .piAgent }
     private let env: [String: String]
     private let agentDirectory: URL
     private let sessionsDirectory: URL
@@ -33,15 +24,20 @@ package struct PiAgentAdapter: SnapshotAdapter {
     }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        guard FileManager.default.fileExists(atPath: self.sessionsDirectory.path) else { return .absent }
-        let eligibility = ExternalAgentEligibility.signIn(
+        ExternalAgentEligibility.survey(
+            installedAt: self.sessionsDirectory,
             authFile: self.agentDirectory.appendingPathComponent("auth.json"),
             entry: "openai-codex",
             env: self.env
-        )
-        guard let (included, status) = eligibility.resolved else { return .failed(reason: "auth") }
-        guard let files = try? self.sessionFiles() else { return .failed(reason: "sessions") }
-        return .present(stamp: self.stamp(of: files), included: included, status: status)
+        ) {
+            let files: [URL]
+            do {
+                files = try self.sessionFiles()
+            } catch {
+                throw SnapshotReadError(.sessions, underlying: error)
+            }
+            return self.stamp(of: files)
+        }
     }
 
     package func requests() throws -> [ObservedRequest] {
@@ -59,7 +55,7 @@ package struct PiAgentAdapter: SnapshotAdapter {
             }
             return requests
         } catch {
-            throw SnapshotReadError("sessions")
+            throw SnapshotReadError(.sessions, underlying: error)
         }
     }
 
@@ -82,19 +78,11 @@ package struct PiAgentAdapter: SnapshotAdapter {
 
     /// Nil when any file cannot be examined, so the directory is read regardless.
     private func stamp(of files: [URL]) -> Stamp? {
-        var entries: [SessionFile] = []
+        var entries: [String: FileStamp] = [:]
         entries.reserveCapacity(files.count)
         for url in files {
-            var info = Darwin.stat()
-            guard fstatat(AT_FDCWD, url.path, &info, 0) == 0 else { return nil }
-            entries.append(SessionFile(
-                path: url.path,
-                device: info.st_dev,
-                inode: info.st_ino,
-                size: info.st_size,
-                modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
-                changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
-            ))
+            guard let stamp = try? FileStamp.examine(url.path) else { return nil }
+            entries[url.path] = stamp
         }
         return Stamp(directory: self.sessionsDirectory.path, files: entries)
     }

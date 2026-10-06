@@ -159,11 +159,8 @@ extension UsageRecorderTests {
             failingOn: Data(#""id":"poison""#.utf8)
         )
 
-        do {
-            try fixture.recorder?.record(failing, rateCard: RateCard())
-        } catch {
-            Harness.expect(false, "a failing file is skipped rather than thrown: \(error)")
-        }
+        fixture.recorder?.record(failing, rateCard: RateCard())
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .idle, "a failing file is skipped, not a failed source")
         Harness.expect(fixture.recorded(.claude).isEmpty, "a file that fails partway leaves no rows")
 
         fixture.record(.claude)
@@ -181,13 +178,13 @@ private struct FailingAdapter<Wrapped: AppendedLogAdapter>: AppendedLogAdapter {
     let wrapped: Wrapped
     let failingOn: Data
 
-    var source: CostUsageSource { self.wrapped.source }
+    var source: AppendedLogSource { self.wrapped.source }
     func logFiles() -> [URL] { self.wrapped.logFiles() }
     func isWanted(_ line: UnsafeRawBufferPointer) -> Bool { self.wrapped.isWanted(line) }
 
-    func parser(for file: URL, resumingAt offset: Int64, savedState: String?) throws -> Parser {
+    func parser(for file: URL, resumingAt offset: Int64, savedState: String?) -> Parser {
         Parser(
-            wrapped: try self.wrapped.parser(for: file, resumingAt: offset, savedState: savedState),
+            wrapped: self.wrapped.parser(for: file, resumingAt: offset, savedState: savedState),
             marker: self.failingOn
         )
     }

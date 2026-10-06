@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import SQLite3
 
@@ -6,17 +5,10 @@ import SQLite3
 /// database it owns, so the database is read whole, on its own read-only connection, whenever its
 /// files change.
 package struct OpenCodeAdapter: SnapshotAdapter {
-    /// Identity of the database and its write-ahead log at the moment they were examined.
+    /// Identity of the database and its write-ahead log at the moment they were examined. A nil
+    /// entry is a file that does not exist.
     package struct Stamp: Hashable {
         fileprivate let files: [FileStamp?]
-    }
-
-    fileprivate struct FileStamp: Hashable {
-        let device: Int32
-        let inode: UInt64
-        let size: Int64
-        let modified: Double
-        let changed: Double
     }
 
     private struct FastToggle {
@@ -24,7 +16,7 @@ package struct OpenCodeAdapter: SnapshotAdapter {
         let isFast: Bool
     }
 
-    package var source: CostUsageSource { .openCode }
+    package var source: SnapshotSource { .openCode }
     private let env: [String: String]
     private let dataDirectory: URL
 
@@ -36,21 +28,20 @@ package struct OpenCodeAdapter: SnapshotAdapter {
     private var databaseURL: URL { self.dataDirectory.appendingPathComponent("opencode.db") }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        guard FileManager.default.fileExists(atPath: self.databaseURL.path) else { return .absent }
-        let eligibility = ExternalAgentEligibility.signIn(
+        ExternalAgentEligibility.survey(
+            installedAt: self.databaseURL,
             authFile: self.dataDirectory.appendingPathComponent("auth.json"),
             entry: "openai",
-            env: self.env
+            env: self.env,
+            stamp: self.stamp
         )
-        guard let (included, status) = eligibility.resolved else { return .failed(reason: "auth") }
-        return .present(stamp: self.stamp(), included: included, status: status)
     }
 
     package func requests() throws -> [ObservedRequest] {
         var db: OpaquePointer?
         guard sqlite3_open_v2(self.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             if let db { sqlite3_close(db) }
-            throw SnapshotReadError("database")
+            throw SnapshotReadError(.database)
         }
         defer { sqlite3_close(db) }
 
@@ -63,30 +54,17 @@ package struct OpenCodeAdapter: SnapshotAdapter {
             return requests
         } catch {
             try? Self.exec(db, "ROLLBACK")
-            throw SnapshotReadError("schema")
+            throw SnapshotReadError(.schema, underlying: error)
         }
     }
 
     /// Nil when either file cannot be examined, so the database is queried regardless.
     private func stamp() -> Stamp? {
-        var files: [FileStamp?] = []
-        for path in [self.databaseURL.path, self.databaseURL.path + "-wal"] {
-            var info = Darwin.stat()
-            if fstatat(AT_FDCWD, path, &info, 0) == 0 {
-                files.append(FileStamp(
-                    device: info.st_dev,
-                    inode: info.st_ino,
-                    size: info.st_size,
-                    modified: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9,
-                    changed: Double(info.st_ctimespec.tv_sec) + Double(info.st_ctimespec.tv_nsec) / 1e9
-                ))
-            } else if errno == ENOENT {
-                files.append(nil)
-            } else {
-                return nil
-            }
+        do {
+            return Stamp(files: try [self.databaseURL.path, self.databaseURL.path + "-wal"].map(FileStamp.examine))
+        } catch {
+            return nil
         }
-        return Stamp(files: files)
     }
 
     private static func dataDirectory(env: [String: String]) -> URL {
