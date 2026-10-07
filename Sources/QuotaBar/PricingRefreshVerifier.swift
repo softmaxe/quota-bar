@@ -54,6 +54,8 @@ enum PricingRefreshVerifier {
         }
         NSApplication.shared.setActivationPolicy(.accessory)
         let settings = SettingsStore(defaults: defaults)
+        // The fixture follows Codex; pin it rather than rely on the fresh-install default.
+        settings.menuBarProvider = .codex
         let service = CostService(rateCard: RateCard())
         let fetches = Fetches()
         let store = UsageStore(
