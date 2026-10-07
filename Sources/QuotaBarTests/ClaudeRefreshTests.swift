@@ -94,6 +94,9 @@ enum ClaudeRefreshTests {
         await Self.manualRefreshUsesTokenChangedDuringPreReload()
         await Self.manualRefreshDelegatesAfterUnauthorized()
         await Self.automaticRefreshDoesNotDelegate()
+        await Self.automaticRefreshSkipsExpiredToken()
+        await Self.automaticRefreshSkipsRejectedTokenUntilItChanges()
+        await Self.rateLimitKeepsRecoveryHint()
         await Self.manualRefreshStopsWhenDelegationDoesNotChangeCredentials()
         await Self.manualRefreshReportsCredentialsClearedDuringDelegation()
         await Self.credentialReloadErrors()
@@ -184,13 +187,8 @@ enum ClaudeRefreshTests {
     }
 
     private static func automaticRefreshDoesNotDelegate() async {
-        let credentials = ClaudeCredentials(
-            accessToken: "stale-token",
-            refreshToken: "refresh-token",
-            expiresAt: Date(timeIntervalSinceNow: -60),
-            scopes: [],
-            subscriptionType: "pro"
-        )
+        // Unexpired by its own clock, but the server rejects it anyway (revoked elsewhere).
+        let credentials = Self.credentials(accessToken: "stale-token", expiresIn: 3_600)
         let fixture = ClaudeRefreshFixture(credentials: credentials)
         let state = await ClaudeProvider.fetch(
             transport: ClaudeRefreshTransport(fixture: fixture),
@@ -211,6 +209,83 @@ enum ClaudeRefreshTests {
             Harness.expect(false, "an automatic unauthorized refresh offers explicit recovery")
             return
         }
+    }
+
+    /// Every 401 pushes the token toward a server-side 429 that lasts about an hour, so polling
+    /// must not resend a token that cannot work.
+    private static func automaticRefreshSkipsExpiredToken() async {
+        let credentials = Self.credentials(accessToken: "stale-token", expiresIn: -60)
+        let fixture = ClaudeRefreshFixture(credentials: credentials)
+        let state = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: fixture),
+            gate: UsageRateLimitGate(),
+            interaction: .automatic,
+            credentialLoader: { fixture.loadCredentials() },
+            delegatedRefresher: { fixture.recordDelegatedRefresh(to: credentials) }
+        )
+
+        Harness.expectEqual(fixture.tokens, [], "an automatic refresh never sends an expired token")
+        guard case .recoveryRequired = state else {
+            Harness.expect(false, "an expired token offers explicit recovery without a request")
+            return
+        }
+    }
+
+    private static func automaticRefreshSkipsRejectedTokenUntilItChanges() async {
+        let rejected = Self.credentials(accessToken: "stale-token", expiresIn: 3_600)
+        let fresh = Self.credentials(accessToken: "fresh-token", expiresIn: 3_600)
+        let fixture = ClaudeRefreshFixture(credentials: rejected)
+        let gate = UsageRateLimitGate()
+        let fetch = {
+            await ClaudeProvider.fetch(
+                transport: ClaudeRefreshTransport(fixture: fixture),
+                gate: gate,
+                interaction: .automatic,
+                credentialLoader: { fixture.loadCredentials() },
+                delegatedRefresher: {}
+            )
+        }
+
+        _ = await fetch()
+        let repeated = await fetch()
+        Harness.expectEqual(fixture.tokens, ["Bearer stale-token"], "a rejected token is sent only once")
+        guard case .recoveryRequired = repeated else {
+            Harness.expect(false, "a rejected token keeps offering recovery")
+            return
+        }
+
+        fixture.queueCredentials([fresh])
+        let recovered = await fetch()
+        Harness.expectEqual(
+            fixture.tokens,
+            ["Bearer stale-token", "Bearer fresh-token"],
+            "a token written by Claude Code is tried on the next poll"
+        )
+        guard case .loaded = recovered else {
+            Harness.expect(false, "a new token restores automatic refreshes")
+            return
+        }
+    }
+
+    private static func rateLimitKeepsRecoveryHint() async {
+        let credentials = Self.credentials(accessToken: "stale-token", expiresIn: -60)
+        let fixture = ClaudeRefreshFixture(credentials: credentials)
+        let gate = UsageRateLimitGate()
+        await gate.recordRateLimit(.claude, retryAfter: nil)
+        let state = await ClaudeProvider.fetch(
+            transport: ClaudeRefreshTransport(fixture: fixture),
+            gate: gate,
+            interaction: .userInitiated,
+            credentialLoader: { fixture.loadCredentials() },
+            delegatedRefresher: { fixture.recordDelegatedRefresh(to: credentials) }
+        )
+
+        Harness.expectEqual(fixture.tokens, [], "a rate-limited refresh sends nothing")
+        guard case let .rateLimited(reason, _) = state else {
+            Harness.expect(false, "an active 429 stays authoritative for a user refresh")
+            return
+        }
+        Harness.expect(reason.contains("need recovery"), "the 429 message still names the credential problem")
     }
 
     private static func manualRefreshStopsWhenDelegationDoesNotChangeCredentials() async {

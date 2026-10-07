@@ -15,6 +15,9 @@ public actor UsageRateLimitGate {
     private static let maxBackoff: TimeInterval = 60 * 60
 
     private var blockedUntil: [Provider: Date] = [:]
+    /// The access token the server last answered 401 for. Sending it again only earns another
+    /// 401, and a run of those is what gets the token rate-limited for an hour.
+    private var rejectedToken: [Provider: String] = [:]
 
     public init() {}
 
@@ -36,5 +39,15 @@ public actor UsageRateLimitGate {
 
     public func recordSuccess(_ provider: Provider) {
         self.blockedUntil[provider] = nil
+        self.rejectedToken[provider] = nil
+    }
+
+    public func recordRejected(_ provider: Provider, token: String) {
+        self.rejectedToken[provider] = token
+    }
+
+    /// Whether the server has already rejected this exact token. A new token clears the doubt.
+    public func isRejected(_ provider: Provider, token: String) -> Bool {
+        self.rejectedToken[provider] == token
     }
 }
