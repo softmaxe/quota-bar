@@ -146,7 +146,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 | 快捷键 | 操作 |
 | --- | --- |
-| ⌘1 / ⌘2 | 查看 Codex / Claude |
+| ⌘1 / ⌘2 | 查看 Claude / Codex |
 | ⌘R | 可用时刷新或检查登录状态 |
 | ⌘, | 打开设置 |
 | ⌘Q | 退出，有未保存的费率修改时先询问 |
