@@ -146,7 +146,7 @@ The icon is Material Design Icons' `robot-excited`. The card scrolls when needed
 
 | Shortcut | Action |
 | --- | --- |
-| ⌘1 / ⌘2 | Show Codex / Claude |
+| ⌘1 / ⌘2 | Show Claude / Codex |
 | ⌘R | Refresh or check sign-in, when available |
 | ⌘, | Open settings |
 | ⌘Q | Quit, with a prompt for unsaved price edits |

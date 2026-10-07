@@ -21,6 +21,8 @@ enum RelativeTimeVerifier {
         let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
         var now = base
         let settings = SettingsStore(defaults: defaults)
+        // The fixture follows Codex; pin it rather than rely on the fresh-install default.
+        settings.menuBarProvider = .codex
         let costService = CostService()
         let store = UsageStore(settings: settings, costService: costService, recoveryDefaults: defaults)
         let controller = StatusItemController(

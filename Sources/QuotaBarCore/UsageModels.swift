@@ -2,8 +2,8 @@ import Foundation
 
 /// The two providers this app tracks.
 public enum Provider: String, CaseIterable, Sendable, Codable {
-    case codex
     case claude
+    case codex
 
     public var displayName: String {
         switch self {

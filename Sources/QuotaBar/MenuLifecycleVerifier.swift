@@ -201,6 +201,8 @@ enum MenuLifecycleVerifier {
         require(!controller.debugIsPopoverShown && !controller.debugIsStatusItemSelected,
                 "a global click outside the status item did not dismiss the card")
 
+        // Start away from the first tab so the assertion proves Cmd-1 switched providers.
+        settings.menuBarProvider = .codex
         clickStatusButton()
         RunLoopDrain.run()
         guard let window = controller.debugPopoverWindow,
@@ -213,7 +215,7 @@ enum MenuLifecycleVerifier {
             finish(1)
         }
         require(window.performKeyEquivalent(with: providerKey), "the popover did not handle Cmd-1")
-        require(settings.menuBarProvider == .codex, "Cmd-1 did not change the provider")
+        require(settings.menuBarProvider == .claude, "Cmd-1 did not select Claude")
         if let window = controller.debugPopoverWindow { click(in: window) }
         require(controller.debugIsPopoverShown, "a click inside the card dismissed it")
         let menuWindow = NSPanel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)

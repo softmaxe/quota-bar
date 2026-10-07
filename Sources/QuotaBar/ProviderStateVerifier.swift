@@ -56,6 +56,8 @@ enum ProviderStateVerifier {
         var uptime: TimeInterval = 1_000
         let origin = Date(timeIntervalSince1970: 1_800_000_000)
         let settings = SettingsStore(defaults: defaults)
+        // This walk-through follows Codex; pin it rather than rely on the fresh-install default.
+        settings.menuBarProvider = .codex
         let fetches = Fetches()
         let store = UsageStore(
             settings: settings,

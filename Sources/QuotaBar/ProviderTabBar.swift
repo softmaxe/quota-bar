@@ -20,6 +20,10 @@ struct ProviderTabBar: View {
     @State private var clickedProvider: Provider?
 
     private static let providers = Provider.allCases
+    /// ⌘1, ⌘2, … follow tab position, left to right.
+    private static func shortcutKey(for provider: Provider) -> KeyEquivalent {
+        KeyEquivalent(Character(String(Self.providers.firstIndex(of: provider)! + 1)))
+    }
     private static let segmentHeight: CGFloat = 26
     private static let inset: CGFloat = 2
     private static let cornerRadius: CGFloat = 7
@@ -47,7 +51,7 @@ struct ProviderTabBar: View {
             ForEach(Self.providers, id: \.self) { provider in
                 Button { self.select(provider) } label: { self.segment(provider) }
                     .buttonStyle(ControlFeedbackStyle())
-                    .keyboardShortcut(provider == .codex ? "1" : "2", modifiers: .command)
+                    .keyboardShortcut(Self.shortcutKey(for: provider), modifiers: .command)
                     .focused(self.$focusedProvider, equals: provider)
                     .overlay {
                         RoundedRectangle(cornerRadius: 5)
