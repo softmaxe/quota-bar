@@ -832,8 +832,14 @@ enum RateLimitTests {
             "a shorter Retry-After is floored at the default backoff"
         )
 
+        await gate.recordRejected(.claude, token: "old")
+        Harness.expect(await gate.isRejected(.claude, token: "old"), "a 401 marks that token rejected")
+        Harness.expect(!(await gate.isRejected(.claude, token: "new")), "a different token is not rejected")
+        Harness.expect(!(await gate.isRejected(.codex, token: "old")), "rejection is per provider")
+
         await gate.recordSuccess(.claude)
         Harness.expect(await gate.blocked(.claude, now: now) == nil, "a success clears the block")
+        Harness.expect(!(await gate.isRejected(.claude, token: "old")), "a success clears the rejection")
     }
 }
 

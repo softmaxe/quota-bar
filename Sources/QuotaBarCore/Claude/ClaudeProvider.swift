@@ -24,14 +24,6 @@ public enum ClaudeProvider {
             try await ClaudeDelegatedRefreshCoordinator.shared.refresh()
         }
     ) async -> ProviderState {
-        // Refuse to spend a request while a previous 429 is still in force.
-        if let until = await gate.blocked(.claude) {
-            return .rateLimited(
-                reason: ClaudeFetchError.rateLimited(until).localizedDescription,
-                retryAfter: until
-            )
-        }
-
         let credentials: ClaudeCredentials
         do {
             credentials = try credentialLoader()
@@ -39,9 +31,27 @@ public enum ClaudeProvider {
             return Self.credentialFailure(error)
         }
 
+        // A token that is past its expiry, or that the server already rejected, can only earn
+        // another 401. Polling with it every few minutes is what gets the token rate-limited, so
+        // automatic refreshes wait for Claude Code to write a new token or for the user to ask.
+        let needsRecovery = await Self.needsRecovery(credentials, gate: gate)
+        if needsRecovery, interaction == .automatic {
+            return .recoveryRequired(Self.recoveryPrompt)
+        }
+
+        // Refuse to spend a request while a previous 429 is still in force.
+        if let until = await gate.blocked(.claude) {
+            var reason = ClaudeFetchError.rateLimited(until).localizedDescription
+            if needsRecovery {
+                // The 429 is the symptom; the credentials are what the user has to fix.
+                reason += " Claude credentials also need recovery; click Refresh once it lifts."
+            }
+            return .rateLimited(reason: reason, retryAfter: until)
+        }
+
         if credentials.isExpired {
             // The usage response remains authoritative. A user-initiated 401 may delegate the
-            // refresh to Claude Code; automatic refreshes stay fail-closed.
+            // refresh to Claude Code.
             Log.claude.warning("Claude access token is past its expiry; the usage call may 401")
         }
 
@@ -77,6 +87,16 @@ public enum ClaudeProvider {
         }
     }
 
+    private static let recoveryPrompt =
+        "Claude credentials need recovery. Click Refresh to let Claude Code update them."
+
+    /// Credentials whose token is known to be unusable without Claude Code refreshing it.
+    private static func needsRecovery(_ credentials: ClaudeCredentials, gate: UsageRateLimitGate) async -> Bool {
+        // A missing expiry is unknown, not expired: let the server decide.
+        if let expiresAt = credentials.expiresAt, expiresAt <= Date() { return true }
+        return await gate.isRejected(.claude, token: credentials.accessToken)
+    }
+
     private static func recoverAfterUnauthorized(
         originalCredentials: ClaudeCredentials,
         interaction: ClaudeRefreshInteraction,
@@ -85,6 +105,8 @@ public enum ClaudeProvider {
         credentialLoader: @escaping ClaudeCredentialLoader,
         delegatedRefresher: @escaping ClaudeDelegatedRefresher
     ) async -> ProviderState {
+        await gate.recordRejected(.claude, token: originalCredentials.accessToken)
+
         // A different token may already have been written by Claude Code while the usage call
         // was in flight. Always reread before asking Claude Code to do anything else.
         let preRetryCredentials: ClaudeCredentials
@@ -103,9 +125,7 @@ public enum ClaudeProvider {
         }
 
         guard interaction == .userInitiated else {
-            return .recoveryRequired(
-                "Claude credentials need recovery. Click Refresh to let Claude Code update them."
-            )
+            return .recoveryRequired(Self.recoveryPrompt)
         }
 
         var delegatedError: Error?
@@ -160,6 +180,7 @@ public enum ClaudeProvider {
                 )
             }
             if case .unauthorized = error {
+                await gate.recordRejected(.claude, token: credentials.accessToken)
                 return .failed("Claude credential recovery produced a token the usage API rejected.")
             }
             return .failed(error.localizedDescription)
