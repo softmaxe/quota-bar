@@ -481,16 +481,6 @@ final class PricingEditorModel: ObservableObject {
         self.recomputeUnsavedChanges()
     }
 
-    func resetAll() {
-        guard self.saveStatus != .saving else { return }
-        for index in self.rows.indices {
-            self.applyFallback(at: index)
-            self.pendingRestores.insert(self.rows[index].id)
-        }
-        // One scan after the whole table, rather than one per row reset.
-        self.recomputeUnsavedChanges()
-    }
-
     private func applyFallback(at index: Int) {
         let fallback = self.defaults[self.rows[index].id] ?? nil
         self.rows[index].input = Self.text(fallback?.input)
