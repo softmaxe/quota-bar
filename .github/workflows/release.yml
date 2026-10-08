@@ -10,6 +10,37 @@ permissions:
   contents: read
 
 jobs:
+  # Runs beside the build so a bad tag or missing credential stops the release before it publishes.
+  preflight:
+    name: Preflight
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require the tag to point at a commit on main
+        run: |
+          set -euo pipefail
+          # "behind" or "identical" means the tagged commit is already part of main.
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq .status)"
+          if [[ "${status}" != "behind" && "${status}" != "identical" ]]; then
+            echo "::error::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main (compare status: ${status})."
+            exit 1
+          fi
+
+      - name: Validate tap publishing credentials
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask."
+            exit 1
+          fi
+
   build:
     name: Build arm64
     runs-on: xcode-27
@@ -20,16 +51,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Validate tap publishing credentials
-        if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-        env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-        run: |
-          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
-            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask."
-            exit 1
-          fi
-
       - name: Verify native runner architecture
         run: |
           set -euo pipefail
@@ -168,7 +189,7 @@ jobs:
   release:
     name: Release
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-    needs: build
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -243,6 +264,7 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     needs: release
     runs-on: macos-15
+    environment: release
     permissions:
       contents: read
     steps:
@@ -259,7 +281,7 @@ jobs:
           set -euo pipefail
           if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
             echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
-            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in softmaxe/quota-bar settings." >&2
+            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in the release environment of softmaxe/quota-bar." >&2
             exit 1
           fi
 
