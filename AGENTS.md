@@ -14,3 +14,8 @@ Before triaging issues, read `docs/agents/triage-labels.md`.
 
 Use a single-context layout with root `GLOSSARY.md` and `docs/adr/`.
 Before exploring the codebase, read `docs/agents/domain.md`.
+
+### Merging and releasing
+
+Merge pull requests and publish releases through GitHub.
+Before merging a PR or tagging a release, read `docs/agents/release.md`.

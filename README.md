@@ -349,7 +349,7 @@ To create a test package, run **Build and Release** from the repository's **Acti
 
 To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. Local `make app` builds use the nearest reachable release tag, or `0.0.0` if none exists. Set `VERSION` to override it.
 
-The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs require the repository's `TAP_GITHUB_TOKEN` secret. Both **Release** and **Update Homebrew tap** must succeed.
+The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs must point at a commit on `main` and require the `TAP_GITHUB_TOKEN` secret in the `release` environment, which only `v*` tags can use. Both **Release** and **Update Homebrew tap** must succeed.
 
 </details>
 
