@@ -80,13 +80,13 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Codex or Claude. Open [Settings](docs/images/settings-general.png) to choose a refresh interval or [edit model prices](#editing-model-prices).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to choose a refresh interval and the provider the menu bar shows, or to [edit model prices](#editing-model-prices).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
 QuotaBar reads Codex credentials from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` by default. It reads Claude credentials from the `Claude Code-credentials` entry in macOS Keychain.
 
-Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code.
+Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Refresh** receives HTTP 401, QuotaBar lets Claude Code attempt one short credential refresh. Automatic refreshes never start Claude Code. They skip a Claude token that has expired or was already rejected, and try again once Claude Code writes a new one or you choose **Refresh**.
 
 ## How quota tracking works
 
@@ -96,7 +96,7 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 ### Quota windows and usage pace
 
-Each quota window shows the percentage left and its reset time. Choose **Countdown** or **Clock time** to change the reset-time display for both windows. Unlimited sessions show **Session ∞** and **No limit**. An empty window shows **Limit reached**.
+Each quota window shows the percentage left and its reset time. Click a reset time and choose **Show reset date** or **Show countdown** to change the display for both windows. Unlimited sessions show **Session ∞** and **No limit**. An empty window shows **Limit reached**.
 
 Expand **Usage pace details** for reserve, deficit, and headroom. QuotaBar compares usage with time elapsed. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
 
