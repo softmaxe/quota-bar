@@ -53,24 +53,6 @@ enum CostChartHoverMotion {
         )
     }
 
-    // MARK: - Breakdown
-
-    /// The controller steps the card height and the row reveal from the same eased progress.
-    static func breakdownEase(_ progress: Double) -> Double {
-        let progress = min(1, max(0, progress))
-        return progress * progress * (3 - 2 * progress)
-    }
-
-    /// One step of the sweep. The distance is what gets rounded, not the height: the card grows by
-    /// exactly the strip the rows open, and the strip rounds the same product -- so the card's edge
-    /// and the rows inside it move by the same whole points rather than by two roundings of one
-    /// curve. Whole points because the card is laid out from the top edge of a view whose height is
-    /// what moves, and a fraction there puts every line on a fraction of a pixel, where text
-    /// shimmers instead of sliding.
-    static func breakdownHeight(start: CGFloat, target: CGFloat, progress: Double) -> CGFloat {
-        start + ((target - start) * Self.breakdownEase(progress)).rounded()
-    }
-
     /// The demo windows slow these curves down so a quarter-second response can be judged by
     /// eye. A playback rate, so a slower rate is a longer animation.
     static func scaled(_ duration: TimeInterval, timeScale: Double) -> TimeInterval {

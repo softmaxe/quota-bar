@@ -74,11 +74,6 @@ public actor CostService {
         }
     }
 
-    /// Models seen in local logs with their cumulative token totals, most-used first.
-    public func knownModelUsage(provider: Provider) throws -> [ModelUsageTotal] {
-        try CostUsageReader.knownModelUsage(provider: provider, databaseURL: self.databaseURL)
-    }
-
     /// The outcome of the last scan of a Usage source.
     public func currentScanStatus(of source: CostUsageSource) -> ExternalAgentScanStatus {
         self.recorder?.scanStatus(of: source) ?? .idle
