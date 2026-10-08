@@ -47,6 +47,11 @@ struct UsageProgressBar: View {
     /// Tall enough that the glow fades out before it reaches the canvas edge; the card clips it
     /// long before that, which is the boundary that should be doing the cutting.
     private static let celebrationHeight: CGFloat = 170
+    /// A window that rolls over jumps the remaining percentage up by far more than spending ever
+    /// moves it down between two refreshes, which is what separates a reset from ordinary drift.
+    private static let rolloverJumpPoints: Double = 5
+    private static let rolloverDuration: TimeInterval = 0.95
+    private static let glideDuration: TimeInterval = 0.25
 
     init(
         percent: Double,
@@ -166,7 +171,8 @@ struct UsageProgressBar: View {
             // A card that opens with a celebration already queued starts on it, not on the static
             // presentation path.
             if self.startCelebrationIfWanted() { return }
-            self.apply(.snap)
+            // Opening a card is not a quota event: show the current reading immediately.
+            self.snapDisplayedPercent()
         }
         .onDisappear {
             self.celebration.stop()
@@ -195,7 +201,11 @@ struct UsageProgressBar: View {
                 self.displayedPercent = self.clamped
                 return
             }
-            self.apply(UsageBarFillPolicy.onValueChange(from: oldValue, to: newValue))
+            if newValue - oldValue >= Self.rolloverJumpPoints {
+                self.sweepFromEmpty()
+            } else {
+                self.glide()
+            }
         }
     }
 
@@ -264,7 +274,7 @@ struct UsageProgressBar: View {
         // Reduce Motion turns the whole thing off: a bar springing and glowing in the menu bar is
         // exactly what that setting exists to stop.
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            self.apply(.snap)
+            self.snapDisplayedPercent()
             return true
         }
         self.replayStartPercent = nil
@@ -297,23 +307,22 @@ struct UsageProgressBar: View {
         withTransaction(transaction) { self.displayedPercent = value ?? self.clamped }
     }
 
-    private func apply(_ fill: UsageBarFillPolicy.Fill) {
-        switch fill {
-        case .snap:
-            self.snapDisplayedPercent()
-        case let .sweepFromEmpty(duration):
-            self.snapDisplayedPercent(to: 0)
-            // The empty state has to reach the renderer before the sweep is queued, or SwiftUI
-            // coalesces both writes and interpolates from the old value instead of from zero.
-            DispatchQueue.main.async {
-                guard !self.celebration.isRunning else { return }
-                withAnimation(.easeOut(duration: duration)) { self.displayedPercent = self.clamped }
-            }
-        case let .glide(duration):
-            // The app's shared curve: the bar moves most of the way at once, then settles.
-            withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: duration)) {
-                self.displayedPercent = self.clamped
-            }
+    /// Snaps to empty, then sweeps left to right. Used for a window rollover.
+    private func sweepFromEmpty() {
+        self.snapDisplayedPercent(to: 0)
+        // The empty state has to reach the renderer before the sweep is queued, or SwiftUI
+        // coalesces both writes and interpolates from the old value instead of from zero.
+        DispatchQueue.main.async {
+            guard !self.celebration.isRunning else { return }
+            withAnimation(.easeOut(duration: Self.rolloverDuration)) { self.displayedPercent = self.clamped }
+        }
+    }
+
+    /// Moves from wherever the bar already sits, the way a value normally drifts.
+    private func glide() {
+        // The app's shared curve: the bar moves most of the way at once, then settles.
+        withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: Self.glideDuration)) {
+            self.displayedPercent = self.clamped
         }
     }
 

@@ -92,7 +92,7 @@ enum CostTests {
             let retained = await restarted.refresh(.codex)
             Harness.expectEqual(retained?.windowTokens, 120, "deleted sessions retain tokens after restart")
             Harness.expectClose(retained?.windowCostUSD, 0.014, "deleted sessions stay priced from their tokens")
-            Harness.expectEqual(try await restarted.knownModelUsage(provider: .codex),
+            Harness.expectEqual(try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: database),
                                 [ModelUsageTotal(model: "retention-model", tokens: 120)],
                                 "deleted sessions remain in model usage")
             Harness.expectEqual(retained?.days.first?.dayKey, DayKey.make(from: ISO8601.parse(timestamp)!),

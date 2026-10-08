@@ -82,7 +82,7 @@ enum ModelNameResolutionTests {
         do {
             // The pricing settings regroup the recorded usage with `RateCard.modelUsage` and look
             // each model's rates up by the ID it returns.
-            let usage = laterCard.modelUsage(try await service.knownModelUsage(provider: .claude), provider: .claude)
+            let usage = laterCard.modelUsage(try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL), provider: .claude)
             Harness.expectEqual(
                 usage,
                 [ModelUsageTotal(model: "claude-later", tokens: 4_000_000)],
