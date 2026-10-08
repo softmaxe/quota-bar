@@ -80,13 +80,13 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Codex 或 Claude。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔或[编辑模型费率](#编辑模型费率)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔和菜单栏显示的供应商，或[编辑模型费率](#编辑模型费率)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
 QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.codex/auth.json`。Claude 凭据来自 macOS 钥匙串中的 `Claude Code-credentials` 条目。
 
-读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。
+读取 Claude 凭据时，macOS 可能弹出钥匙串授权提示。如果手动 **Refresh** 收到 HTTP 401，QuotaBar 会让 Claude Code 尝试一次短时凭据刷新。自动刷新不会启动 Claude Code。Claude token 已过期或已被拒绝时，自动刷新会跳过请求，等 Claude Code 写入新 token 或你点击 **Refresh** 后再试。
 
 ## 额度统计方式
 
@@ -96,7 +96,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 ### 额度窗口与使用节奏
 
-每个额度窗口显示剩余百分比和重置时间。选择 **Countdown** 或 **Clock time**，可同时切换两个窗口的重置时间显示方式。无限额会话显示 **Session ∞** 和 **No limit**，额度用尽时显示 **Limit reached**。
+每个额度窗口显示剩余百分比和重置时间。点击重置时间并选择 **Show reset date** 或 **Show countdown**，可同时切换两个窗口的重置时间显示方式。无限额会话显示 **Session ∞** 和 **No limit**，额度用尽时显示 **Limit reached**。
 
 展开 **Usage pace details**，可查看额度储备、缺口和使用余量。QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
 
@@ -349,7 +349,7 @@ make build
 
 发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
 
-工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签发布要求仓库已配置 `TAP_GITHUB_TOKEN` secret。**Release** 和 **Update Homebrew tap** 都必须成功。
+工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `release` 环境中的 `TAP_GITHUB_TOKEN` secret，该环境只允许 `v*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 
