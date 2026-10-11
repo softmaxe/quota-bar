@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QuotaBar interaction proposal</title>
+<style>
+:root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #20282c; background: #dce1e3; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid #80baff; outline-offset: 3px; }
+button:disabled { cursor: default; }
+.board { width: 1280px; padding: 40px; margin: 0 auto 32px; background: #f5f4f0; overflow: hidden; }
+.eyebrow { font-size: 13px; font-weight: 650; letter-spacing: 1.3px; color: #576970; }
+h1 { font-size: 32px; margin: 10px 0 10px; font-weight: 650; letter-spacing: -.8px; }
+.intro { font-size: 17px; color: #5c666b; margin: 0 0 28px; line-height: 1.6; }
+.compare { display: grid; grid-template-columns: 400px 400px 1fr; gap: 24px; align-items: start; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+figure { margin: 0; }
+.label { font-size: 22px; font-weight: 620; display: flex; gap: 12px; align-items: center; margin-bottom: 7px; }
+.label span { font-size: 12px; color: #6d797e; font-weight: 550; letter-spacing: 1px; }
+.caption { font-size: 13px; color: #6b7377; margin-bottom: 19px; line-height: 1.5; }
+.screen { width: 280px; zoom: 1.3; position: relative; color-scheme: dark; color: #e9e9e9; background: #222; border-radius: 10px; box-shadow: 0 8px 20px #17272e20; }
+.screen img { display: block; width: 280px; height: auto; border-radius: 10px; }
+.screen.with-footer img { border-radius: 10px 10px 0 0; }
+.screenshot-footer { padding: 0 14px 5px; font-size: 12px; line-height: 1.35; }
+.screenshot-footer .actions { margin-top: 0; }
+.screen .pin { position: absolute; z-index: 5; right: -9px; }
+.pin { display: inline-flex; width: 23px; height: 23px; align-items: center; justify-content: center; border-radius: 50%; background: #176483; color: white; font-size: 12px; font-weight: 650; border: 2px solid #f5f4f0; box-shadow: 0 2px 5px #0002; }
+.before .pin { background: #9b633b; }
+.notes { padding-top: 65px; }
+.note { padding: 0 0 22px 15px; margin-bottom: 12px; border-left: 2px solid #c4d5dc; }
+.note b { display: block; font-size: 19px; line-height: 1.4; margin: 8px 0; font-weight: 620; }
+.note p { font-size: 16px; line-height: 1.65; margin: 0; color: #58646a; }
+.effect { margin-top: 25px; padding-top: 18px; border-top: 1px solid #d5d8d5; font-size: 15px; line-height: 1.65; color: #57676f; }
+.board-footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid #d5d8d5; display: flex; justify-content: space-between; gap: 30px; font-size: 12px; color: #737c7f; }
+.menu { padding: 10px 14px 5px; font-size: 12px; line-height: 1.35; }
+.provider { background: #2e2e2e; border-radius: 7px; display: flex; padding: 2px; height: 30px; }
+.provider button { flex: 1; background: none; border: 0; border-radius: 5px; color: #b7b7b7; font-size: 12px; }
+.provider .active { background: #4a4a4a; color: #efefef; font-weight: 650; }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #49a3b0; margin-right: 6px; vertical-align: 1px; }
+.dot.claude { background: #cc7c5e; }
+.meta { display: flex; justify-content: space-between; color: #aaa; font-size: 11px; margin-top: 8px; }
+.menu hr { border: 0; border-top: 1px solid #3b3b3b; margin: 10px 0; }
+.quota { margin: 10px 0 12px; }
+.quota h3 { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; margin: 0 0 7px; }
+.track { height: 6px; background: #303030; border-radius: 4px; overflow: hidden; }
+.fill { height: 100%; border-radius: 4px; background: #49a3b0; }
+.claude-theme .fill { background: #cc7c5e; }
+.quota-sub { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; gap: 6px; color: #aaa; font-size: 11px; }
+.time-button { border: 1px solid #494949; border-radius: 5px; color: #d5d5d5; background: #303030; padding: 3px 5px; font-size: 11px; white-space: nowrap; }
+.pace-warning { color: #f1b78f; }
+.tiny-disclosure { border: 0; background: transparent; padding: 0; color: #b6b6b6; font-size: 11px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; margin: 10px 0 9px; font-size: 12px; font-weight: 600; }
+.segments { display: inline-flex; background: #303030; border-radius: 5px; padding: 2px; font-weight: 400; }
+.segments button { border: 0; color: #b6b6b6; background: transparent; padding: 3px 8px; border-radius: 3px; font-size: 10px; }
+.segments .active { background: #555; color: white; }
+.metrics { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 13px; }
+.metric label { display: block; color: #aaa; font-size: 11px; }
+.metric strong { display: block; font-size: 16px; font-weight: 600; margin-top: 2px; }
+.chart-title { display: flex; justify-content: space-between; font-size: 10px; color: #aaa; margin-bottom: 6px; }
+.bars { height: 68px; display: flex; gap: 2px; align-items: stretch; position: relative; }
+.day { flex: 1; border: 0; background: transparent; padding: 3px 2px 5px; display: flex; align-items: end; justify-content: center; position: relative; border-radius: 3px; min-width: 0; }
+.day:hover, .day.selected { background: #49a3b015; }
+.day .bar { width: 100%; background: #49a3b0; opacity: .6; border-radius: 2px; min-height: 0; }
+.day.selected .bar { opacity: 1; }
+.day.selected::after { content: ""; height: 2px; background: #49a3b0; position: absolute; left: 3px; right: 3px; bottom: 0; }
+.day.hit-demo { outline: 1px dashed #91bcca; outline-offset: -1px; background: #49a3b00c; }
+.day.zero-day::before { content: "0"; position: absolute; left: 0; right: 0; bottom: 2px; color: #949494; font-size: 9px; text-align: center; }
+.axis { display: flex; justify-content: space-between; color: #aaa; font-size: 10px; margin: 5px 0 12px; }
+.day-detail { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 7px; }
+.detail-amount { font-size: 15px; font-weight: 600; margin-bottom: 11px; }
+.detail-amount span { font-size: 11px; color: #aaa; font-weight: 400; margin-left: 8px; }
+.detail-toggle { padding: 7px 0; border: 0; border-top: 1px solid #3b3b3b; background: none; color: #d0d0d0; width: 100%; text-align: left; font-size: 11px; }
+.cost-note { font-size: 10px; line-height: 1.45; color: #aaa; margin: 8px 0 10px; }
+.credit-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+.actions { margin: 11px -9px 0; padding-top: 5px; border-top: 1px solid #3b3b3b; }
+.action { width: 100%; display: flex; justify-content: space-between; padding: 4px 8px; color: #ddd; border: 0; background: transparent; font-size: 12px; text-align: left; }
+.action span:last-child { color: #aaa; font-size: 11px; }
+.action:disabled, .action:disabled span:last-child { color: #888; }
+.notice { background: #dca25a13; border: 1px solid #7b613a; border-radius: 6px; padding: 8px; margin: 10px 0 13px; font-size: 11px; }
+.notice strong { color: #e9c697; display: block; font-size: 12px; }
+.notice p { margin: 4px 0 0; color: #c6bbae; line-height: 1.45; }
+.notice a { color: #dcd6cb; text-decoration: underline; }
+.onboarding { padding: 18px 0 10px; }
+.onboarding h3 { font-size: 16px; margin: 0 0 8px; }
+.onboarding p { color: #bbb; font-size: 12px; line-height: 1.5; margin: 0 0 15px; }
+.command { display: flex; align-items: center; justify-content: space-between; padding: 9px; border-radius: 5px; border: 1px solid #454545; background: #292929; margin-bottom: 12px; }
+.command code { font-size: 12px; }
+.command button { border: 0; border-radius: 4px; background: #414141; color: #ddd; padding: 4px 6px; font-size: 10px; }
+.primary { border: 0; border-radius: 5px; color: white; background: #0b76db; padding: 6px 13px; }
+.wide { width: 100%; }
+.sub-note { font-size: 10px; color: #aaa; margin-top: 9px; line-height: 1.5; }
+.state-strip { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 15px; color: #516068; }
+.state-strip span { padding: 9px 13px; background: #e8eae6; border-radius: 6px; }
+.state-strip i { font-style: normal; color: #899598; }
+.pricewindow { color-scheme: dark; color: #e4e4e4; background: #222; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 20px #17272e20; font-size: 13px; }
+.windowbar { padding: 11px 14px; background: #2d2d2d; text-align: center; position: relative; font-size: 13px; }
+.traffic { position: absolute; left: 15px; top: 14px; display: flex; gap: 6px; }
+.traffic i { border-radius: 50%; width: 9px; height: 9px; background: #fa625e; }
+.traffic i:nth-child(2) { background: #f9bd4f; }
+.traffic i:nth-child(3) { background: #36c94f; }
+.pricecontent { padding: 22px 20px 0; min-height: 280px; }
+.pricecontent h3 { font-size: 18px; margin: 0 0 8px; }
+.pricecontent > p { color: #aaa; font-size: 12px; margin: 0 0 24px; line-height: 1.5; }
+.price-grid { display: grid; grid-template-columns: minmax(150px,1fr) repeat(4,68px); gap: 8px; align-items: start; }
+.price-grid.header { font-size: 11px; color: #aaa; margin: 0 0 10px; text-align: right; padding-bottom: 10px; border-bottom: 1px solid #3c3c3c; }
+.price-grid.header span:first-child { text-align: left; }
+.price-grid.row { padding: 12px 0; }
+.price-grid .model { padding-top: 5px; font-size: 12px; }
+.model small { display: block; color: #929292; margin-top: 4px; font-size: 11px; }
+.row-menu { float: right; border: 0; background: transparent; color: #bcbcbc; padding: 0 3px; font-size: 14px; }
+.price-grid input { width: 68px; border: 1px solid #414141; border-radius: 5px; height: 28px; background: #202020; color: #ddd; font-size: 13px; text-align: right; padding: 4px 7px; font-variant-numeric: tabular-nums; }
+.price-grid input.invalid { border-color: #fa8282; outline: 1px solid #fa828260; }
+.field-error { display: flex; gap: 7px; margin: 0 0 10px; padding-left: 5px; color: #ff9999; font-size: 12px; line-height: 1.5; }
+.field-error::before { content: "!"; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid #ff9999; font-size: 10px; flex: none; margin-top: 1px; }
+.price-foot { padding: 14px 18px; border-top: 1px solid #414141; background: #282828; min-height: 85px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.price-foot p { font-size: 12px; line-height: 1.5; color: #b8b8b8; margin: 0; max-width: 340px; }
+.price-foot p strong { display: block; color: #ddd; font-weight: 550; }
+.price-foot p .error-status { color: #ffb0b0; }
+.foot-buttons { display: flex; gap: 8px; }
+.secondary { background: #444; color: #ddd; border: 1px solid #555; padding: 6px 10px; border-radius: 5px; white-space: nowrap; }
+.primary:disabled { background: #3b3b3b; color: #888; }
+.impact { display: flex; align-items: flex-start; gap: 12px; border-top: 1px solid #d4d8d5; padding-top: 17px; margin-top: 22px; font-size: 16px; line-height: 1.6; }
+.impact .pin { flex: none; }
+.impact strong { display: block; font-size: 19px; margin-bottom: 5px; }
+.impact p { margin: 0; color: #58646a; }
+.detail-state { margin-top: 26px; border-top: 1px solid #d4d8d5; padding-top: 20px; }
+.detail-state h3 { font-size: 18px; margin: 0 0 12px; }
+.validation-preview { padding: 16px 18px; background: #282828; border-radius: 8px; color: #ddd; display: flex; align-items: center; justify-content: space-between; gap: 15px; font-size: 13px; }
+.validation-preview small { display: block; color: #aaa; margin-top: 3px; font-size: 11px; }
+.data-states { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.data-states div { background: #272727; color: #ddd; padding: 12px; border-radius: 7px; font-size: 12px; }
+.data-states strong { display: block; font-size: 18px; margin: 5px 0; }
+.data-states small { color: #bbb; line-height: 1.5; display: block; }
+.compact-note { font-size: 13px; line-height: 1.7; color: #657077; margin-top: 12px; }
+@media print { body { padding: 0; } .board { break-after: page; margin: 0; } }
+</style>
+</head>
+<body>
+
+<section class="board" id="pricing">
+  <div class="eyebrow">QUOTABAR / 01 / FIRST RELEASE</div>
+  <h1>最先修：输入错误不能变成“保存成功”</h1>
+  <p class="intro">保留表格编辑方式。补字段校验、未保存状态和放弃修改，阻止意外删除已有价格。</p>
+  <div class="pair">
+    <figure class="before">
+      <div class="label">修改前 <span>BEFORE</span></div>
+      <div class="caption">按现有界面与保存逻辑复现 · 曾保存过，再输入 abc</div>
+      <div class="pricewindow">
+        <div class="windowbar"><span class="traffic"><i></i><i></i><i></i></span>QuotaBar Settings · Pricing</div>
+        <div class="pricecontent">
+          <h3>Model prices</h3><p>USD per million tokens. Edits are saved as overrides.</p>
+          <div class="price-grid header"><span>Model</span><span>Input</span><span>Output</span><span>Cache w</span><span>Cache r</span></div>
+          <div class="price-grid row"><div class="model">claude-opus-5<small>412M tokens</small></div><input value="abc" readonly aria-label="Current invalid input"><input value="25" readonly><input value="6.25" readonly><input value="0.50" readonly></div>
+          <div class="price-grid row"><div class="model">claude-sonnet-5<small>168M tokens</small></div><input value="3" readonly><input value="15" readonly><input value="3.75" readonly><input value="0.30" readonly></div>
+        </div>
+        <div class="price-foot"><p>Saved. Usage already recorded keeps its prices; new rates apply from here on.</p><div class="foot-buttons"><button class="secondary">Reset all</button><button class="primary">Save</button></div></div>
+      </div>
+      <div class="impact"><span class="pin">1</span><div><strong>没有错误提示，仍可保存</strong><p>abc 无法解析，保存流程移除该模型的自定义价格。重新编辑后，旧的 Saved 提示也还在。</p></div></div>
+    </figure>
+    <figure>
+      <div class="label">修改后 <span>AFTER · PROPOSED</span></div>
+      <div class="caption">同一错误输入 · 定位字段，保留原值，阻止保存</div>
+      <div class="pricewindow">
+        <div class="windowbar"><span class="traffic"><i></i><i></i><i></i></span>QuotaBar Settings · Pricing</div>
+        <div class="pricecontent">
+          <h3>Model prices</h3><p>USD per million tokens. Changes apply to new usage after saving.</p>
+          <div class="price-grid header"><span>Model</span><span>Input</span><span>Output</span><span>Cache write</span><span>Cache read</span></div>
+          <div class="price-grid row"><div class="model">claude-opus-5<button class="row-menu" aria-label="Model actions including restore default rate">⋯</button><small>Custom rate · Edited</small></div><input class="invalid" value="abc" readonly aria-invalid="true" aria-label="Claude Opus 5 input price in USD per million tokens"><input value="25" readonly><input value="6.25" readonly><input value="0.50" readonly></div>
+          <div class="field-error" role="alert">Input price must be a number ≥ 0. Previously saved: $7.</div>
+          <div class="price-grid row"><div class="model">claude-sonnet-5<small>Default rate</small></div><input value="3" readonly><input value="15" readonly><input value="3.75" readonly><input value="0.30" readonly></div>
+        </div>
+        <div class="price-foot"><p><strong class="error-status">1 invalid field · Changes not saved</strong>Your saved prices are unchanged.</p><div class="foot-buttons"><button class="secondary">Discard</button><button class="primary" disabled>Save</button></div></div>
+      </div>
+      <div class="impact"><span class="pin">1</span><div><strong>告诉用户错在哪里、怎样修</strong><p>Save 禁用，Discard 返回已保存版本。行内 ⋯ 提供 Restore default rate，不再用错误输入触发删除。</p></div></div>
+    </figure>
+  </div>
+  <div class="detail-state">
+    <h3>修正输入后，状态也跟着改变</h3>
+    <div class="validation-preview"><div>1 model changed · Not saved<small>New rates apply only to usage recorded after saving.</small></div><div class="foot-buttons"><button class="secondary">Discard</button><button class="primary">Save</button></div></div>
+    <div class="state-strip"><span>输入有效 → Save 可用</span><i>→</i><span>Saving… → 禁止重复提交</span><i>→</i><span>Saved → 再次编辑即回到未保存</span></div>
+  </div>
+  <div class="board-footer"><span>验收：无效值不改文件；保存失败保留输入；切换页面保留草稿；退出时可保存 / 放弃 / 取消。</span><span>设计稿 · 示例数据 · 未修改产品行为</span></div>
+</section>
+
+<section class="board" id="connection">
+  <div class="eyebrow">QUOTABAR / 02 / FIRST RELEASE</div>
+  <h1>首次打开：把“未登录”变成能完成的任务</h1>
+  <p class="intro">菜单仍保持 280 pt 宽。用户能知道去哪里登录、执行什么，以及何时回来检查。</p>
+  <div class="compare">
+    <figure class="before">
+      <div class="label">修改前 <span>BEFORE</span></div><div class="caption">未登录状态 · 根据当前代码复现</div>
+      <div class="screen menu">
+        <div class="provider"><button class="active"><i class="dot"></i>Codex</button><button><i class="dot claude"></i>Claude</button></div>
+        <div class="meta"><span>Not signed in</span></div><hr>
+        <div style="height:8px"></div><span class="pin" style="top:44px">1</span>
+        <div class="actions"><button class="action"><span>↻ &nbsp; Refresh</span></button><button class="action"><span>Settings</span><span>⌘,</span></button><button class="action"><span>Quit</span><span>⌘Q</span></button></div>
+      </div>
+      <div class="effect">只能看到状态，无法知道缺少什么。反复点击 Refresh 也不会替用户完成 CLI 登录。</div>
+    </figure>
+    <figure>
+      <div class="label">修改后 <span>AFTER · PROPOSED</span></div><div class="caption">登录任务、命令、检查入口就地显示</div>
+      <div class="screen menu">
+        <div class="provider"><button class="active"><i class="dot"></i>Codex</button><button><i class="dot claude"></i>Claude</button></div>
+        <div class="meta"><span>Not signed in</span></div><hr>
+        <div class="onboarding"><h3>Sign in to Codex</h3><p>Use the Codex CLI in Terminal to sign in, then return here to check.</p><div class="command"><code>codex login</code><button>Copy command</button></div><button class="primary wide">Check sign-in</button><div class="sub-note">Already signed in? Check that the CLI uses the same macOS account.</div></div>
+        <span class="pin" data-target=".onboarding h3">1</span><span class="pin" data-target=".onboarding .primary">2</span>
+        <div class="actions"><button class="action"><span>Settings</span><span>⌘,</span></button><button class="action"><span>Quit</span><span>⌘Q</span></button></div>
+      </div>
+      <div class="effect">无需去 README 找说明；在终端完成登录后，回到同一个位置继续。</div>
+    </figure>
+    <aside class="notes">
+      <div class="note"><span class="pin">1</span><b>解释原因与下一步</b><p>只在确实未登录时显示连接指引。凭据读取失败、权限错误使用各自的错误说明。</p></div>
+      <div class="note"><span class="pin">2</span><b>一个明确的检查入口</b><p>复制命令不自动执行。检查时显示 Checking…；失败留在此处，成功进入额度卡片。</p></div>
+      <div class="note"><b>两种服务，各自说明</b><p>Codex 显示 codex login；Claude 显示 claude。检查操作遵守已有冷却规则。</p></div>
+    </aside>
+  </div>
+  <div class="state-strip"><span>复制命令</span><i>→</i><span>在终端登录</span><i>→</i><span>Check sign-in</span><i>→</i><span>Checking… / 冷却倒计时</span><i>→</i><span>额度卡片</span></div>
+  <div class="board-footer"><span>验收：新用户不用外部文档也能知道下一步；失败可重试；成功自动更新；检查期间不会重复发请求。</span><span>设计稿 · 非真实登录操作</span></div>
+</section>
+
+<section class="board" id="stale">
+  <div class="eyebrow">QUOTABAR / 03 / FIRST RELEASE</div>
+  <h1>刷新失败：先说明数据状态，再让用户读数字</h1>
+  <p class="intro">保留上次额度。把失败原因、数据时间和可重试时间放到顶部，避免把旧读数当成刚更新的数据。</p>
+  <div class="compare">
+    <figure class="before">
+      <div class="label">修改前 <span>BEFORE</span></div><div class="caption">当前视图真实离屏截图 · 限流样例</div>
+      <div class="screen"><img src="assets/before-stale.png" alt="Current Claude card with rate-limit error at the bottom"><span class="pin" style="top:43px">1</span><span class="pin" style="top:520px">2</span></div>
+    </figure>
+    <figure>
+      <div class="label">修改后 <span>AFTER · PROPOSED</span></div><div class="caption">旧读数原样保留 · 顶部给出恢复路径</div>
+      <div class="screen menu claude-theme">
+        <div class="provider"><button><i class="dot"></i>Codex</button><button class="active"><i class="dot claude"></i>Claude</button></div>
+        <div class="meta"><span>Last successful update · 5m ago</span><span>Pro</span></div>
+        <div class="notice"><strong>⚠ Refresh failed · Showing saved data</strong><p>Rate limited. Available after 4:24 PM.</p></div>
+        <span class="pin" data-target=".notice">1</span>
+        <div class="quota"><h3><span>Session</span><span>35% left</span></h3><div class="track"><div class="fill" style="width:35%"></div></div><div class="quota-sub"><span class="pace-warning">Empty in about 37m</span><button class="time-button">Resets in 3h 50m ▾</button></div></div>
+        <div class="quota"><h3><span>Weekly</span><span>93% left</span></h3><div class="track"><div class="fill" style="width:93%"></div></div><div class="quota-sub"><span>Lasts until reset</span><button class="time-button">Resets in 6d 8h ▾</button></div></div>
+        <button class="tiny-disclosure">Usage pace details ›</button><hr>
+        <div class="section-head">Local usage <div class="segments"><button class="active">Tokens</button><button>Cost</button></div></div>
+        <div class="metrics"><div class="metric"><label>Today</label><strong>37M</strong></div><div class="metric"><label>Last 30 days</label><strong>637M</strong></div></div>
+        <div class="chart-title"><span>Last 10 calendar days</span><span>Tokens</span></div>
+        <div class="bars" data-series="claude"></div><div class="axis"><span>Sep 5</span><span>Sep 14</span></div>
+        <div class="day-detail"><span>Sep 14</span><span>3 models</span></div><div class="detail-amount">37M tokens <span>est. $37.00</span></div>
+        <button class="detail-toggle">Model breakdown <span style="float:right">›</span></button><div class="cost-note">API-rate estimate · Not a bill</div>
+        <div class="actions"><button class="action" disabled><span>↻ &nbsp; Refresh</span><span>After 4:24 PM</span></button><button class="action"><span>Settings</span><span>⌘,</span></button><button class="action"><span>Quit</span><span>⌘Q</span></button></div>
+        <span class="pin" data-target=".action">2</span>
+      </div>
+    </figure>
+    <aside class="notes">
+      <div class="note"><span class="pin">1</span><b>先判断能否信任读数</b><p>顶部同时给出失败状态和上次成功时间。额度不会因为网络错误消失。</p></div>
+      <div class="note"><span class="pin">2</span><b>重试有明确时机</b><p>保留服务端给出的 4:24 PM。恢复时间取服务端限制与本地冷却中更晚的一项，提示与按钮一致。</p></div>
+      <div class="note"><b>按错误提供恢复方式</b><p>网络错误允许重试；登录失效给登录指引。不要把所有错误都归为“未登录”。</p></div>
+      <div class="effect">这次主要改变的是状态位置与操作反馈。图表精简和显式控制见下一张。</div>
+    </aside>
+  </div>
+  <div class="board-footer"><span>验收：失败不清空旧数据；成功后警示消失；本地冷却不能提前解除服务端限流。</span><span>样例错误与重试时间 · 修改后为设计稿</span></div>
+</section>
+
+<section class="board" id="daily">
+  <div class="eyebrow">QUOTABAR / 04 / FREQUENT INTERACTIONS</div>
+  <h1>日常查看：让操作可见，让图表更容易选</h1>
+  <p class="intro">保留服务切换、额度、用量和 Credits。把隐藏手势变成明确控件，收起重复的模型细节。</p>
+  <div class="compare">
+    <figure class="before">
+      <div class="label">修改前 <span>BEFORE</span></div><div class="caption">卡片为真实截图 · 底部操作行按代码复现</div>
+      <div class="screen with-footer"><img src="assets/before-main.png" alt="Current Codex menu card"><span class="pin" style="top:82px">1</span><span class="pin" style="top:213px">2</span><span class="pin" style="top:310px">3</span><span class="pin" style="top:475px">4</span><div class="screenshot-footer"><div class="actions"><button class="action"><span>↻ &nbsp; Refresh</span></button><button class="action"><span>Settings</span><span>⌘,</span></button><button class="action"><span>Quit</span><span>⌘Q</span></button></div></div></div>
+    </figure>
+    <figure>
+      <div class="label">修改后 <span>AFTER · PROPOSED</span></div><div class="caption">同宽、同组数据 · 增加入口，压缩重复信息</div>
+      <div class="screen menu">
+        <div class="provider"><button class="active"><i class="dot"></i>Codex</button><button><i class="dot claude"></i>Claude</button></div>
+        <div class="meta"><span>Updated 5m ago</span><span>Plus</span></div><hr>
+        <div class="quota"><h3><span>Session</span><span>88% left</span></h3><div class="track"><div class="fill" style="width:88%"></div></div><div class="quota-sub"><span>Lasts until reset</span><button class="time-button">Resets in 2h 59m ▾</button></div></div>
+        <div class="quota"><h3><span>Weekly</span><span>86% left</span></h3><div class="track"><div class="fill" style="width:86%"></div></div><div class="quota-sub"><span>Lasts until reset</span><button class="time-button">Resets in 4d 23h ▾</button></div></div>
+        <button class="tiny-disclosure">Usage pace details ›</button>
+        <span class="pin" data-target=".time-button">1</span>
+        <hr><div class="section-head">Local usage <div class="segments"><button class="active">Tokens</button><button>Cost</button></div></div>
+        <span class="pin" data-target=".section-head">2</span>
+        <div class="metrics"><div class="metric"><label>Today</label><strong>176M</strong></div><div class="metric"><label>Last 30 days</label><strong>637M</strong></div></div>
+        <div class="chart-title"><span>Last 10 calendar days</span><span>Tokens</span></div>
+        <div class="bars" data-series="codex"></div><div class="axis"><span>Sep 5</span><span>Sep 14</span></div>
+        <span class="pin" data-target=".bars">3</span>
+        <div class="day-detail"><span>Sep 14</span><span>3 models</span></div><div class="detail-amount">176M tokens <span>est. $176.00</span></div>
+        <button class="detail-toggle">Model breakdown <span style="float:right">›</span></button><div class="cost-note">API-rate estimate · Not a bill</div>
+        <span class="pin" data-target=".detail-toggle">4</span>
+        <hr><div class="credit-row"><strong>Credits</strong><span>640 left</span></div><div class="track"><div class="fill" style="width:64%"></div></div>
+        <div class="actions"><button class="action"><span>↻ &nbsp; Refresh</span><span>⌘R</span></button><button class="action"><span>Settings</span><span>⌘,</span></button><button class="action"><span>Quit</span><span>⌘Q</span></button></div>
+      </div>
+    </figure>
+    <aside class="notes">
+      <div class="note"><span class="pin">1</span><b>时间看起来可以操作</b><p>点开选择倒计时或具体时间。只改变显示格式，不执行额度重置。</p></div>
+      <div class="note"><span class="pin">2</span><b>单位有固定入口</b><p>Tokens / Cost 同步更新概览与图表。柱子只负责选择日期，不再暗中切换单位。</p></div>
+      <div class="note"><span class="pin">3</span><b>整列可选，时间范围明确</b><p>低用量也能轻松选中。键盘左右键切日期；蓝色虚线仅标示命中区域，产品中不显示。</p></div>
+      <div class="note"><span class="pin">4</span><b>细节留在一步之内</b><p>默认保留当天总量；展开看模型。删除重复的 Top model，详细计算放入 Usage pace details。</p></div>
+    </aside>
+  </div>
+  <div class="detail-state">
+    <h3>费用缺失，也需要独立样式</h3>
+    <div class="data-states"><div>Estimated cost<strong>—</strong><small>Unpriced · Add a model rate</small></div><div>Estimated cost<strong>$12.40</strong><small>Partial estimate · Some usage has no price</small></div></div>
+    <div class="compact-note">完全未定价用 —；部分已定价保留已知小计并标注 Partial estimate；真实零成本才显示 $0.00。⌘R 是本方案要求新增并验证的操作，当前版本尚未实现。</div>
+  </div>
+  <div class="board-footer"><span>验收：日期与单位分别可用鼠标 / 键盘 / VoiceOver 操作；悬停不改变柱高；重开保留单位；无用量日保留日期位置。</span><span>同宽示意 · 产品控件仍为 English</span></div>
+</section>
+
+<script>
+// Static figure data. These controls do not call services or change user preferences.
+const series = { codex: [0, 0, 0, 0, 18, 22, 12, 20, 24, 176], claude: [0, 0, 62, 90, 48, 71, 9, 88, 41, 37] };
+for (const chart of document.querySelectorAll('[data-series]')) {
+  const values = series[chart.dataset.series];
+  const max = Math.max(...values);
+  values.forEach((value, index) => {
+    const button = document.createElement('button');
+    button.className = 'day' + (index === 9 ? ' selected' : '') + (value === 0 ? ' zero-day' : '') + (chart.dataset.series === 'codex' && index === 4 ? ' hit-demo' : '');
+    button.setAttribute('aria-label', 'September ' + (5 + index) + ', ' + value + ' million tokens');
+    button.innerHTML = '<span class="bar" style="height:' + (value / max * 55) + 'px;' + (chart.dataset.series === 'claude' ? 'background:#cc7c5e' : '') + '"></span>';
+    chart.appendChild(button);
+  });
+}
+for (const pin of document.querySelectorAll('[data-target]')) {
+  const screen = pin.closest('.screen');
+  const target = screen.querySelector(pin.dataset.target);
+  const rect = target.getBoundingClientRect();
+  const parent = screen.getBoundingClientRect();
+  const zoom = parent.width / 280;
+  pin.style.top = ((rect.top - parent.top + rect.height / 2) / zoom - 11.5) + 'px';
+}
+</script>
+</body>
+</html>

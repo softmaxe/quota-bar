@@ -1,0 +1,116 @@
+import Foundation
+
+public struct ModelUsageTotal: Sendable, Equatable {
+    public let model: String
+    public let tokens: Int
+
+    public init(model: String, tokens: Int) {
+        self.model = model
+        self.tokens = tokens
+    }
+}
+
+/// Owns the persistent usage store and produces cost snapshots. An actor because the SQLite connection is
+/// single-writer and scans run off the main thread.
+public actor CostService {
+    private var recorder: UsageRecorder?
+    /// The rates of the current refresh. nil until the override file is next read.
+    private var rateCard: RateCard?
+    /// What a dropped rate card is rebuilt from.
+    private var book: PriceBook
+    private let overrideFile: OverrideFile
+    /// Readable without the actor so `CostUsageReader` can open the same file on a connection
+    /// of its own rather than queueing behind a scan.
+    public nonisolated let databaseURL: URL
+    private let env: [String: String]
+
+    /// `rateCard` pins the rates until `invalidatePricing`; tests use it to keep prices fixed. Its
+    /// book, the shipped one when none is pinned, is what `overrideFile` is laid over after that.
+    public init(
+        databaseURL: URL? = nil,
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        rateCard: RateCard? = nil,
+        overrideFile: OverrideFile = OverrideFile()
+    ) {
+        self.databaseURL = databaseURL ?? Self.defaultDatabaseURL
+        self.env = env
+        self.rateCard = rateCard
+        self.book = rateCard?.book ?? .bundled
+        self.overrideFile = overrideFile
+    }
+
+    /// `~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite`.
+    public static var defaultDatabaseURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/QuotaBar/cost-usage", isDirectory: true)
+            .appendingPathComponent("cost-usage.sqlite", isDirectory: false)
+    }
+
+    public func refresh(_ provider: Provider) async -> CostSnapshot? {
+        do {
+            let recorder = try self.openRecorder()
+            // One rate card for the whole refresh, so the scan and the pricing never disagree.
+            let rateCard = self.currentRateCard()
+
+            let started = Date()
+            let touched = recorder.record(provider, rateCard: rateCard, env: self.env)
+            let elapsed = Date().timeIntervalSince(started)
+            if touched > 0 {
+                Log.ui.info(
+                    "\(provider.rawValue, privacy: .public) cost scan: \(touched) files in \(String(format: "%.1f", elapsed))s"
+                )
+            }
+
+            return try CostAggregator.snapshot(
+                provider: provider,
+                reader: recorder.recordedUsageReader,
+                rateCard: rateCard
+            )
+        } catch {
+            Log.ui.error(
+                "\(provider.rawValue, privacy: .public) cost scan failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    /// The outcome of the last scan of a Usage source.
+    public func currentScanStatus(of source: CostUsageSource) -> ExternalAgentScanStatus {
+        self.recorder?.scanStatus(of: source) ?? .idle
+    }
+
+    /// Every Usage source's last scan outcome, in display order.
+    public func currentScanStatuses() -> [(source: CostUsageSource, status: ExternalAgentScanStatus)] {
+        CostUsageSource.all
+            .sorted { $0.displayOrder < $1.displayOrder }
+            .map { (source: $0, status: self.currentScanStatus(of: $0)) }
+    }
+
+    /// Drops the rate card so the next refresh reads the override file again. Cost is derived
+    /// when it is read, so that refresh reprices all recorded usage at the new rates.
+    public func invalidatePricing() {
+        self.rateCard = nil
+    }
+
+    /// Replaces the rate card outright. The app rereads the override file instead
+    /// (`invalidatePricing`); this exists so tests can move prices without touching the file.
+    public func useRateCard(_ rateCard: RateCard) {
+        self.rateCard = rateCard
+        self.book = rateCard.book
+    }
+
+    private func openRecorder() throws -> UsageRecorder {
+        if let recorder = self.recorder { return recorder }
+        let recorder = try UsageRecorder(databaseURL: self.databaseURL)
+        self.recorder = recorder
+        return recorder
+    }
+
+    /// Read from disk once, then again only after `invalidatePricing`.
+    private func currentRateCard() -> RateCard {
+        if let rateCard = self.rateCard { return rateCard }
+        let rateCard = RateCard(book: self.book, overrides: self.overrideFile.load())
+        self.rateCard = rateCard
+        return rateCard
+    }
+}
