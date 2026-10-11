@@ -24,10 +24,8 @@ packages, publishes the GitHub Release, and bumps `softmaxe/homebrew-tap`.
    `git log --oneline "$(git describe --tags --abbrev=0 origin/main)"..origin/main`.
    If they are all `docs`, `test`, `ci`, `build`, or `chore`, there is
    nothing to release; report that and stop.
-2. Pick the version from the highest-ranked commit type:
-   - `!` after the type or a `BREAKING CHANGE` footer: major
-   - `feat`: minor
-   - anything else: patch
+2. Bump the patch of the latest `v*` tag by 0.0.1 (e.g. `v0.0.1` →
+   `v0.0.2`), whatever the commit types.
 3. Tag `main` and push the tag:
    `git tag -a vX.Y.Z -m "QuotaBar X.Y.Z" origin/main`, then
    `git push origin vX.Y.Z`.
