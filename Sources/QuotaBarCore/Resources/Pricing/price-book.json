@@ -3,7 +3,7 @@
   "providers": {
     "codex": {
       "source": "https://developers.openai.com/api/docs/pricing",
-      "checkedAt": "2026-08-26",
+      "checkedAt": "2026-10-12",
       "models": [
         {
           "id": "gpt-6-astra",
@@ -181,27 +181,35 @@
         {
           "id": "gpt-5.4",
           "retired": true,
+          "note": "Fast is published below 272K only; the 2x is assumed to carry over to long-context rates.",
           "periods": [
             {
               "rates": {
                 "input": 2.5, "output": 15, "cacheRead": 0.25,
                 "thresholdTokens": 272000, "inputAbove": 5, "outputAbove": 22.5, "cacheReadAbove": 0.5
-              }
+              },
+              "fastMultiplier": 2
             }
           ]
         },
-        { "id": "gpt-5.4-mini", "retired": true, "periods": [ { "rates": { "input": 0.75, "output": 4.5, "cacheRead": 0.075 } } ] },
+        {
+          "id": "gpt-5.4-mini",
+          "retired": true,
+          "periods": [ { "rates": { "input": 0.75, "output": 4.5, "cacheRead": 0.075 }, "fastMultiplier": 2 } ]
+        },
         { "id": "gpt-5.4-nano", "retired": true, "periods": [ { "rates": { "input": 0.2, "output": 1.25, "cacheRead": 0.02 } } ] },
         { "id": "gpt-5.4-pro", "retired": true, "periods": [ { "rates": { "input": 30, "output": 180 } } ] },
         {
           "id": "gpt-5.5",
           "retired": true,
+          "note": "Fast costs 2.5x Standard, not the usual 2x. It is published below 272K only; the multiplier is assumed to carry over to long-context rates.",
           "periods": [
             {
               "rates": {
                 "input": 5, "output": 30, "cacheRead": 0.5,
                 "thresholdTokens": 272000, "inputAbove": 10, "outputAbove": 45, "cacheReadAbove": 1
-              }
+              },
+              "fastMultiplier": 2.5
             }
           ]
         },
@@ -210,7 +218,7 @@
     },
     "claude": {
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "checkedAt": "2026-10-03",
+      "checkedAt": "2026-10-12",
       "models": [
         {
           "id": "claude-fable-5-1",
@@ -256,7 +264,8 @@
         {
           "id": "claude-sonnet-5-5",
           "showInSettings": true,
-          "periods": [ { "rates": { "input": 2, "output": 10, "cacheWrite": 2.5, "cacheRead": 0.2 } } ]
+          "note": "Cache reads bill at 0.05x input, half the usual ratio.",
+          "periods": [ { "rates": { "input": 2, "output": 10, "cacheWrite": 2.5, "cacheRead": 0.1 } } ]
         },
         {
           "id": "claude-sonnet-5",
