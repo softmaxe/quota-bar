@@ -281,6 +281,20 @@
         },
         { "id": "claude-sonnet-4", "periods": [ { "rates": { "input": 3, "output": 15, "cacheWrite": 3.75, "cacheRead": 0.3 } } ] },
         {
+          "id": "claude-haiku-5-5",
+          "showInSettings": true,
+          "note": "A request whose prompt, cache reads and writes included, is over 100K tokens pays 5x every rate.",
+          "periods": [
+            {
+              "rates": {
+                "input": 0.1, "output": 0.5, "cacheWrite": 0.125, "cacheRead": 0.01,
+                "thresholdTokens": 100000,
+                "inputAbove": 0.5, "outputAbove": 2.5, "cacheWriteAbove": 0.625, "cacheReadAbove": 0.05
+              }
+            }
+          ]
+        },
+        {
           "id": "claude-haiku-4-5",
           "showInSettings": true,
           "periods": [ { "rates": { "input": 1, "output": 5, "cacheWrite": 1.25, "cacheRead": 0.1 } } ]

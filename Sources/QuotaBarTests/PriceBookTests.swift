@@ -182,6 +182,29 @@ enum PriceBookTests {
         )
         Harness.expectClose(rates("claude-sonnet-5", .claude)?.cacheRead, 0.2, "claude-sonnet-5 keeps the standard 0.1x cache-read rate")
 
+        // Haiku 5.5 is the one Claude model priced by prompt length: over 100K tokens, cache
+        // included, every rate is 5x.
+        let haiku55 = rates("claude-haiku-5-5", .claude)
+        Harness.expectEqual(
+            haiku55,
+            ModelPricing(
+                input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01,
+                thresholdTokens: 100_000,
+                inputAbove: 0.5, outputAbove: 2.5, cacheWriteAbove: 0.625, cacheReadAbove: 0.05
+            ),
+            "claude-haiku-5-5 rates match the published table"
+        )
+        Harness.expectClose(haiku55?.cacheWrite1hRate(longContext: false), 0.2, "claude-haiku-5-5 one-hour cache-write rate is derived")
+        Harness.expectClose(haiku55?.cacheWrite1hRate(longContext: true), 1, "claude-haiku-5-5 long-context one-hour cache-write rate is derived")
+        let atThreshold = TokenTotals(input: 10_000, cacheWrite: 10_000, cacheRead: 80_000)
+        Harness.expect(
+            !RateCard().isLongContext(atThreshold, model: "claude-haiku-5-5", provider: .claude, day: "2026-09-25"),
+            "a claude-haiku-5-5 prompt of exactly 100K tokens bills the lower rates"
+        )
+        Harness.expect(
+            RateCard().isLongContext(atThreshold + TokenTotals(cacheRead: 1), model: "claude-haiku-5-5", provider: .claude, day: "2026-09-25"),
+            "cache reads count toward the claude-haiku-5-5 prompt length"
+        )
         let haiku = rates("claude-3-5-haiku", .claude)
         Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
         Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
@@ -228,7 +251,7 @@ enum PriceBookTests {
             16,
             "claude-opus-5-5 Fast one-hour cache-write rate is 2x Fast input"
         )
-        for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-4-5"] {
+        for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"] {
             Harness.expect(rates(id, .claude, fast: true) == nil, "\(id) has no Fast price")
         }
     }
