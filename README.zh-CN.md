@@ -13,7 +13,7 @@
 
 [安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#编辑模型费率) · [开发](#构建与开发) · [排查](#排查)
 
-截图和动画使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
+截图使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
 
 ## 功能
 
@@ -100,15 +100,6 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 检测到额度重置后，打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
 
-<details>
-<summary>额度重置动画</summary>
-
-<p align="center">
-  <img src="docs/images/quota-reset.gif" width="560" alt="简短的额度重置动效，标题始终显示新读数">
-</p>
-
-</details>
-
 ### 刷新与错误恢复
 
 在设置中选择手动刷新，或每 1、2、5、15、30 分钟刷新一次，默认 5 分钟。
@@ -170,15 +161,6 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 | **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
 
 缺失的 Standard 费率可在 **Settings → Pricing** 中补充。Fast 用量需要内置价格表提供倍率，不能通过手动覆盖费率补充。
-
-<details>
-<summary>图表日期预览</summary>
-
-<p align="center">
-  <img src="docs/images/chart-hover.gif" width="560" alt="图表按日期预览 token 总量，Model breakdown 默认折叠">
-</p>
-
-</details>
 
 ### 数据来源
 
@@ -312,7 +294,7 @@ make app
 | `make benchmark-cost` | 使用离线价格测试 Codex 扫描性能，会读取本地日志。 |
 | `make benchmark-cost PROVIDER=claude` | 使用相同的离线价格测试 Claude 扫描性能。 |
 | `make logs` | 持续显示 `com.quotabar.app` 的日志。 |
-| `make readme-assets` | 重新生成截图、状态示例和 GIF。 |
+| `make readme-assets` | 重新生成截图和状态示例。 |
 | `make clean` | 删除构建产物。 |
 
 `make probe` 会输出账号和用量元数据，分享前请先检查内容。
