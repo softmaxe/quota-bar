@@ -198,6 +198,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -235,6 +237,11 @@ jobs:
             cd dist
             sha256sum -c "${zip_name}.sha256"
           )
+
+      - name: Attest release archive
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/QuotaBar-${{ steps.metadata.outputs.version }}-macos-arm64.zip
 
       - name: Ensure tag has no existing release
         run: |
