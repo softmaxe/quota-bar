@@ -28,7 +28,6 @@ enum QuotaResetLabel {
 struct ResetLabel: View {
     let text: String
     let mode: QuotaResetDisplayMode
-    var previewHovered = false
     let onModeChanged: (QuotaResetDisplayMode) -> Void
 
     var body: some View {
@@ -48,7 +47,7 @@ struct ResetLabel: View {
                     + Text(Image(systemName: "chevron.down"))
                     .font(.system(size: 7, weight: .bold))
             )
-            .foregroundStyle(self.previewHovered ? Color.primary : Color.secondary)
+            .foregroundStyle(Color.secondary)
             .fixedSize(horizontal: true, vertical: false)
         }
         .menuStyle(.borderlessButton)

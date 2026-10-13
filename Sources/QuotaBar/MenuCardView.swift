@@ -30,10 +30,6 @@ struct MenuCardView: View {
     var onCostBreakdownExpandedChanged: (Bool, String?) -> Void = { _, _ in }
     var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
-    /// Draws one window's reset label as though the pointer were on it. Only the frame dump sets
-    /// it: off screen there is no pointer, and the lift on hover is the whole of what tells a
-    /// reader the label is a switch.
-    var hoveredResetLabelWindow: QuotaWindowKind?
     var onProviderSelected: (Provider) -> Void = { _ in }
     var onRefresh: () -> Void = {}
     var onOpenPricing: () -> Void = {}
@@ -310,7 +306,6 @@ struct MenuCardView: View {
             celebrationStartPercent: self.recoveries[kind]?.fromRemainingPercent,
             now: self.now,
             resetDisplayMode: self.quotaResetDisplayMode,
-            isResetLabelHovered: kind == self.hoveredResetLabelWindow,
             onResetDisplayModeChanged: self.onQuotaResetDisplayModeChanged
         )
     }
@@ -396,7 +391,6 @@ private struct QuotaWindowRow: View {
     /// and in the verifiers as it does against the wall clock.
     let now: Date
     let resetDisplayMode: QuotaResetDisplayMode
-    let isResetLabelHovered: Bool
     let onResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void
 
     @StateObject private var celebration = QuotaCelebrationRelay()
@@ -467,7 +461,6 @@ private struct QuotaWindowRow: View {
                     now: self.now
                 ),
                 mode: self.resetDisplayMode,
-                previewHovered: self.isResetLabelHovered,
                 onModeChanged: self.onResetDisplayModeChanged
             )
         }

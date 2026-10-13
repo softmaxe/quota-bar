@@ -23,7 +23,7 @@ enum TabSwitchMotion {
                      duration: Self.trailDuration)
     }
 
-    /// The control points shared by both selection edges and the motion filmstrip.
+    /// The control points shared by both selection edges.
     static let control1 = (x: 0.16, y: 1.0)
     static let control2 = (x: 0.3, y: 1.0)
 
@@ -63,32 +63,4 @@ enum TabSwitchMotion {
         transaction.disablesAnimations = true
         withTransaction(transaction, change)
     }
-
-#if DEBUG
-    /// Samples the animation curve for the motion filmstrip.
-    static func progress(at time: TimeInterval, duration: TimeInterval) -> Double {
-        guard duration > 0 else { return 1 }
-        let fraction = min(max(time / duration, 0), 1)
-        return Self.bezierY(atX: fraction)
-    }
-
-    /// A unit cubic Bézier from (0,0) to (1,1) through the two control points, solved for x by
-    /// bisection. Twenty steps put the answer well inside a pixel at any width this bar has.
-    private static func bezierY(atX x: Double) -> Double {
-        var low = 0.0
-        var high = 1.0
-        var t = x
-        for _ in 0..<20 {
-            let current = Self.bezier(t, Self.control1.x, Self.control2.x)
-            if current < x { low = t } else { high = t }
-            t = (low + high) / 2
-        }
-        return Self.bezier(t, Self.control1.y, Self.control2.y)
-    }
-
-    private static func bezier(_ t: Double, _ p1: Double, _ p2: Double) -> Double {
-        let inverse = 1 - t
-        return 3 * inverse * inverse * t * p1 + 3 * inverse * t * t * p2 + t * t * t
-    }
-#endif
 }

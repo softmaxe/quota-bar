@@ -13,21 +13,8 @@ enum CostChartHoverMotion {
     /// selected, so the card is the same height with the pointer on it as without.
     static var markerBand: CGFloat { Self.markerGap + Self.markerHeight }
 
-    /// How wide the mark is on a bar that is not selected, as a share of the bar's width. It opens
-    /// out of the bar's centre and closes back into it, so a move between neighbours reads as one
-    /// mark travelling rather than as two fading past each other.
-    static let markerRestWidth: Double = 0.3
-
-    /// The mark's width on a bar that is `share` of the way selected, 0 to 1. The film strip walks
-    /// this between two bars; the card only ever asks for the ends.
-    static func markerWidth(share: Double) -> Double {
-        let share = min(1, max(0, share))
-        return Self.markerRestWidth + (1 - Self.markerRestWidth) * share
-    }
-
     /// Keep the selection cue close to the pointer as it moves between bars.
     static let hoverResponse: TimeInterval = 0.14
-    /// Internal rather than private so the README film strip can sample the same spring.
     static let hoverDamping: Double = 1
     /// Clearing the hover settles without pulling attention from the chart.
     static let clearResponse: TimeInterval = 0.16

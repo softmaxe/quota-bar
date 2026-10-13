@@ -55,7 +55,7 @@ Dark and light sample views, signed-out guidance, a cooldown error, and an inval
 
 Preview uses sample providers, a separate preference suite, temporary history, and no-op pricing writes. Use its Quit command for cleanup. It does not use CLI credentials or scan real session files. Normal app launch retains the real integrations.
 
-`make readme-assets` regenerates the documentation images, motion examples, and all five interaction state screenshots. `--dump-interaction-states` can also render just those state screenshots. The generated `.build` directory is ordinary local build output.
+`make readme-assets` regenerates the documentation images and all five interaction state screenshots. `--dump-interaction-states` can also render just those state screenshots. The generated `.build` directory is ordinary local build output.
 
 ## README synchronization
 
@@ -63,6 +63,6 @@ The English and Simplified Chinese READMEs describe the same controls, keyboard 
 
 The root READMEs show current product views. The annotated before/after boards in `design-proposal/` remain the historical design baseline and are labeled accordingly.
 
-The reset GIF now keeps the new percentage visible throughout the animation and reuses the production reset-time menu below the bar. The obsolete, unreferenced label-click unit-toggle GIF was removed. The asset script converts hosted screenshots to sRGB before compositing or GIF encoding, preserving provider colors when ffmpeg drops the source color profile.
+The asset script converts hosted screenshots to sRGB before compositing, preserving provider colors when ffmpeg drops the source color profile.
 
-The documentation follow-up checked both READMEs for matching image references and command examples. Representative screenshots and GIF frames were visually inspected. Run `make readme-assets` when documentation images need updating.
+The documentation follow-up checked both READMEs for matching image references and command examples. Representative screenshots were visually inspected. Run `make readme-assets` when documentation images need updating.

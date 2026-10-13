@@ -13,9 +13,7 @@ Check Codex and Claude quota, reset times, local token usage, and estimated API 
 
 [Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
-https://github.com/user-attachments/assets/f46bd989-6a1d-4de5-a88a-94dbd85d790f
-
-The video, screenshots, and animations use sample data. The app is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
+Screenshots use sample data. The app is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
 ## Features
 
@@ -102,15 +100,6 @@ Expand **Usage pace details** for reserve, deficit, and headroom. QuotaBar compa
 
 After QuotaBar detects a reset, opening the card plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
 
-<details>
-<summary>Quota reset animation</summary>
-
-<p align="center">
-  <img src="docs/images/quota-reset.gif" width="560" alt="Brief quota reset feedback while the headline keeps the new reading">
-</p>
-
-</details>
-
 ### Refresh and recovery
 
 Choose manual refresh or an interval of 1, 2, 5, 15, or 30 minutes in Settings. The default is 5 minutes.
@@ -172,15 +161,6 @@ The chart distinguishes zero usage from missing data:
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
 For missing Standard rates, use **Settings → Pricing**. Fast usage needs a multiplier in the bundled price book and cannot be priced with a manual override.
-
-<details>
-<summary>Chart date previews</summary>
-
-<p align="center">
-  <img src="docs/images/chart-hover.gif" width="560" alt="Chart date previews with token totals and a collapsed Model breakdown">
-</p>
-
-</details>
 
 ### Data sources
 
@@ -314,8 +294,7 @@ make app
 | `make benchmark-cost` | Benchmark Codex scans with offline pricing; reads local logs. |
 | `make benchmark-cost PROVIDER=claude` | Benchmark Claude with the same offline pricing. |
 | `make logs` | Stream logs for `com.quotabar.app`. |
-| `make readme-assets` | Rebuild screenshots, state examples, and GIFs. |
-| `make demo-video` | Render the README demo videos with music. |
+| `make readme-assets` | Rebuild screenshots and state examples. |
 | `make clean` | Remove build output. |
 
 `make probe` prints account and usage metadata. Review its output before sharing it.
@@ -335,8 +314,6 @@ make build
 Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
-
-`make demo-video` renders [docs/demo](docs/demo) to `build/demo/quotabar-demo-en.mp4` and `build/demo/quotabar-demo-zh.mp4`. It requires ffmpeg, Node.js, `playwright-cli`, and Brave. Set `CHROMIUM_PATH` to use another Chromium browser. The first run downloads instrument samples. Upload new videos as attachments in a GitHub comment and replace the links at the top of both READMEs.
 
 Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report-export.md#verification) and [rendering notes](docs/design-implementation.md).
 

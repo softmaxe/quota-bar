@@ -109,16 +109,14 @@ enum CardDump {
     }
 
     /// Lays a view out at its natural size and writes one PNG of it. The dumps name the size they
-    /// wrote, since a layout regression usually shows up there first; frame dumps that print their
-    /// own count pass `reporting: false`.
+    /// wrote, since a layout regression usually shows up there first.
     private static func capture(
         _ view: some View,
         named name: String,
         into root: URL,
         appearance: NSAppearance? = nil,
         titled: Bool = false,
-        settle: TimeInterval = 0,
-        reporting: Bool = true
+        settle: TimeInterval = 0
     ) {
         let hosting = NSHostingView(rootView: view.environment(\.controlActiveState, .active))
         hosting.appearance = appearance
@@ -130,7 +128,6 @@ enum CardDump {
             titled: titled,
             settle: settle
         )
-        guard reporting else { return }
         switch outcome {
         case let .written(url):
             print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
@@ -206,79 +203,8 @@ enum CardDump {
         )
     }
 
-    /// `--dump-chart-hover <dir> <provider>` walks the highlight across every bar of the cost
-    /// chart, one PNG per day. The frames carry the breakdown each bar opens, not the spring that
-    /// carries the highlight between them — a still cannot hold a spring.
-    static func dumpChartHover(directory: String, provider: Provider) {
-        let root = OffscreenCapture.directory(directory)
-        let cost = Self.sampleCost(provider)
-        guard let today = cost.days.last else { return }
-
-        for (index, day) in cost.days.enumerated() {
-            Self.capture(
-                CostSectionView(
-                    snapshot: cost,
-                    previewHoveredDayKey: day.dayKey,
-                    previewTodayDayKey: today.dayKey
-                ).padding(14).frame(width: 280),
-                named: String(format: "frame-%04d", index),
-                into: root,
-                reporting: false
-            )
-        }
-        print("wrote \(cost.days.count) chart hover frames to \(root.path)")
-    }
-
-    /// `--dump-reset-toggle <dir> <provider>` previews both reset-time display modes: the
-    /// pointer arrives on the session menu, then the countdown changes to clock time and back.
-    /// Both windows change together because the choice belongs to the card.
-    ///
-    /// Selecting a menu choice changes the label without a transition, so the frames hold each
-    /// face. The dump seeds hover because off screen there is no pointer.
-    static func dumpResetToggle(directory: String, provider: Provider) {
-        let root = OffscreenCapture.directory(directory)
-        let display = ProviderDisplay(
-            snapshot: Self.loadedSnapshot(provider),
-            cost: Self.sampleCost(provider)
-        )
-        // Nothing moves inside a beat, so the frames are held rather than sampled, and the beat
-        // is counted in frames rather than in seconds. The export plays them back at ten a
-        // second, which is a whole number of GIF delay units, so a count here is tenths.
-        let beats: [(mode: QuotaResetDisplayMode, hovered: Bool, frames: Int)] = [
-            (.countdown, false, 9),
-            (.countdown, true, 4),
-            (.clock, true, 15),
-            (.countdown, true, 11),
-            (.countdown, false, 5),
-        ]
-
-        var index = 0
-        for beat in beats {
-            let view = MenuCardView(
-                provider: provider,
-                display: display,
-                isRefreshing: false,
-                animatesFill: false,
-                quotaResetDisplayMode: beat.mode,
-                hoveredResetLabelWindow: beat.hovered ? .session : nil
-            )
-            let hosting = NSHostingView(rootView: view)
-            hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
-            // The card is laid out once per beat and captured once per frame it is held for.
-            for _ in 0..<beat.frames {
-                _ = OffscreenCapture.writePNG(
-                    hosting,
-                    named: String(format: "frame-%04d", index),
-                    into: root
-                )
-                index += 1
-            }
-        }
-        print("wrote \(index) reset toggle frames to \(root.path)")
-    }
-
-    /// The loaded card each provider is drawn from, shared with the reset toggle dump so both
-    /// carry the same account.
+    /// The loaded card each provider is drawn from, shared with the preview and verifiers so
+    /// they all carry the same account.
     static func loadedSnapshot(_ provider: Provider) -> UsageSnapshot {
         let now = Date().addingTimeInterval(-5 * 60)
         switch provider {
