@@ -14,7 +14,8 @@ jobs:
   preflight:
     name: Preflight
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     environment: release
     env:
       GH_TOKEN: ${{ github.token }}
@@ -44,6 +45,7 @@ jobs:
   build:
     name: Build arm64
     runs-on: xcode-27
+    timeout-minutes: 45
     env:
       ARCH: arm64
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
@@ -70,6 +72,8 @@ jobs:
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Require the native menu bar SDK
         run: |
@@ -190,7 +194,8 @@ jobs:
     name: Release
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     needs: [preflight, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     env:
@@ -264,35 +269,34 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     needs: release
     runs-on: macos-15
+    timeout-minutes: 20
     environment: release
     permissions:
       contents: read
+    env:
+      TAG: ${{ github.ref_name }}
+      TAP_DIR: ${{ github.workspace }}/homebrew-tap
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_DEVELOPER: "1"
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Update Homebrew
         run: brew update
 
+      # The tap is public, so it is cloned without credentials; the tap token is
+      # exposed only to the final push step, never to Homebrew.
       - name: Update tap cask
-        env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_DEVELOPER: "1"
         run: |
           set -euo pipefail
-          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
-            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
-            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in the release environment of softmaxe/quota-bar." >&2
-            exit 1
-          fi
-
           version="${TAG#v}"
           echo "Bump tap to $version ($TAG)"
 
-          tmp_tap="$(mktemp -d)"
           tmp_dist="$(mktemp -d)"
-          trap 'rm -rf "$tmp_tap" "$tmp_dist"' EXIT
+          trap 'rm -rf "$tmp_dist"' EXIT
 
-          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git" "$tmp_tap"
+          git clone https://github.com/softmaxe/homebrew-tap.git "$TAP_DIR"
 
           # Fetch from the same public download URL the cask uses. The API's by-tag release lookup
           # can serve a cached copy without assets right after publishing.
@@ -308,7 +312,7 @@ jobs:
             exit 1
           fi
 
-          cask="$tmp_tap/Casks/quota-bar.rb"
+          cask="$TAP_DIR/Casks/quota-bar.rb"
 
           python3 - "$cask" "$version" "$sha" <<'PY'
           import pathlib, sys, re
@@ -332,17 +336,34 @@ jobs:
           brew info --cask "$cask"
           brew fetch --cask "$cask"
 
-          git -C "$tmp_tap" config user.name "github-actions[bot]"
-          git -C "$tmp_tap" config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C "$tmp_tap" add Casks/quota-bar.rb
-          if git -C "$tmp_tap" diff --cached --quiet; then
+          git -C "$TAP_DIR" config user.name "github-actions[bot]"
+          git -C "$TAP_DIR" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$TAP_DIR" add Casks/quota-bar.rb
+          if git -C "$TAP_DIR" diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
           fi
-          git -C "$tmp_tap" commit -m "chore: bump quota-bar to ${version}"
+          git -C "$TAP_DIR" commit -m "chore: bump quota-bar to ${version}"
+
+      - name: Push tap
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
+            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
+            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in the release environment of softmaxe/quota-bar." >&2
+            exit 1
+          fi
+          if [[ "$(git -C "$TAP_DIR" rev-parse HEAD)" == "$(git -C "$TAP_DIR" rev-parse origin/main)" ]]; then
+            echo "Tap is already current"
+            exit 0
+          fi
+
+          remote="https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git"
           # Handle concurrent pushes to the tap (e.g., other formula bumps) by rebasing and retrying.
           for attempt in 1 2 3; do
-            if git -C "$tmp_tap" push origin main; then
+            if git -C "$TAP_DIR" push "$remote" HEAD:main; then
               break
             fi
             if [[ "$attempt" -eq 3 ]]; then
@@ -351,6 +372,6 @@ jobs:
             fi
             echo "Push rejected, rebasing tap and retrying (attempt $attempt)..."
             sleep $((attempt * 2))
-            git -C "$tmp_tap" fetch origin main
-            git -C "$tmp_tap" rebase origin/main
+            git -C "$TAP_DIR" fetch origin main
+            git -C "$TAP_DIR" rebase origin/main
           done
