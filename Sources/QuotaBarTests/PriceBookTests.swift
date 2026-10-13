@@ -119,6 +119,16 @@ enum PriceBookTests {
                 inputAbove: 0.8, outputAbove: 3.6, cacheWriteAbove: 1, cacheReadAbove: 0.08
             )),
             ("gpt-5.3-codex", true, ModelPricing(input: 3.5, output: 28, cacheRead: 0.35)),
+            // GPT-5.5 Fast is 2.5x Standard, the one Codex model off the usual 2x.
+            ("gpt-5.5", true, ModelPricing(
+                input: 12.5, output: 75, cacheRead: 1.25,
+                thresholdTokens: 272_000, inputAbove: 25, outputAbove: 112.5, cacheReadAbove: 2.5
+            )),
+            ("gpt-5.4", true, ModelPricing(
+                input: 5, output: 30, cacheRead: 0.5,
+                thresholdTokens: 272_000, inputAbove: 10, outputAbove: 45, cacheReadAbove: 1
+            )),
+            ("gpt-5.4-mini", true, ModelPricing(input: 1.5, output: 9, cacheRead: 0.15)),
             ("codex-mini-latest", false, ModelPricing(input: 1.5, output: 6, cacheRead: 0.375)),
         ]
         for entry in codex {
@@ -164,10 +174,36 @@ enum PriceBookTests {
             ModelPricing(input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5),
             "claude-opus-5 rates match the published table"
         )
+        // Sonnet 5.5 shares Opus 5.5's 0.05x cache-read ratio, unlike Sonnet 5 at 0.1x.
         Harness.expectEqual(
             rates("claude-sonnet-5-5", .claude),
-            ModelPricing(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2),
+            ModelPricing(input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1),
             "claude-sonnet-5-5 rates match the published table"
+        )
+        Harness.expectClose(rates("claude-sonnet-5", .claude)?.cacheRead, 0.2, "claude-sonnet-5 keeps the standard 0.1x cache-read rate")
+
+        // Haiku 5.5 is the one Claude model priced by prompt length: over 100K tokens, cache
+        // included, every rate is 5x.
+        let haiku55 = rates("claude-haiku-5-5", .claude)
+        Harness.expectEqual(
+            haiku55,
+            ModelPricing(
+                input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01,
+                thresholdTokens: 100_000,
+                inputAbove: 0.5, outputAbove: 2.5, cacheWriteAbove: 0.625, cacheReadAbove: 0.05
+            ),
+            "claude-haiku-5-5 rates match the published table"
+        )
+        Harness.expectClose(haiku55?.cacheWrite1hRate(longContext: false), 0.2, "claude-haiku-5-5 one-hour cache-write rate is derived")
+        Harness.expectClose(haiku55?.cacheWrite1hRate(longContext: true), 1, "claude-haiku-5-5 long-context one-hour cache-write rate is derived")
+        let atThreshold = TokenTotals(input: 10_000, cacheWrite: 10_000, cacheRead: 80_000)
+        Harness.expect(
+            !RateCard().isLongContext(atThreshold, model: "claude-haiku-5-5", provider: .claude, day: "2026-09-25"),
+            "a claude-haiku-5-5 prompt of exactly 100K tokens bills the lower rates"
+        )
+        Harness.expect(
+            RateCard().isLongContext(atThreshold + TokenTotals(cacheRead: 1), model: "claude-haiku-5-5", provider: .claude, day: "2026-09-25"),
+            "cache reads count toward the claude-haiku-5-5 prompt length"
         )
         let haiku = rates("claude-3-5-haiku", .claude)
         Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
@@ -215,7 +251,7 @@ enum PriceBookTests {
             16,
             "claude-opus-5-5 Fast one-hour cache-write rate is 2x Fast input"
         )
-        for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-4-5"] {
+        for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"] {
             Harness.expect(rates(id, .claude, fast: true) == nil, "\(id) has no Fast price")
         }
     }

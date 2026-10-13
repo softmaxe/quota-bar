@@ -21,13 +21,10 @@ A pushed `vMAJOR.MINOR.PATCH` tag runs **Build and Release**, which tests,
 packages, publishes the GitHub Release, and bumps `softmaxe/homebrew-tap`.
 
 1. Run `git fetch origin --tags` and list the unreleased commits with
-   `git log --oneline "$(git describe --tags --abbrev=0 origin/main)"..origin/main`.
-   If they are all `docs`, `test`, `ci`, `build`, or `chore`, there is
-   nothing to release; report that and stop.
-2. Pick the version from the highest-ranked commit type:
-   - `!` after the type or a `BREAKING CHANGE` footer: major
-   - `feat`: minor
-   - anything else: patch
+   `git log --oneline "$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' origin/main)"..origin/main`.
+   If there are none, there is nothing to release; report that and stop.
+2. Increment the PATCH of that tag by one, whatever the commit types
+   (`v0.0.1` → `v0.0.2`, `v0.0.9` → `v0.0.10`).
 3. Tag `main` and push the tag:
    `git tag -a vX.Y.Z -m "QuotaBar X.Y.Z" origin/main`, then
    `git push origin vX.Y.Z`.

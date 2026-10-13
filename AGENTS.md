@@ -19,3 +19,5 @@ Before exploring the codebase, read `docs/agents/domain.md`.
 
 Merge pull requests and publish releases through GitHub.
 Before merging a PR or tagging a release, read `docs/agents/release.md`.
+When the user asks to update the version ("更新版本"), publish a release as
+`docs/agents/release.md` describes.
