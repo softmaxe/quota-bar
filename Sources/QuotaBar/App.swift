@@ -19,9 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.store.start()
         // Pricing no longer reads the models.dev catalog that 1.0.x cached.
         AppSupport.removeLegacyCatalogCache()
-        if CommandLine.arguments.contains("--show-export-settings") {
-            self.controller?.showExportSettings()
-        }
         Log.ui.info("QuotaBar launched")
         print("QuotaBar launched — use the Quit menu item or Ctrl-C to stop.")
     }
@@ -81,8 +78,7 @@ enum QuotaBarApp {
             ExportReportVerifier.exportLive(to: destination)
         }
 
-        if let state = values(after: "--preview-interface", count: 1)?.first
-            ?? (Bundle.main.object(forInfoDictionaryKey: "QuotaBarPreviewState") as? String) {
+        if let state = values(after: "--preview-interface", count: 1)?.first {
             InterfacePreview.run(state: state)
         }
 
