@@ -75,11 +75,6 @@ enum Formatters {
         return String(format: "$%.2f", value)
     }
 
-    /// "2026-08-24" — the key a `CostDay` is filed under.
-    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
-        DayKey.make(from: date, calendar: calendar)
-    }
-
     /// "2026-08-24" -> "Aug 24".
     static func dayLabel(_ dayKey: String) -> String {
         let parts = dayKey.split(separator: "-")

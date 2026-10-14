@@ -45,7 +45,7 @@ struct CostSectionView: View {
         onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in },
         onOpenPricing: (() -> Void)? = nil
     ) {
-        let todayKey = previewTodayDayKey ?? Formatters.dayKey(for: Date())
+        let todayKey = previewTodayDayKey ?? DayKey.make(from: Date())
         let bars = CostChartHighlightPolicy.visibleDays(
             from: snapshot.days,
             todayDayKey: todayKey,
