@@ -156,14 +156,6 @@ private struct RecordedRow {
     let tokens: TokenTotals
 }
 
-/// How one snapshot batch's rows are flagged when first stored.
-private struct SnapshotBatch {
-    let included: Bool
-    /// OpenCode rows stored by the first pass after the account check shipped, whose eligibility
-    /// was inferred from the current sign-in rather than known when they were written.
-    let legacyInferred: Bool
-}
-
 extension UsageRecorder {
     /// Which adapter reads each Usage source's logs.
     private func record(_ source: CostUsageSource, rateCard: RateCard, env: [String: String]) -> Int {
@@ -204,16 +196,15 @@ extension UsageRecorder {
         }
     }
 
-    /// Merges a request from a snapshot, flagged as its batch says.
-    private func merge(_ row: RecordedRow, from source: SnapshotSource, batch: SnapshotBatch) throws {
+    /// Merges a request from a snapshot. `included` is written only when the row is first seen.
+    private func merge(_ row: RecordedRow, from source: SnapshotSource, included: Bool) throws {
         switch source {
         case .openCode:
             // One row per part, rewritten only when its content changes. `included` is written
             // only when the part is first seen.
             try self.cache.addOpenCodePart(
                 key: try Self.key(of: row, from: source.usageSource),
-                included: batch.included,
-                legacyInferred: batch.legacyInferred,
+                included: included,
                 day: row.day,
                 model: row.model,
                 longContext: row.longContext,
@@ -225,24 +216,12 @@ extension UsageRecorder {
             // only when the message is first seen. Pi Agent records no Fast flag.
             try self.cache.addPiMessage(
                 key: try Self.key(of: row, from: source.usageSource),
-                included: batch.included,
+                included: included,
                 day: row.day,
                 model: row.model,
                 longContext: row.longContext,
                 totals: row.tokens
             )
-        }
-    }
-
-    /// How a snapshot batch is flagged. The first OpenCode pass after the account check shipped
-    /// marks what it includes as inferred, since those rows may predate the sign-in that now
-    /// decides them; Pi Agent has no such history.
-    private func batch(for source: SnapshotSource, included: Bool) throws -> SnapshotBatch {
-        switch source {
-        case .openCode:
-            SnapshotBatch(included: included, legacyInferred: try included && !self.cache.hasCompletedOpenCodeBackfill())
-        case .piAgent:
-            SnapshotBatch(included: included, legacyInferred: false)
         }
     }
 
@@ -561,13 +540,11 @@ extension UsageRecorder {
         rateCard: RateCard
     ) throws {
         let provider = source.usageSource.provider
-        let batch = try self.batch(for: source, included: included)
         try self.cache.beginTransaction()
         do {
             for request in requests {
-                try self.merge(Self.row(for: request, provider: provider, rateCard: rateCard), from: source, batch: batch)
+                try self.merge(Self.row(for: request, provider: provider, rateCard: rateCard), from: source, included: included)
             }
-            if batch.legacyInferred { try self.cache.markOpenCodeBackfillComplete() }
             try self.cache.commit()
         } catch {
             self.cache.rollback()
