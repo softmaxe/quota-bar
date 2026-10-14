@@ -15,11 +15,14 @@ struct QuotaHeadline: View {
         HStack(alignment: .firstTextBaseline) {
             Text(self.title)
             Spacer(minLength: 8)
+            // A new reading rolls in from the direction it moved, over a tenth of a second.
             Text("\(Formatters.percent(self.percent)) left")
                 .monospacedDigit()
+                .rollingValue(self.percent, direction: self.percent)
                 .overlay {
                     Text("\(Formatters.percent(self.percent)) left")
                         .monospacedDigit()
+                        .rollingValue(self.percent, direction: self.percent)
                         .foregroundStyle(self.tint.opacity(self.accentOpacity))
                 }
         }

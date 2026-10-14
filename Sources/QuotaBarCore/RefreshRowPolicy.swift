@@ -28,11 +28,14 @@ public enum RefreshRowPolicy {
         public let title: String
         public let trailingText: String?
         public let isEnabled: Bool
+        /// The title names work in flight, which the menu shows as working rather than as text.
+        public let isInProgress: Bool
 
-        public init(title: String, trailingText: String?, isEnabled: Bool) {
+        public init(title: String, trailingText: String?, isEnabled: Bool, isInProgress: Bool = false) {
             self.title = title
             self.trailingText = trailingText
             self.isEnabled = isEnabled
+            self.isInProgress = isInProgress
         }
     }
 
@@ -47,7 +50,7 @@ public enum RefreshRowPolicy {
         // An in-flight refresh also holds the cooldown, so it is reported as what it is rather
         // than as a countdown the user cannot act on yet.
         if isRefreshing {
-            return State(title: action.progressTitle, trailingText: nil, isEnabled: false)
+            return State(title: action.progressTitle, trailingText: nil, isEnabled: false, isInProgress: true)
         }
 
         // A read-only automatic attempt may discover an expired Claude credential. The existing

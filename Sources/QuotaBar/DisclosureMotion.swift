@@ -1,7 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// Popover disclosures resize once, keeping text fixed while the chevron acknowledges the click.
+/// Popover disclosures resize once. The chevron acknowledges the click and the new content rises
+/// into place, while the text around it stays fixed.
 struct PopoverDisclosureStyle: DisclosureGroupStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -21,7 +22,7 @@ struct PopoverDisclosureStyle: DisclosureGroupStyle {
                 .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
             .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(configuration.isExpanded ? "Collapse details" : "Expand details")
 
@@ -30,6 +31,8 @@ struct PopoverDisclosureStyle: DisclosureGroupStyle {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 16)
+                    // The height cuts open; only the content's own drawing moves.
+                    .cardReveal()
                     .transition(.identity)
             }
         }
