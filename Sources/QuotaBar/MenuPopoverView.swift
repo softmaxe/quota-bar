@@ -42,8 +42,16 @@ private struct MenuContentHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+/// How far the card has scrolled from its top.
+private struct MenuScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct MenuPopoverView: View {
     @ObservedObject var model: MenuPopoverModel
+    @State private var scrollOffset: CGFloat = 0
+    private static let scrollSpace = "menuScroll"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,12 +62,28 @@ struct MenuPopoverView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .background {
                         GeometryReader { geometry in
-                            Color.clear.preference(key: MenuContentHeightKey.self, value: geometry.size.height)
+                            Color.clear
+                                .preference(key: MenuContentHeightKey.self, value: geometry.size.height)
+                                .preference(
+                                    key: MenuScrollOffsetKey.self,
+                                    value: -geometry.frame(in: .named(Self.scrollSpace)).minY
+                                )
                         }
                     }
             }
+            .coordinateSpace(.named(Self.scrollSpace))
             .scrollBounceBehavior(.basedOnSize)
             .frame(width: 280, height: self.model.viewportHeight, alignment: .topLeading)
+            // A card taller than the screen fades out at whichever edge still has more to show.
+            .mask {
+                ScrollEdgeFadeMask(
+                    top: self.scrollOffset,
+                    bottom: self.model.contentHeight - self.model.viewportHeight - self.scrollOffset
+                )
+            }
+            .onPreferenceChange(MenuScrollOffsetKey.self) { offset in
+                if abs(self.scrollOffset - offset) > 0.25 { self.scrollOffset = offset }
+            }
             .onPreferenceChange(MenuContentHeightKey.self) { height in
                 let rounded = height.rounded(.up)
                 guard rounded > 0, abs(self.model.contentHeight - rounded) > 0.5 else { return }
@@ -73,7 +97,8 @@ struct MenuPopoverView: View {
                 if self.model.showsRefresh {
                     MenuPopoverAction(
                         title: self.model.refreshState.title, symbol: "arrow.clockwise",
-                        trailing: self.model.refreshState.trailingText ?? "⌘R", action: self.model.onRefresh
+                        trailing: self.model.refreshState.trailingText ?? "⌘R",
+                        isWorking: self.model.refreshState.isInProgress, action: self.model.onRefresh
                     )
                     .disabled(!self.model.refreshState.isEnabled)
                     .keyboardShortcut("r", modifiers: .command)
@@ -99,6 +124,7 @@ private struct MenuPopoverAction: View {
     let title: String
     let symbol: String
     let trailing: String
+    var isWorking = false
     let action: () -> Void
     @State private var hovered = false
     @FocusState private var focused: Bool
@@ -107,7 +133,11 @@ private struct MenuPopoverAction: View {
         Button(action: self.action) {
             HStack(spacing: 8) {
                 Image(systemName: self.symbol).frame(width: 15)
-                Text(self.title)
+                if self.isWorking {
+                    WorkingLabel(title: self.title)
+                } else {
+                    Text(self.title)
+                }
                 Spacer()
                 Text(self.trailing).foregroundStyle(.secondary).accessibilityHidden(true)
             }
@@ -116,7 +146,7 @@ private struct MenuPopoverAction: View {
             .frame(height: 24)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ControlFeedbackStyle())
+        .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .foregroundStyle(self.isEnabled ? .primary : .tertiary)
         .background(self.isEnabled && self.hovered ? Color.primary.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 5))

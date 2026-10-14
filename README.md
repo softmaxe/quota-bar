@@ -311,7 +311,7 @@ make build
 .build/debug/QuotaBar --preview-interface loaded
 ```
 
-Use `signed-out` or `stale` instead of `loaded` to inspect those states. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
+Use `signed-out` or `stale` instead of `loaded` to inspect those states, or `motion` to watch the card's animations with slowed sample data. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
 
@@ -326,7 +326,7 @@ To create a test package, run **Build and Release** from the repository's **Acti
 
 To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. Local `make app` builds use the nearest reachable release tag, or `0.0.0` if none exists. Set `VERSION` to override it.
 
-The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs must point at a commit on `main` and require the `TAP_GITHUB_TOKEN` secret in the `release` environment, which only `v*` tags can use. Both **Release** and **Update Homebrew tap** must succeed.
+The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs must point at a commit on `main` and require the `HOMEBREW_TAP_TOKEN` secret in the `homebrew-tap` environment, which only `v*.*.*` tags can use. Both **Release** and **Update Homebrew tap** must succeed.
 
 </details>
 

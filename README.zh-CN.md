@@ -311,7 +311,7 @@ make build
 .build/debug/QuotaBar --preview-interface loaded
 ```
 
-将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
+将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态；换成 `motion` 可用放慢的示例数据观察卡片动效。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
 
@@ -326,7 +326,7 @@ make build
 
 发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
 
-工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `release` 环境中的 `TAP_GITHUB_TOKEN` secret，该环境只允许 `v*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
+工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 
