@@ -8,15 +8,15 @@ enum PricingSortVerifier {
     static func run() -> Never {
         var failures: [String] = []
 
-        let model = PricingEditorModel(costService: CostService())
+        let model = PricingTableModel(costService: CostService())
         model.debugSetRows([
-            Self.row("claude-opus-4", usageTokens: 900, input: "15", output: "75", cacheRead: "1.5", settingsRank: 1),
-            Self.row("claude-haiku-4", usageTokens: 5_000, input: "1", output: "5", cacheRead: "0.1"),
-            Self.row("claude-sonnet-4", usageTokens: 20, input: "3", output: "15", cacheRead: "0.3", settingsRank: 0),
+            Self.row("claude-opus-4", usageTokens: 900, input: 15, output: 75, cacheRead: 1.5, settingsRank: 1),
+            Self.row("claude-haiku-4", usageTokens: 5_000, input: 1, output: 5, cacheRead: 0.1),
+            Self.row("claude-sonnet-4", usageTokens: 20, input: 3, output: 15, cacheRead: 0.3, settingsRank: 0),
             // Seen in the logs but priced nowhere, which is the row a rate sort has to place.
-            Self.row("claude-next", usageTokens: 40, input: "", output: "", cacheRead: ""),
-            Self.row("other-z", usageTokens: 900, input: "", output: "", cacheRead: "", group: .others),
-            Self.row("other-a", usageTokens: 10, input: "", output: "", cacheRead: "", group: .others),
+            Self.row("claude-next", usageTokens: 40, input: nil, output: nil, cacheRead: nil),
+            Self.row("other-z", usageTokens: 900, input: nil, output: nil, cacheRead: nil, group: .others),
+            Self.row("other-a", usageTokens: 10, input: nil, output: nil, cacheRead: nil, group: .others),
         ])
 
         func names() -> [String] { model.rows(in: .claude).map(\.model) }
@@ -71,11 +71,6 @@ enum PricingSortVerifier {
             failures.append("reset did not restore configured ranks and usage order")
         }
 
-        // Sorting is a view of the rows, not an edit of them: nothing to save from a click.
-        if model.hasUnsavedChanges {
-            failures.append("sorting the table marked the rates as edited")
-        }
-
         VerifierReport.finish(
             failures,
             label: "pricing sort verification",
@@ -86,31 +81,23 @@ enum PricingSortVerifier {
     private static func row(
         _ model: String,
         usageTokens: Int,
-        input: String,
-        output: String,
-        cacheRead: String,
+        input: Double?,
+        output: Double?,
+        cacheRead: Double?,
         group: PricingGroup = .claude,
         settingsRank: Int? = nil
     ) -> PricingRow {
-        PricingRow(
-            provider: group == .claude ? .claude : .codex,
+        let rates = input.flatMap { input in
+            output.map { ModelPricing(input: input, output: $0, cacheRead: cacheRead) }
+        }
+        return PricingRow(
             group: group,
             model: model,
             seenInLogs: usageTokens > 0,
-            hasDefault: !input.isEmpty,
             usageTokens: usageTokens,
             settingsRank: settingsRank,
-            input: input,
-            output: output,
-            cacheWrite: "",
-            cacheWrite1h: "",
-            cacheRead: cacheRead,
-            thresholdTokens: "",
-            inputAbove: "",
-            outputAbove: "",
-            cacheWriteAbove: "",
-            cacheWrite1hAbove: "",
-            cacheReadAbove: ""
+            rates: rates,
+            source: rates == nil ? nil : .priceBook
         )
     }
 }

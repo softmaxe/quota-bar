@@ -2,14 +2,15 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// Editable rate table. Rows are pre-filled with the rates currently in force, so editing one
-/// is a correction rather than a blank form. The four columns are the rates that move most;
+/// The rates every cost estimate uses, read only. The four columns are the rates that move most;
 /// the disclosure behind each row carries the rest of what the billing math reads.
 struct PricingSettingsView: View {
-    @ObservedObject var model: PricingEditorModel
+    @ObservedObject var model: PricingTableModel
     /// The settings window keeps this pane mounted behind the General one so the tabs can
     /// cross-fade, so reading the scan cache waits for the tab to actually be opened.
     var isLoadEnabled = true
+    /// Changes whenever the pane comes back into view, which rereads the rates.
+    var reload = 0
     @State private var expandedGroups = Set(PricingGroup.allCases)
     /// The column under the pointer, so an unsorted header can show the arrow a click would
     /// give it. Without it a sorted-by-nothing header looks like plain text.
@@ -28,12 +29,12 @@ struct PricingSettingsView: View {
     private static let detailLabelWidth: CGFloat = 138
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
-    private static let openRouterPricingURL = URL(string: "https://openrouter.ai/models")!
+    private static let modelsDevURL = URL(string: "https://models.dev")!
     /// The gap between the vendor links, kept equal to the header's own padding.
     private static let linkSpacing: CGFloat = 12
-    /// Claude and OpenAI are read by the accents their provider cards already carry. OpenRouter has
-    /// no card in the app, so it borrows the indigo from its own site, held at the same saturation.
-    private static let openRouterAccent = Color(red: 124 / 255, green: 118 / 255, blue: 214 / 255)
+    /// Claude and OpenAI are read by the accents their provider cards already carry. models.dev has
+    /// no card in the app and no color of its own, so its arrow stays neutral.
+    private static let modelsDevAccent = Color.secondary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -49,7 +50,7 @@ struct PricingSettingsView: View {
             self.footer
         }
         .frame(width: Self.paneWidth, height: 460)
-        .task(id: self.isLoadEnabled) {
+        .task(id: [self.isLoadEnabled ? 1 : 0, self.reload]) {
             guard self.isLoadEnabled else { return }
             await self.model.load()
         }
@@ -59,9 +60,9 @@ struct PricingSettingsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Model prices")
                 .font(.system(size: 13, weight: .semibold))
-            Text("USD per million tokens. Expand a row for the one-hour cache write and the "
-                + "long-context tier. Edits are saved as overrides, so models you leave alone "
-                + "keep following the built-in price book.")
+            Text("USD per million tokens. Every cost is an estimate at these API prices. Claude "
+                + "and OpenAI models use QuotaBar's built-in price book; other models use "
+                + "models.dev. Expand a row for the one-hour cache write and the long-context tier.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -76,7 +77,7 @@ struct PricingSettingsView: View {
                     Label(
                         self.model.hasLoadedUsage
                             ? "Usage refresh failed. Showing the last available usage."
-                            : "Local usage is unavailable. Rates can still be edited.",
+                            : "Local usage is unavailable. Rates are still shown.",
                         systemImage: "exclamationmark.triangle"
                     )
                     .fixedSize(horizontal: false, vertical: true)
@@ -98,7 +99,7 @@ struct PricingSettingsView: View {
             HStack(spacing: Self.linkSpacing) {
                 self.pricingLink("Claude API pricing", Self.claudePricingURL, Theme.accent(for: .claude))
                 self.pricingLink("OpenAI API pricing", Self.openAIPricingURL, Theme.accent(for: .codex))
-                self.pricingLink("OpenRouter API pricing", Self.openRouterPricingURL, Self.openRouterAccent)
+                self.pricingLink("models.dev", Self.modelsDevURL, Self.modelsDevAccent)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -161,7 +162,6 @@ struct PricingSettingsView: View {
                                 self.detail(row)
                                     .transition(self.detailTransition)
                             }
-                            self.rowErrors(row)
                             Divider().padding(.leading, 28)
                         }
                         .transition(self.rowTransition)
@@ -340,9 +340,14 @@ struct PricingSettingsView: View {
                         } else {
                             Text("Not used locally")
                         }
-                        // The rows that actually change a number on screen.
-                        if row.seenInLogs, !row.isPriced {
+                        switch row.source {
+                        case .modelsDev?:
+                            Text("· models.dev")
+                        case nil where row.seenInLogs:
+                            // The rows whose tokens count toward totals but not toward cost.
                             Text("· unpriced").foregroundStyle(.orange)
+                        default:
+                            EmptyView()
                         }
                         if row.hasLongContextTier {
                             Text("· 2 tiers").foregroundStyle(.secondary)
@@ -358,24 +363,12 @@ struct PricingSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("One-hour cache write and long-context rates")
 
-            self.rateField(row.id, .input)
-            self.rateField(row.id, .output)
-            self.rateField(row.id, .cacheWrite)
-            self.rateField(row.id, .cacheRead)
-
-            Menu {
-                Button(row.hasDefault ? "Restore default rate" : "Clear custom rate") {
-                    self.model.reset(id: row.id)
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 22)
-            .help("Price actions for \(row.model)")
-            .accessibilityLabel("Price actions for \(row.model)")
-            .disabled(!self.model.canRestoreDefault(id: row.id) || self.model.saveStatus == .saving)
+            self.rateCell(row.input)
+            self.rateCell(row.output)
+            self.rateCell(row.cacheWrite)
+            self.rateCell(row.cacheRead)
+            // Keeps the rates under their headers, which end with the sort reset control.
+            Color.clear.frame(width: 22)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -384,42 +377,50 @@ struct PricingSettingsView: View {
     /// Everything else the cost math reads: the one-hour cache write, and the second tier that
     /// kicks in above a per-request token count.
     private func detail(_ row: PricingRow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let rates = row.rates
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("1-hour cache write")
                     .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.rateField(row.id, .cacheWrite1h, placeholder: Self.rate(row.derivedCacheWrite1h))
-                Text("Empty bills it at 2× input, the ratio Anthropic publishes.")
-                    .foregroundStyle(.secondary)
+                self.rateCell(rates.map { $0.cacheWrite1hRate(longContext: false) })
+                if rates != nil, rates?.cacheWrite1h == nil {
+                    Text("2× input, the ratio Anthropic publishes.")
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 0)
             }
 
             HStack(spacing: 8) {
                 Text("Long-context threshold")
                     .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.rateField(row.id, .thresholdTokens, placeholder: "—")
-                Text("Tokens in one request. Empty means the model has a single tier.")
+                Text(rates?.thresholdTokens.map { Formatters.tokens($0) } ?? "—")
+                    .monospacedDigit()
+                    .frame(width: Self.rateColumnWidth, alignment: .trailing)
+                Text(rates?.thresholdTokens == nil
+                     ? "The model has a single tier."
+                     : "Tokens in one request.")
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
-                Text("Rates above it")
-                    .frame(width: Self.detailLabelWidth, alignment: .leading)
-                self.captionedField("Input", row.id, .inputAbove)
-                self.captionedField("Output", row.id, .outputAbove)
-                self.captionedField("Cache w", row.id, .cacheWriteAbove)
-                self.captionedField(
-                    "Cache 1h",
-                    row.id,
-                    .cacheWrite1hAbove,
-                    placeholder: Self.rate(row.derivedCacheWrite1hAbove)
-                )
-                self.captionedField("Cache r", row.id, .cacheReadAbove)
+            if let rates, rates.thresholdTokens != nil {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("Rates above it")
+                        .frame(width: Self.detailLabelWidth, alignment: .leading)
+                    self.captionedCell("Input", rates.inputAbove ?? rates.input)
+                    self.captionedCell("Output", rates.outputAbove ?? rates.output)
+                    self.captionedCell("Cache w", rates.cacheWriteAbove ?? rates.cacheWrite)
+                    self.captionedCell("Cache 1h", rates.cacheWrite1hRate(longContext: true))
+                    self.captionedCell("Cache r", rates.cacheReadAbove ?? rates.cacheRead)
+                }
             }
 
-            Text("An empty above-threshold rate falls back to the base rate on its left.")
-                .foregroundStyle(.secondary)
+            if let source = row.source {
+                Text(source == .priceBook
+                     ? "From QuotaBar's built-in price book."
+                     : "From models.dev, at the model maker's listed price when it has one.")
+                    .foregroundStyle(.secondary)
+            }
         }
         .font(.system(size: 10))
         .padding(.leading, 30)
@@ -427,98 +428,40 @@ struct PricingSettingsView: View {
         .padding(.bottom, 8)
     }
 
-    private func captionedField(
-        _ caption: String,
-        _ id: String,
-        _ field: PricingField,
-        placeholder: String = "—"
-    ) -> some View {
+    private func captionedCell(_ caption: String, _ value: Double?) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(caption)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
-            self.rateField(id, field, placeholder: placeholder)
+            self.rateCell(value)
         }
     }
 
-    private func rateField(
-        _ id: String,
-        _ field: PricingField,
-        placeholder: String = "—"
-    ) -> some View {
-        RateField(
-            placeholder,
-            text: self.model.binding(for: id, keyPath: field.keyPath),
-            accessibilityLabel: "\(self.model.modelName(for: id)), \(field.title), \(field.unit)",
-            error: self.model.error(for: id, field: field),
-            isDisabled: self.model.saveStatus == .saving
-        )
-    }
-
-    private func rowErrors(_ row: PricingRow) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(PricingField.allCases, id: \.self) { field in
-                if let error = self.model.error(for: row.id, field: field) {
-                    Label(error, systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .font(.system(size: 10))
-        .padding(.leading, 30)
-        .padding(.trailing, 12)
-        .padding(.bottom, self.model.validationErrors[row.id] == nil ? 0 : 6)
-    }
-
-    private static func rate(_ value: Double?) -> String {
-        guard let value else { return "—" }
-        return PricingEditorModel.text(value)
+    private func rateCell(_ value: Double?) -> some View {
+        Text(PricingTableModel.text(value))
+            .font(.system(size: 12))
+            .monospacedDigit()
+            .foregroundStyle(value == nil ? .tertiary : .primary)
+            .frame(width: Self.rateColumnWidth, alignment: .trailing)
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                if self.model.invalidFieldCount > 0 {
-                    Label("\(self.model.invalidFieldCount) invalid field\(self.model.invalidFieldCount == 1 ? "" : "s"). Changes not saved.",
-                          systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.red)
-                    Text("Your saved prices are unchanged.").foregroundStyle(.secondary)
-                } else if case .failed(let error) = self.model.saveStatus {
-                    Label("Save failed: \(error)", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
-                    Text("Your edits are still here. Try Save again.").foregroundStyle(.secondary)
-                } else {
-                    Text(self.footerHint).foregroundStyle(.secondary)
-                }
-            }
+        Text(self.footerText)
             .font(.system(size: 11))
+            .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 12)
-            Button("Discard") { self.model.discard() }
-                .disabled(!self.model.hasUnsavedChanges || self.model.saveStatus == .saving)
-            Button("Save") {
-                Task { await self.model.save() }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(!self.model.hasUnsavedChanges || self.model.invalidFieldCount > 0
-                      || self.model.saveStatus == .saving)
-        }
-        .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
     }
 
-    private var footerHint: String {
-        if self.model.saveStatus == .saving {
-            return "Saving…"
+    private var footerText: String {
+        let unpriced = "Unpriced models count toward token totals but not cost."
+        guard self.model.modelsDevEnabled else {
+            return "models.dev prices are off in General, so only Claude and OpenAI models are priced. " + unpriced
         }
-        if self.model.hasUnsavedChanges {
-            return "Unsaved changes. Saved rates reprice every recorded day of that model."
+        guard let fetchedAt = self.model.modelsDevFetchedAt else {
+            return "models.dev prices have not been downloaded yet. " + unpriced
         }
-        if self.model.saveStatus == .saved {
-            return "Saved. Costs are recalculated for all recorded usage of the edited models, "
-                + "including usage that had no price before."
-        }
-        return "Saved rates apply to all recorded usage of a model, past and future. "
-            + "Unpriced models stay out of cost totals."
+        return "models.dev prices updated \(Formatters.relativeAge(since: fetchedAt)). " + unpriced
     }
 }

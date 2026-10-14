@@ -12,7 +12,7 @@ enum PricingSortField: String, CaseIterable, Hashable {
     case cacheRead
 
     /// The rate a column reads off a row. `.usage` and `.model` are not rates.
-    var rateKeyPath: KeyPath<PricingRow, String>? {
+    var rateKeyPath: KeyPath<PricingRow, Double?>? {
         switch self {
         case .usage, .model: return nil
         case .input: return \.input
@@ -95,11 +95,11 @@ enum PricingSortPolicy {
     private static func precedes(
         _ lhs: PricingRow,
         _ rhs: PricingRow,
-        rate keyPath: KeyPath<PricingRow, String>,
+        rate keyPath: KeyPath<PricingRow, Double?>,
         ascending: Bool
     ) -> Bool {
-        let lhsRate = Self.rate(lhs[keyPath: keyPath])
-        let rhsRate = Self.rate(rhs[keyPath: keyPath])
+        let lhsRate = lhs[keyPath: keyPath]
+        let rhsRate = rhs[keyPath: keyPath]
         switch (lhsRate, rhsRate) {
         case let (lhsValue?, rhsValue?):
             if lhsValue != rhsValue { return ascending ? lhsValue < rhsValue : lhsValue > rhsValue }
@@ -108,11 +108,5 @@ enum PricingSortPolicy {
         case (.some, nil): return true
         case (nil, nil): return lhs.model < rhs.model
         }
-    }
-
-    static func rate(_ text: String) -> Double? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        return Double(trimmed)
     }
 }

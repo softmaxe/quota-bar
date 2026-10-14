@@ -41,7 +41,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var expandedBreakdownDayKey: String?
     private var presentedProvider: Provider?
 
-    init(store: UsageStore, settings: SettingsStore, pricing: PricingEditorModel,
+    init(store: UsageStore, settings: SettingsStore, pricing: PricingTableModel,
          now: @escaping () -> Date = { Date() },
          openMenuClockInterval: TimeInterval = 15, refreshRowClockInterval: TimeInterval = 1,
          useSystemStatusItemSession: Bool = true,
@@ -55,7 +55,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.useSystemStatusItemSession = useSystemStatusItemSession
         self.reduceMotion = reduceMotion
         super.init()
-        pricing.onSaved = { [weak store] in store?.refreshCostsAfterPricingChange() }
         self.settings.$menuBarProvider.removeDuplicates().sink { [weak self] provider in
             self?.apply(provider: provider)
         }.store(in: &self.cancellables)
@@ -126,7 +125,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
         self.closePopover(animated: false)
-        return self.settingsWindow.applicationShouldTerminate(application)
+        return .terminateNow
     }
 
     private func apply(provider: Provider? = nil) {

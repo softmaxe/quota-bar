@@ -4,9 +4,9 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
-    private let costService = CostService()
+    private let costService = CostService(modelsDev: .live)
     private lazy var store = UsageStore(settings: self.settings, costService: self.costService)
-    private lazy var pricing = PricingEditorModel(costService: self.costService)
+    private lazy var pricing = PricingTableModel(costService: self.costService)
     private var controller: StatusItemController?
 
     func applicationDidFinishLaunching(_: Notification) {
@@ -17,8 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.controller?.installApplicationMenu()
         self.store.start()
-        // Pricing no longer reads the models.dev catalog that 1.0.x cached.
+        // Pricing no longer reads the catalog cache or the user overrides earlier versions kept.
         AppSupport.removeLegacyCatalogCache()
+        AppSupport.removeLegacyOverrideFile()
         if CommandLine.arguments.contains("--show-export-settings") {
             self.controller?.showExportSettings()
         }
@@ -59,7 +60,6 @@ enum QuotaBarApp {
         let verifiers: [(flag: String, run: @MainActor () -> Never)] = [
             ("--verify-menu-command", MenuCommandVerifier.run),
             ("--verify-provider-state", ProviderStateVerifier.run),
-            ("--verify-pricing-validation", PricingValidationVerifier.run),
             ("--verify-menu-lifecycle", MenuLifecycleVerifier.run),
             ("--verify-menu-interaction", MenuLifecycleVerifier.verifyInteraction),
             ("--verify-pricing-refresh", PricingRefreshVerifier.run),

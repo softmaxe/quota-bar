@@ -58,10 +58,9 @@ enum MenuCommandVerifier {
             historyStore: UsageHistoryStore(fileURL: scratch.appendingPathComponent("history.json")),
             recoveryDefaults: defaults
         )
-        let pricing = PricingEditorModel(
+        let pricing = PricingTableModel(
             costService: service,
-            fixtures: .init(usage: [:]),
-            saveOperations: .init(write: { _ in }, invalidate: {})
+            fixtures: .init(usage: [:])
         )
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)
         controller.installApplicationMenu()

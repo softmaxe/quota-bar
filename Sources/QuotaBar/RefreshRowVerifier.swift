@@ -28,7 +28,7 @@ enum RefreshRowVerifier {
         let controller = StatusItemController(
             store: store,
             settings: settings,
-            pricing: PricingEditorModel(costService: costService),
+            pricing: PricingTableModel(costService: costService),
             openMenuClockInterval: 3_600,
             refreshRowClockInterval: 0.01
         )

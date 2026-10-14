@@ -2,8 +2,9 @@
 import QuotaBarCore
 import Foundation
 
-/// Proves that the settings pane keeps the selected API models and only shows used, unpriced
-/// models from the local logs, with an alias's usage counted under the model it names.
+/// Proves that the settings pane keeps the selected API models, lists every other model the local
+/// logs name, counts an alias's usage under the model it names, and shows a third-party model
+/// once whichever provider's logs named it.
 @MainActor
 enum PricingModelFilterVerifier {
     static func run() -> Never {
@@ -14,163 +15,75 @@ enum PricingModelFilterVerifier {
 
     private static func verify() async -> Never {
         var failures: [String] = []
-        let bundled = RateCard()
+        let rateCard = RateCard(thirdParty: ThirdPartyRates(current: [
+            "deepseek-flash": ModelPricing(input: 0.15, output: 0.6),
+        ]))
 
-        let codexSettingsModels = bundled.settingsModels(for: .codex)
-        let claudeSettingsModels = bundled.settingsModels(for: .claude)
         self.expect(
-            PricingGroup.classify(model: "gpt-6-astra", rateCard: bundled) == .codex,
+            PricingGroup.classify(model: "gpt-6-astra", provider: .codex, rateCard: rateCard) == .codex,
             "Astra was not classified as Codex",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "gpt-local-unpriced", rateCard: bundled) == .others,
+            PricingGroup.classify(model: "gpt-local-unpriced", provider: .codex, rateCard: rateCard) == .others,
             "an unpriced GPT model returned to the Codex group",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "claude-local-unpriced", rateCard: bundled) == .others,
+            PricingGroup.classify(model: "claude-local-unpriced", provider: .claude, rateCard: rateCard) == .others,
             "an unpriced Claude model returned to the Claude group",
             failures: &failures
         )
         self.expect(
-            PricingGroup.classify(model: "claude-haiku-4-5", rateCard: bundled) == .claude,
+            PricingGroup.classify(model: "claude-haiku-4-5", provider: .claude, rateCard: rateCard) == .claude,
             "the actual Haiku model id was not classified as Claude",
             failures: &failures
         )
-
-        let rateCard = RateCard(
-            overrides: [
-                "gpt-override-priced": ModelPricing(input: 7, output: 8),
-                "gpt-override-only": ModelPricing(input: 9, output: 10),
-                "claude-override-priced": ModelPricing(input: 7, output: 8),
-                "claude-override-only": ModelPricing(input: 9, output: 10),
-            ]
+        self.expect(
+            PricingGroup.classify(model: "deepseek-flash", provider: .codex, rateCard: rateCard) == .others,
+            "a models.dev model left the Others group",
+            failures: &failures
         )
 
-        let codexUsage = [
-            ModelUsageTotal(model: "gpt-5.5", tokens: 100),
-            ModelUsageTotal(model: "gpt-override-priced", tokens: 100),
-            ModelUsageTotal(model: "gpt-local-unpriced", tokens: 100),
-            ModelUsageTotal(model: "gpt-5.6", tokens: 100),
-            ModelUsageTotal(model: CostPricing.unknownModel, tokens: 100),
-        ]
+        let codexSettingsModels = rateCard.settingsModels(for: .codex)
         let visibleCodex = PricingModelFilterPolicy.visibleModels(
             provider: .codex,
-            usage: codexUsage,
+            usage: [
+                ModelUsageTotal(model: "deepseek-flash", tokens: 100),
+                ModelUsageTotal(model: "gpt-local-unpriced", tokens: 100),
+                ModelUsageTotal(model: "gpt-5.6", tokens: 100),
+                ModelUsageTotal(model: CostPricing.unknownModel, tokens: 100),
+            ],
             rateCard: rateCard
         )
         self.expectNames(
             visibleCodex,
-            codexSettingsModels + ["gpt-local-unpriced"],
+            codexSettingsModels + ["deepseek-flash", "gpt-local-unpriced"],
             "Codex visible models",
             failures: &failures
         )
 
-        let claudeUsage = [
-            ModelUsageTotal(model: "claude-opus-4", tokens: 100),
-            ModelUsageTotal(model: "claude-override-priced", tokens: 100),
-            ModelUsageTotal(model: "claude-local-unpriced", tokens: 100),
-            ModelUsageTotal(model: "claude-haiku-4-5-20251001", tokens: 100),
-            ModelUsageTotal(model: CostPricing.unknownModel, tokens: 100),
-        ]
-        let visibleClaude = PricingModelFilterPolicy.visibleModels(
-            provider: .claude,
-            usage: claudeUsage,
-            rateCard: rateCard
-        )
-        self.expectNames(
-            visibleClaude,
-            claudeSettingsModels + ["claude-local-unpriced"],
-            "Claude visible models",
-            failures: &failures
-        )
-
-        let hiddenOverride = ModelPricing(input: 11, output: 12)
-        let visibleEdit = Self.row(
-            provider: .codex,
-            group: .codex,
-            model: "gpt-5.6-sol",
-            input: "9",
-            output: "10"
-        )
-        let clearedVisibleOverride = Self.row(
-            provider: .codex,
-            group: .codex,
-            model: "gpt-5.6-terra",
-            input: "",
-            output: ""
-        )
-        let resetVisibleOverride = Self.row(
-            provider: .codex,
-            group: .others,
-            model: "custom-model",
-            input: "1",
-            output: "2"
-        )
-        // An unpriced Others row becomes hidden after this edit, so its new override must survive
-        // the next save even though that next save cannot include the row.
-        let newlyPricedOthers = Self.row(
-            provider: .codex,
-            group: .others,
-            model: "gpt-local-unpriced",
-            input: "13",
-            output: "14"
-        )
-        let assignedOthers = PricingEditorModel.mergedUserOverrides(
-            existing: [:],
-            rows: [newlyPricedOthers],
-            defaults: [:]
-        )
-        var existingOverrides = assignedOthers
-        existingOverrides["gpt-hidden-priced"] = hiddenOverride
-        existingOverrides["gpt-5.6-sol"] = ModelPricing(input: 4, output: 20)
-        existingOverrides["gpt-5.6-terra"] = ModelPricing(input: 2, output: 12)
-        existingOverrides["custom-model"] = ModelPricing(input: 9, output: 9)
-        let merged = PricingEditorModel.mergedUserOverrides(
-            existing: existingOverrides,
-            rows: [visibleEdit, clearedVisibleOverride, resetVisibleOverride],
-            defaults: [
-                "codex|custom-model": ModelPricing(input: 1, output: 2),
-            ]
-        )
-        self.expect(
-            merged["gpt-hidden-priced"] == hiddenOverride,
-            "saving a visible row dropped a hidden user override",
-            failures: &failures
-        )
-        self.expect(
-            merged["gpt-local-unpriced"]?.input == 13,
-            "an override created for a newly priced Others row was dropped later",
-            failures: &failures
-        )
-        self.expect(
-            merged["gpt-5.6-sol"]?.input == 9,
-            "a visible edit did not update its user override",
-            failures: &failures
-        )
-        self.expect(
-            merged["gpt-5.6-terra"] == nil && merged["custom-model"] == nil,
-            "clearing or resetting a visible row did not remove its override",
-            failures: &failures
-        )
-
         // `gpt-5.6` is the price book's alias of `gpt-5.6-sol`: the pane shows one row for the
-        // model, seen in the logs, with the alias's and the ID's usage added together.
-        let pricing = PricingEditorModel(
-            costService: CostService(rateCard: bundled),
-            fixtures: PricingEditorModel.PreviewFixtures(
-                usage: [.codex: [
-                    ModelUsageTotal(model: "gpt-5.6", tokens: 100),
-                    ModelUsageTotal(model: "gpt-5.6-sol", tokens: 50),
-                ]],
-                rateCard: bundled
+        // model, seen in the logs, with the alias's and the ID's usage added together. A
+        // third-party model both providers' logs name is one row with both providers' usage.
+        let pricing = PricingTableModel(
+            costService: CostService(rateCard: rateCard),
+            fixtures: PricingTableModel.PreviewFixtures(
+                usage: [
+                    .codex: [
+                        ModelUsageTotal(model: "gpt-5.6", tokens: 100),
+                        ModelUsageTotal(model: "gpt-5.6-sol", tokens: 50),
+                        ModelUsageTotal(model: "deepseek-flash", tokens: 100),
+                    ],
+                    .claude: [ModelUsageTotal(model: "deepseek-flash", tokens: 50)],
+                ],
+                rateCard: rateCard
             )
         )
         await pricing.load()
-        let sol = pricing.rows.first { $0.id == "codex|gpt-5.6-sol" }
+        let sol = pricing.rows.first { $0.id == "Codex|gpt-5.6-sol" }
         self.expect(
-            sol?.seenInLogs == true && sol?.usageTokens == 150,
+            sol?.seenInLogs == true && sol?.usageTokens == 150 && sol?.source == .priceBook,
             "alias and model ID usage did not add up on one row: \(String(describing: sol?.usageTokens))",
             failures: &failures
         )
@@ -179,11 +92,18 @@ enum PricingModelFilterVerifier {
             "an alias got a row of its own",
             failures: &failures
         )
+        let deepseek = pricing.rows.filter { $0.model == "deepseek-flash" }
+        self.expect(
+            deepseek.count == 1 && deepseek.first?.usageTokens == 150
+                && deepseek.first?.source == .modelsDev && deepseek.first?.input == 0.15,
+            "a third-party model was not one priced row with both providers' usage: \(deepseek)",
+            failures: &failures
+        )
 
         VerifierReport.finish(
             failures,
             label: "pricing model filter verification",
-            passed: "pricing model filter kept the API whitelists and used unpriced models only"
+            passed: "pricing model filter kept the API whitelists and listed every other model once"
         )
     }
 
@@ -200,34 +120,6 @@ enum PricingModelFilterVerifier {
         if actual != expected {
             failures.append("\(message): got \(actual), expected \(expected)")
         }
-    }
-
-    private static func row(
-        provider: Provider,
-        group: PricingGroup,
-        model: String,
-        input: String,
-        output: String
-    ) -> PricingRow {
-        PricingRow(
-            provider: provider,
-            group: group,
-            model: model,
-            seenInLogs: true,
-            hasDefault: false,
-            usageTokens: 100,
-            input: input,
-            output: output,
-            cacheWrite: "",
-            cacheWrite1h: "",
-            cacheRead: "",
-            thresholdTokens: "",
-            inputAbove: "",
-            outputAbove: "",
-            cacheWriteAbove: "",
-            cacheWrite1hAbove: "",
-            cacheReadAbove: ""
-        )
     }
 }
 #endif

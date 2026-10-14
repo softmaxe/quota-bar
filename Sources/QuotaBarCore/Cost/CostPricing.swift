@@ -24,8 +24,8 @@ public struct ModelPricing: Sendable, Equatable {
     public let cacheWrite1hAbove: Double?
     public let cacheReadAbove: Double?
 
-    /// Every optional rate, paired with the key the override file spells it with. One list, so a
-    /// new rate cannot reach the file without also reaching everything that reads it back.
+    /// Every optional rate, paired with the key the price book spells it with. One list, so a
+    /// new rate cannot reach a file without also reaching everything that reads it back.
     public static let optionalRates: [(json: String, value: KeyPath<ModelPricing, Double?>)] = [
         ("cacheWrite", \.cacheWrite),
         ("cacheWrite1h", \.cacheWrite1h),
@@ -86,7 +86,7 @@ public struct ModelPricing: Sendable, Equatable {
     public static let oneHourCacheWriteMultiplier = 2.0
 
     /// The one-hour cache-write rate actually billed, derived from the input rate when the
-    /// table (or the user's override) does not state one.
+    /// rates do not state one.
     public func cacheWrite1hRate(longContext: Bool) -> Double {
         let inputRate = (longContext ? self.inputAbove : nil) ?? self.input
         if let stated = (longContext ? self.cacheWrite1hAbove : nil) ?? self.cacheWrite1h { return stated }

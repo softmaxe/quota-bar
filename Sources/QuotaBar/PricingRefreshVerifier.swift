@@ -3,7 +3,8 @@ import QuotaBarCore
 import AppKit
 import Foundation
 
-/// A saved price must refresh local costs even while quota or a prior scan is in flight.
+/// New rates must refresh local costs even while quota or a prior scan is in flight. Updated
+/// models.dev rates and the models.dev setting both reprice through this path.
 @MainActor
 enum PricingRefreshVerifier {
     private final class Fetches {
@@ -49,7 +50,7 @@ enum PricingRefreshVerifier {
                 VerifierReport.report(message, label: "pricing-refresh verification")
                 exit(1)
             }
-            print("Pricing saves refresh costs after in-flight work without extra quota requests")
+            print("Rate changes refresh costs after in-flight work without extra quota requests")
             exit(0)
         }
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -64,28 +65,27 @@ enum PricingRefreshVerifier {
             fetchCost: { _ in await fetches.fetchCost() },
             recoveryDefaults: defaults
         )
-        let pricing = PricingEditorModel(costService: service)
+        let pricing = PricingTableModel(costService: service)
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)
         store.refresh()
         guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("fixture requests did not start")
         }
-        // Exercise the same callback installed for a successful PricingEditorModel.save().
-        for _ in 0..<3 { pricing.onSaved?() }
+        for _ in 0..<3 { store.refreshCostsAfterPricingChange() }
         fetches.cost?.resume(returning: Fetches.snapshot(cost: 1))
         fetches.cost = nil
         guard await Self.wait(until: {
             fetches.costCalls == 2 && store.displays[.codex]?.cost == Fetches.snapshot(cost: 2)
         }) else {
-            finish("a pricing save was lost while quota and cost work were in flight")
+            finish("a rate change was lost while quota and cost work were in flight")
         }
-        pricing.onSaved?()
+        store.refreshCostsAfterPricingChange()
         guard await Self.wait(until: {
             fetches.costCalls == 3 && store.displays[.codex]?.cost == Fetches.snapshot(cost: 3)
         }) else {
             finish("an in-flight quota request blocked a local cost refresh")
         }
-        guard fetches.quotaCalls == 1 else { finish("saving prices made an extra quota request") }
+        guard fetches.quotaCalls == 1 else { finish("a rate change made an extra quota request") }
         fetches.quota?.resume(returning: .failed("Offline fixture"))
         fetches.quota = nil
         await Task.yield()
