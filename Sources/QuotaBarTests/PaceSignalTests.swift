@@ -74,7 +74,10 @@ enum PaceSignalTests {
         let paused = UsagePace.evaluate(window: window, context: .session, now: now, trail: still)
         Harness.expectClose(paused?.activeTimeLeftSeconds, 40 * 60, "a pause reports working time left at the earlier pace")
         let burst = Self.trail(window, [(50, 30), (20, 60), (1, 60)], now: now)
-        let burstRate = 0.65 * (30.0 / (30 * 60)) + 0.35 * (60.0 / 3600)
+        // 30 points in the 30 minutes before the pause, 60 over the hour since the reset.
+        let beforePause: Double = 30.0 / 1800
+        let average: Double = 60.0 / 3600
+        let burstRate: Double = 0.65 * beforePause + 0.35 * average
         Harness.expectClose(
             UsagePace.evaluate(window: window, context: .session, now: now, trail: burst)?.activeTimeLeftSeconds,
             40 / burstRate,
