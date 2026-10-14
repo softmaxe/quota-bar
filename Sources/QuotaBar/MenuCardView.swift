@@ -7,6 +7,13 @@ struct MenuCardView: View {
     @Environment(\.menuRefreshState) private var refreshState
     @State private var copiedCommand = false
     @State private var showsPaceDetails = false
+    /// What this card last drew. Read while the next state is being drawn, so the content that
+    /// arrives knows whether it replaced something in an open card or opened with the card.
+    @State private var shownProvider: Provider?
+    @State private var shownSignedOut: Bool?
+    @State private var shownSkeleton = false
+    /// A sign-in check just succeeded: the status line confirms it for a moment.
+    @State private var confirmsSignIn = false
 
     let provider: Provider
     let display: ProviderDisplay
@@ -45,6 +52,10 @@ struct MenuCardView: View {
             Divider().padding(.vertical, 8)
             self.content
                 .id(self.provider)
+                // Only a switch inside an open card slides; opening the card never does.
+                .transition(self.switchedProvider
+                    ? .providerSlide(fromTrailing: self.providerIndex > 0)
+                    : .identity)
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
@@ -52,10 +63,41 @@ struct MenuCardView: View {
         .frame(width: 280, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
-        .onChange(of: self.provider) { _, _ in
+        .environment(\.cardMotionEnabled, self.animatesFill)
+        .onAppear {
+            self.shownProvider = self.provider
+            self.shownSignedOut = self.display.isSignedOut
+        }
+        .onChange(of: self.provider) { _, provider in
+            self.shownProvider = provider
+            self.shownSignedOut = self.display.isSignedOut
             self.copiedCommand = false
             self.showsPaceDetails = false
+            self.confirmsSignIn = false
         }
+        .onChange(of: self.display.isSignedOut) { wasSignedOut, isSignedOut in
+            self.shownSignedOut = isSignedOut
+            self.confirmsSignIn = wasSignedOut && !isSignedOut
+        }
+        .task(id: self.confirmsSignIn) {
+            guard self.confirmsSignIn else { return }
+            try? await Task.sleep(for: .seconds(CardMotion.confirmationHold))
+            guard !Task.isCancelled else { return }
+            self.confirmsSignIn = false
+        }
+    }
+
+    private var providerIndex: Int {
+        Provider.allCases.firstIndex(of: self.provider) ?? 0
+    }
+
+    private var switchedProvider: Bool {
+        self.shownProvider != nil && self.shownProvider != self.provider
+    }
+
+    /// Quota replacing the sign-in guide in an open card, rather than quota the card opened with.
+    private var arrivedFromSignIn: Bool {
+        self.shownSignedOut == true && !self.display.isSignedOut && !self.switchedProvider
     }
 
     // MARK: - Header
@@ -68,9 +110,18 @@ struct MenuCardView: View {
                 onSelect: self.onProviderSelected
             )
             HStack(spacing: 0) {
-                Text(self.statusLine)
+                if self.confirmsSignIn {
+                    HStack(spacing: 5) {
+                        ResolveCheck(tint: Theme.accent(for: self.provider))
+                        Text("Signed in")
+                    }
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                } else {
+                    Text(self.statusLine)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 8)
                 if let plan = self.planLabel {
                     Text(plan)
@@ -102,6 +153,9 @@ struct MenuCardView: View {
     }
 
     private static func paceSummary(for pace: UsagePace, context: UsagePace.Context) -> String {
+        if let activeTimeLeft = pace.activeTimeLeftSeconds {
+            return "\(Formatters.compactDuration(activeTimeLeft)) of use left"
+        }
         if pace.willLastToReset { return "Lasts until reset" }
         guard let eta = pace.etaLabel(context: context, durationText: Formatters.compactDuration) else {
             return pace.deltaLabel
@@ -125,8 +179,12 @@ struct MenuCardView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if self.isRefreshing {
-                Label("Refreshing…", systemImage: "arrow.clockwise")
-                    .font(.system(size: 11))
+                Label {
+                    WorkingLabel(title: "Refreshing…")
+                } icon: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .font(.system(size: 11))
             } else if self.refreshState.isEnabled {
                 Button(self.display.canAttemptCredentialRecovery ? "Recover with Claude Code" : "Try again") {
                     self.onRefresh()
@@ -165,10 +223,19 @@ struct MenuCardView: View {
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Button(self.copiedCommand ? "Copied" : "Copy command") {
+                Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(self.signInCommand, forType: .string)
                     self.copiedCommand = true
+                } label: {
+                    if self.copiedCommand {
+                        HStack(spacing: 4) {
+                            ResolveCheck(tint: Theme.accent(for: self.provider), size: 10)
+                            Text("Copied")
+                        }
+                    } else {
+                        Text("Copy command")
+                    }
                 }
                 .font(.system(size: 11))
                 .accessibilityLabel("Copy \(self.signInCommand) command")
@@ -178,8 +245,11 @@ struct MenuCardView: View {
 
             Button(action: self.onRefresh) {
                 HStack(spacing: 6) {
-                    if self.isRefreshing { ProgressView().controlSize(.small) }
-                    Text(self.isRefreshing ? "Checking…" : "Check sign-in")
+                    if self.isRefreshing {
+                        WorkingLabel(title: "Checking…")
+                    } else {
+                        Text("Check sign-in")
+                    }
                     if let remaining = self.refreshState.trailingText, !self.isRefreshing {
                         Spacer(minLength: 4)
                         Text(remaining).monospacedDigit()
@@ -198,7 +268,7 @@ struct MenuCardView: View {
         }
         .task(id: self.copiedCommand) {
             guard self.copiedCommand else { return }
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(CardMotion.confirmationHold))
             guard !Task.isCancelled else { return }
             self.copiedCommand = false
         }
@@ -216,6 +286,8 @@ struct MenuCardView: View {
                 onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged,
                 onOpenPricing: self.onOpenPricing
             )
+            // Fades in only when it replaces the placeholder, not when the card opens with it.
+            .placeholderReveal(active: self.shownSkeleton)
         }
         switch self.display.localScanStatus {
         case .idle:
@@ -225,12 +297,14 @@ struct MenuCardView: View {
                     .foregroundStyle(.secondary)
             }
         case .scanning:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(self.display.cost == nil ? "Scanning local usage…" : "Updating local usage…")
+            if self.display.cost == nil {
+                LocalUsageSkeleton()
+                    .onAppear { self.shownSkeleton = true }
+            } else {
+                WorkingLabel(title: "Updating local usage…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
         case .completed:
             EmptyView()
         case let .failed(reason):
@@ -251,27 +325,8 @@ struct MenuCardView: View {
             if self.display.isSignedOut {
                 self.signInGuide
             } else if let snapshot = self.display.snapshot {
-                if let session = snapshot.session {
-                    self.window(window: session, kind: .session)
-                } else if snapshot.sessionIsUnlimited {
-                    // Held in the session slot rather than dropped, so a plan without the
-                    // five-hour cap lines up with one that has it.
-                    UnlimitedWindowRow(
-                        title: QuotaWindowKind.session.presentation.title,
-                        tint: Theme.accent(for: self.provider)
-                    )
-                }
-                if let weekly = snapshot.weekly {
-                    self.window(window: weekly, kind: .weekly)
-                }
-                if snapshot.session == nil, snapshot.weekly == nil, !snapshot.sessionIsUnlimited {
-                    Text("No quota windows reported.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                if snapshot.session != nil || snapshot.weekly != nil {
-                    self.paceDetails(for: snapshot)
-                }
+                self.quota(snapshot)
+                    .cardReveal(active: self.arrivedFromSignIn)
             }
             // Local logs remain readable without the credentials required for quota and credits.
             if self.display.cost != nil || self.display.localScanStatus != .idle {
@@ -287,6 +342,33 @@ struct MenuCardView: View {
             }
         }
         .padding(.bottom, 6)
+    }
+
+    /// The quota windows, in one stack so they can arrive together after a sign-in.
+    private func quota(_ snapshot: UsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let session = snapshot.session {
+                self.window(window: session, kind: .session)
+            } else if snapshot.sessionIsUnlimited {
+                // Held in the session slot rather than dropped, so a plan without the
+                // five-hour cap lines up with one that has it.
+                UnlimitedWindowRow(
+                    title: QuotaWindowKind.session.presentation.title,
+                    tint: Theme.accent(for: self.provider)
+                )
+            }
+            if let weekly = snapshot.weekly {
+                self.window(window: weekly, kind: .weekly)
+            }
+            if snapshot.session == nil, snapshot.weekly == nil, !snapshot.sessionIsUnlimited {
+                Text("No quota windows reported.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            if snapshot.session != nil || snapshot.weekly != nil {
+                self.paceDetails(for: snapshot)
+            }
+        }
     }
 
     private func window(
@@ -315,7 +397,13 @@ struct MenuCardView: View {
         return (kind == .weekly
             ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history, now: self.now)
             : nil)
-            ?? UsagePace.evaluate(window: window, context: context, now: self.now)
+            ?? UsagePace.evaluate(
+                window: window,
+                context: context,
+                now: self.now,
+                trail: kind == .session ? self.display.sessionTrail : nil,
+                rhythm: kind == .weekly ? self.display.history?.rhythm : nil
+            )
     }
 
     @ViewBuilder
@@ -347,11 +435,11 @@ struct MenuCardView: View {
                 context: kind.presentation.paceContext,
                 durationText: Formatters.compactDuration
             ) {
-                Text(eta.components(separatedBy: " · ").first ?? eta)
+                Text(eta)
             }
             Text("Expected \(Formatters.percent(pace.expectedRemainingPercent)) left now")
-            if let multiplier = pace.speedMultiplierToReset {
-                Text(String(format: "%.1f× headroom at current pace", multiplier))
+            if let headroom = pace.headroomLabel {
+                Text(headroom)
             }
             UsageProgressBar(
                 percent: window.remainingPercent,

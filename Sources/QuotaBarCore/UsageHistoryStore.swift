@@ -46,10 +46,15 @@ public struct UsageWeekProfile: Sendable, Equatable {
 }
 
 public struct UsageHistoryDataset: Sendable, Equatable {
+    /// Completed windows, oldest first.
     public let weeks: [UsageWeekProfile]
+    /// How usage spreads across the day, once a few days have been sampled. Available long
+    /// before enough weeks complete for the historical model.
+    public let rhythm: DailyUsageRhythm?
 
-    public init(weeks: [UsageWeekProfile]) {
+    public init(weeks: [UsageWeekProfile], rhythm: DailyUsageRhythm? = nil) {
         self.weeks = weeks
+        self.rhythm = rhythm
     }
 }
 
@@ -132,7 +137,10 @@ public actor UsageHistoryStore {
 
     // MARK: - Dataset construction
 
-    public static func buildDataset(from records: [UsageHistoryRecord]) -> UsageHistoryDataset? {
+    public static func buildDataset(
+        from records: [UsageHistoryRecord],
+        timeZone: TimeZone = .current
+    ) -> UsageHistoryDataset? {
         guard !records.isEmpty else { return nil }
 
         struct WeekKey: Hashable {
@@ -163,9 +171,10 @@ public actor UsageHistoryStore {
             ))
         }
 
-        guard !weeks.isEmpty else { return nil }
+        let rhythm = DailyUsageRhythm.learn(from: records, timeZone: timeZone)
+        guard !weeks.isEmpty || rhythm != nil else { return nil }
         weeks.sort { $0.resetsAt < $1.resetsAt }
-        return UsageHistoryDataset(weeks: weeks)
+        return UsageHistoryDataset(weeks: weeks, rhythm: rhythm)
     }
 
     /// A window counts only if it was watched near both ends; a week first seen on day five

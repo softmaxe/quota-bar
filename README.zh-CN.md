@@ -96,7 +96,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 每个额度窗口显示剩余百分比和重置时间。点击重置时间并选择 **Show reset date** 或 **Show countdown**，可同时切换两个窗口的重置时间显示方式。无限额会话显示 **Session ∞** 和 **No limit**，额度用尽时显示 **Limit reached**。
 
-展开 **Usage pace details**，可查看额度储备、缺口和使用余量。QuotaBar 会比较用量与已过时间。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
+展开 **Usage pace details**，可查看额度储备、缺口和使用余量。QuotaBar 会比较用量与已过时间。采样满几天后，周窗口会按你平时活跃的时段计时，而不是按钟点平均。会话停下来时，显示按之前速度还能用多久，而不是耗尽时刻。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
 
 检测到额度重置后，打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
 
@@ -296,7 +296,7 @@ make build
 .build/debug/QuotaBar --preview-interface loaded
 ```
 
-将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
+将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态；换成 `motion` 可用放慢的示例数据观察卡片动效。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
 
@@ -311,7 +311,7 @@ make build
 
 发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
 
-工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `release` 环境中的 `TAP_GITHUB_TOKEN` secret，该环境只允许 `v*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
+工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 

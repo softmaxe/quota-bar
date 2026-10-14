@@ -31,8 +31,11 @@ struct ProviderDisplay: Equatable {
     var failure: ProviderFailure?
     var signedOutReason: String?
     var localScanStatus: LocalScanStatus = .idle
-    /// Completed past windows, once enough have been recorded to model a pace from them.
+    /// Completed past windows and the learned daily rhythm, once enough have been recorded to
+    /// model a pace from them.
     var history: UsageHistoryDataset?
+    /// Recent session readings, so the session pace can tell a running burst from a pause.
+    var sessionTrail = UsageTrail()
     /// No credentials on this machine: the enabled status item explains how to sign in.
     var isSignedOut = false
     /// Lets the existing Refresh row bypass the API cooldown for one explicit delegated repair.

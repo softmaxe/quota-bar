@@ -196,7 +196,7 @@ struct PricingSettingsView: View {
             .frame(maxWidth: .infinity, minHeight: Self.disclosureHitSize.height, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
+        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
     }
 
     /// All rows appear together as the group changes height.
@@ -359,7 +359,7 @@ struct PricingSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion))
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
             .frame(maxWidth: .infinity, alignment: .leading)
             .help("One-hour cache write and long-context rates")
 

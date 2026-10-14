@@ -10,7 +10,7 @@ This implementation follows the approved interaction proposal. The original befo
 - Refresh failures retain quota readings and show the last successful update near a warning. Server and local cooldowns jointly determine when retry is available. A local usage scan exposes its own progress, failure, and retry.
 - Pricing is a read-only table of the rates every estimate uses, grouped into Claude, Codex, and Others, with each row naming its source: the price book or models.dev ([ADR 0002](adr/0002-price-third-party-models-from-models-dev.md)). It replaced an override editor with validation, drafts, and a quit-time save prompt.
 - Local usage has a visible Tokens / Cost selector and ten calendar date columns. Dates support whole-column pointer targets and keyboard selection. Model details are collapsed as a group; complete labels remain available to accessibility. Unit changes and refreshes preserve a still-valid date selection. Unpriced and partially priced usage have distinct labels; dates not covered by the last completed scan do not claim zero usage.
-- Quota headlines immediately display authoritative values. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Pace calculations are available through Usage pace details; duplicate Top model text is removed. Credits follow local usage.
+- Quota headlines display authoritative values; a changed reading rolls in over 120 ms. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Pace calculations are available through Usage pace details; duplicate Top model text is removed. Credits follow local usage.
 
 ## Interaction timing
 
@@ -18,7 +18,7 @@ The status card opens at its final size on left mouse-down, without the native p
 
 Opening the card does not activate the app. The first click or keyboard interaction inside it waits for the app's foreground activation before reaching a control. Otherwise, the activation notification can cancel a newly opened native reset-time menu, requiring a second click. Pending events retain their order and are discarded when the card closes. Escape bypasses activation. On macOS 27, `NSApp.isActive` can already be true during a status-item session, so the input handler checks the foreground process and explicitly requests activation.
 
-Custom buttons acknowledge a press immediately through opacity and restore it over 100 ms. Tab selection settles within 180 ms when clicked; keyboard switches (⌘-number shortcuts or Space on a focused tab) change selection without animation. Usage bars glide to a refreshed value over 250 ms. Disclosure chevrons and pricing expansion settle within 160 ms, and chart hover feedback uses a short critically damped response. Pricing rows appear together without stagger or scale effects. Unit changes update chart heights and labels together. These timings are project choices guided by brief feedback and uninterrupted interaction, not fixed Apple requirements.
+Custom buttons acknowledge a press immediately through opacity and a slight drawn squish (0.975, or 0.99 for full-width rows; chart bars keep their height), then release over 100 ms with a 450 ms spring. Tab selection settles within 180 ms when clicked; keyboard switches (⌘-number shortcuts or Space on a focused tab) change selection without animation. Usage bars glide to a refreshed value over 250 ms. Disclosure chevrons and pricing expansion settle within 160 ms, and chart hover feedback uses a short critically damped response. Popover disclosure content rises 4 pt while fading in over 200 ms, and model breakdown rows enter in a 30 ms stagger with a slight scale and blur; their heights still cut. A provider switched by click slides its content 12 pt in from the tab's side; keyboard switches and opening the card never slide. Changed quota, total, and day values roll in their direction of change over 120 ms. Refreshing, checking sign-in, and updating local usage show three pulsing dots. A first local scan shows nothing for 500 ms, then a breathing placeholder, and the result fades in over 150 ms. Copying a sign-in command and a successful sign-in check draw a resolving check. A card taller than the screen fades its scrolling edges. Pricing rows appear together without stagger or scale effects. Unit changes update chart heights and labels together. These timings are project choices guided by brief feedback and uninterrupted interaction, not fixed Apple requirements.
 
 Reduce Motion makes dismissal immediate and removes custom control transitions while preserving pressed and selected states. The card reads the preference at dismissal, including changes made while it is open. Opening never scales or slides, regardless of the preference. Native links, menus, segmented pickers, and bordered buttons retain their system feedback.
 
@@ -50,10 +50,11 @@ Dark and light sample views, signed-out guidance, a cooldown error, and an inval
 .build/debug/QuotaBar --preview-interface loaded
 .build/debug/QuotaBar --preview-interface signed-out
 .build/debug/QuotaBar --preview-interface stale
+.build/debug/QuotaBar --preview-interface motion
 .build/debug/QuotaBar --dump-interaction-states docs/images/interactions
 ```
 
-Preview uses sample providers, a separate preference suite, temporary history, and no-op pricing writes. Use its Quit command for cleanup. It does not use CLI credentials or scan real session files. Normal app launch retains the real integrations.
+The `motion` state slows fetches and the first local scan, starts Claude signed out until Check sign-in, and shortens the refresh cooldown, so each animation can be watched again. Preview uses sample providers, a separate preference suite, temporary history, and no-op pricing writes. Use its Quit command for cleanup. It does not use CLI credentials or scan real session files. Normal app launch retains the real integrations.
 
 `make readme-assets` regenerates the documentation images and all five interaction state screenshots. `--dump-interaction-states` can also render just those state screenshots. The generated `.build` directory is ordinary local build output.
 

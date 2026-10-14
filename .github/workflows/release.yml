@@ -16,7 +16,8 @@ jobs:
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    environment: release
+    # The environment only admits v*.*.* tags, which scopes the tap token to releases.
+    environment: homebrew-tap
     env:
       GH_TOKEN: ${{ github.token }}
     defaults:
@@ -35,10 +36,10 @@ jobs:
 
       - name: Validate tap publishing credentials
         env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
-            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask."
+          if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask."
             exit 1
           fi
 
@@ -271,13 +272,16 @@ jobs:
             --generate-notes \
             --title "QuotaBar ${VERSION}"
 
-  bump-tap:
+  tap-sync:
     name: Update Homebrew tap
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     needs: release
     runs-on: macos-15
     timeout-minutes: 20
-    environment: release
+    environment: homebrew-tap
+    concurrency:
+      group: homebrew-tap-quota-bar
+      cancel-in-progress: false
     permissions:
       contents: read
     env:
@@ -354,12 +358,12 @@ jobs:
 
       - name: Push tap
         env:
-          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${TAP_GITHUB_TOKEN:-}" ]]; then
-            echo "::error::TAP_GITHUB_TOKEN is required to publish the Homebrew cask." >&2
-            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as TAP_GITHUB_TOKEN in the release environment of softmaxe/quota-bar." >&2
+          if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask." >&2
+            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as HOMEBREW_TAP_TOKEN in the homebrew-tap environment of softmaxe/quota-bar." >&2
             exit 1
           fi
           if [[ "$(git -C "$TAP_DIR" rev-parse HEAD)" == "$(git -C "$TAP_DIR" rev-parse origin/main)" ]]; then
@@ -367,7 +371,7 @@ jobs:
             exit 0
           fi
 
-          remote="https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/softmaxe/homebrew-tap.git"
+          remote="https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/softmaxe/homebrew-tap.git"
           # Handle concurrent pushes to the tap (e.g., other formula bumps) by rebasing and retrying.
           for attempt in 1 2 3; do
             if git -C "$TAP_DIR" push "$remote" HEAD:main; then
