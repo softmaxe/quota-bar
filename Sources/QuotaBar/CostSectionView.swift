@@ -256,10 +256,7 @@ struct CostSectionView: View {
                                 dayKey: day.dayKey,
                                 selectedDayKey: self.selectedDayKey
                             ))
-                            .animation(CostChartHoverMotion.animation(
-                                clearingHover: false,
-                                reduceMotion: CostChartHoverMotion.systemReduceMotion
-                            ), value: selected)
+                            .animation(CostChartHoverMotion.selection, value: selected)
                             .frame(height: max(Self.minimumBarHeight, height))
                             .padding(.horizontal, 2)
                     } else {
@@ -268,10 +265,7 @@ struct CostSectionView: View {
                                 dayKey: day.dayKey,
                                 selectedDayKey: self.selectedDayKey
                             ))
-                            .animation(CostChartHoverMotion.animation(
-                                clearingHover: false,
-                                reduceMotion: CostChartHoverMotion.systemReduceMotion
-                            ), value: selected)
+                            .animation(CostChartHoverMotion.selection, value: selected)
                             .frame(height: Self.emptyStubHeight)
                             .padding(.horizontal, 2)
                     }
@@ -281,10 +275,7 @@ struct CostSectionView: View {
                     .fill(Theme.accent(for: self.snapshot.provider))
                     .frame(width: 12, height: CostChartHoverMotion.markerHeight)
                     .opacity(selected ? 1 : 0)
-                    .animation(CostChartHoverMotion.animation(
-                        clearingHover: false,
-                        reduceMotion: CostChartHoverMotion.systemReduceMotion
-                    ), value: selected)
+                    .animation(CostChartHoverMotion.selection, value: selected)
                     .frame(height: CostChartHoverMotion.markerBand)
             }
             .frame(maxWidth: .infinity)
