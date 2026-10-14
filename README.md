@@ -96,7 +96,7 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 Each quota window shows the percentage left and its reset time. Click a reset time and choose **Show reset date** or **Show countdown** to change the display for both windows. Unlimited sessions show **Session ∞** and **No limit**. An empty window shows **Limit reached**.
 
-Expand **Usage pace details** for reserve, deficit, and headroom. QuotaBar compares usage with time elapsed. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
+Expand **Usage pace details** for reserve, deficit, and headroom. QuotaBar compares usage with time elapsed. Once a few days of samples exist, weekly pace counts the hours you are usually active rather than the raw clock. A session that stops moving shows the working time left instead of a run-out time. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
 
 After QuotaBar detects a reset, opening the card plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
 

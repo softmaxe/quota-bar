@@ -153,6 +153,9 @@ struct MenuCardView: View {
     }
 
     private static func paceSummary(for pace: UsagePace, context: UsagePace.Context) -> String {
+        if let activeTimeLeft = pace.activeTimeLeftSeconds {
+            return "\(Formatters.compactDuration(activeTimeLeft)) of use left"
+        }
         if pace.willLastToReset { return "Lasts until reset" }
         guard let eta = pace.etaLabel(context: context, durationText: Formatters.compactDuration) else {
             return pace.deltaLabel
@@ -394,7 +397,13 @@ struct MenuCardView: View {
         return (kind == .weekly
             ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history, now: self.now)
             : nil)
-            ?? UsagePace.evaluate(window: window, context: context, now: self.now)
+            ?? UsagePace.evaluate(
+                window: window,
+                context: context,
+                now: self.now,
+                trail: kind == .session ? self.display.sessionTrail : nil,
+                rhythm: kind == .weekly ? self.display.history?.rhythm : nil
+            )
     }
 
     @ViewBuilder
@@ -426,11 +435,11 @@ struct MenuCardView: View {
                 context: kind.presentation.paceContext,
                 durationText: Formatters.compactDuration
             ) {
-                Text(eta.components(separatedBy: " · ").first ?? eta)
+                Text(eta)
             }
             Text("Expected \(Formatters.percent(pace.expectedRemainingPercent)) left now")
-            if let multiplier = pace.speedMultiplierToReset {
-                Text(String(format: "%.1f× headroom at current pace", multiplier))
+            if let headroom = pace.headroomLabel {
+                Text(headroom)
             }
             UsageProgressBar(
                 percent: window.remainingPercent,
