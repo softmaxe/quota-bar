@@ -11,7 +11,7 @@
 
 Check Codex and Claude quota, reset times, local token usage, and estimated API cost from the macOS menu bar.
 
-[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#editing-model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
+[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
 Screenshots use sample data. The app is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
@@ -19,7 +19,7 @@ Screenshots use sample data. The app is in English; exported reports support Chi
 
 - Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
 - View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
-- Estimate Standard, Fast, and long-context costs with the bundled price book. Edit Standard rates in Settings.
+- Estimate Standard, Fast, and long-context costs: Claude and OpenAI models from the bundled price book, other models such as DeepSeek or GLM from models.dev.
 - Export the last 7 or 30 days of saved usage as an offline HTML report with Chinese and English views.
 
 ## Install
@@ -78,7 +78,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to choose a refresh interval and the provider the menu bar shows, or to [edit model prices](#editing-model-prices).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to choose a refresh interval, the provider the menu bar shows, and whether models.dev prices other models, or to [see model prices](#model-prices).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -138,7 +138,7 @@ The icon is Material Design Icons' `robot-excited`. The card scrolls when needed
 | ⌘1 / ⌘2 | Show Claude / Codex |
 | ⌘R | Refresh or check sign-in, when available |
 | ⌘, | Open settings |
-| ⌘Q | Quit, with a prompt for unsaved price edits |
+| ⌘Q | Quit |
 | Esc | Close the card |
 
 ## How cost tracking works
@@ -160,7 +160,7 @@ The chart distinguishes zero usage from missing data:
 | **—**, **Unpriced** | Usage is recorded, but no rate applies. Cost view shows a dashed stub. |
 | **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
 
-For missing Standard rates, use **Settings → Pricing**. Fast usage needs a multiplier in the bundled price book and cannot be priced with a manual override.
+**Settings → Pricing** lists every model with its rates and where they come from. Unpriced models are local or free models, new Claude or OpenAI models the price book does not list yet, and Fast usage of models without a Fast multiplier.
 
 ### Data sources
 
@@ -190,12 +190,13 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 ### Pricing rules
 
-- Standard usage uses your saved override, if any. Otherwise, it uses the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json).
-- The price book stores rates in dated periods. Each day's usage uses that day's rates. An override replaces Standard rates for every recorded day of its model.
-- Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. It ignores overrides. Without a Fast multiplier, usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
+- Every cost is an estimate at API list prices.
+- Claude and OpenAI models use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
+- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off in **Settings → General**.
+- Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. Without a Fast multiplier, and for models priced from models.dev, Fast usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
 - Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
-Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates.
+Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates and for how models.dev rates are chosen.
 
 ## Exporting a usage report
 
@@ -210,35 +211,19 @@ Provider billing rules, cache accounting, and price changes can make estimates d
 
 The report is a single offline HTML file with a Chinese/English switch. It includes saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage, for the selected period. Charts and expandable tables show daily usage, cost by model, and token and cache composition.
 
-Export reads saved data without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage. Totals include cache costs; the report lists cache token counts without a separate cache cost.
+Export reads saved data and cached rates without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage. Totals include cache costs; the report lists cache token counts without a separate cache cost.
 
 The file includes the period, capture time, timezone, sources, models, token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the full data format and checks.
 
-## Editing model prices
+## Model prices
 
-Open **Settings → Pricing** to override Standard rates in USD per million tokens. Expand a model row for one-hour cache write rates, the long-context threshold, and rates above it.
-
-The table lists supported API models and unpriced models found locally. Click a column heading to sort; reset the order to restore the API model list and sort **Others** by usage.
+Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. Rows are grouped into **Claude**, **Codex**, and **Others**; the first two come from the price book, and **Others** lists every other model found locally, priced from models.dev or unpriced. Expand a row for the one-hour cache write rate, the long-context threshold, and the rates above it. Click a column heading to sort; reset the order to restore the API model list and sort **Others** by usage.
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="Pricing settings with editable rates, expanded long-context fields, and per-model action menus">
+  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing table grouped by Claude, Codex, and Others, with one row expanded to show its long-context rates">
 </p>
 
-- Rates must be finite and nonnegative. A long-context threshold must be a positive whole token count. You must set it before saving any rates above the threshold. Invalid fields disable **Save**.
-- **Save** shows progress and its result. Drafts survive failed saves, tab switches, and closing Settings while the app is running. **Discard** restores the last saved rates.
-- To remove an override, choose **Restore default rate** or **Clear custom rate** in the model's **…** menu, then save.
-- Quitting with a valid draft offers **Save**, **Discard**, or **Cancel**. Invalid drafts must be corrected before saving.
-
-<details>
-<summary>Invalid price example</summary>
-
-<p align="center">
-  <img src="docs/images/interactions/pricing-invalid.png" width="620" alt="A nonnumeric input rate with an inline error, an error summary, and Save disabled">
-</p>
-
-</details>
-
-Saving reprices the model's recorded Standard usage, including previously unpriced usage. Restoring the default returns it to the price book's dated rates. Fast usage keeps using the price book. Threshold changes affect only newly scanned requests.
+Rates cannot be edited. To change a Claude or OpenAI rate, update the price book (see [Maintaining the price book](docs/pricing.md)). Earlier versions saved custom rates in `pricing-overrides.json`; this version deletes that file on launch.
 
 ## Privacy and network access
 
@@ -251,14 +236,14 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json
-~/Library/Application Support/QuotaBar/pricing-overrides.json
+~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Preferences/com.quotabar.app.plist
 ```
 
 </details>
 
-Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Model prices ship with the app and are not fetched. It does not send local session records to these services.
+Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Claude and OpenAI prices ship with the app. While **Price other models with models.dev** is on, QuotaBar downloads `https://models.dev/api.json` at most once a day; the request carries no usage or account data. It does not send local session records to these services.
 
 ## Build and develop
 
@@ -337,9 +322,8 @@ The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, ve
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows Unpriced or Partial estimate | Add missing Standard rates in **Settings → Pricing**. Fast usage needs a multiplier in the bundled price book. |
+| Cost shows Unpriced or Partial estimate | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev pricing is on in **Settings → General** and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
-| Price changes cannot be saved | Correct the marked fields. If saving failed, the draft remains available to retry or discard. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
 | Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |
 
