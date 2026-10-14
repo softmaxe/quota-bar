@@ -1295,6 +1295,12 @@ enum HistoricalPaceTests {
         Harness.expect(pace.expectedUsedPercent < 50, "history lowers the expectation below linear")
         Harness.expect(pace.stage.isAhead, "spending at the linear rate reads as a deficit here")
         Harness.expect(pace.runOutProbability == nil, "risk needs five weeks, not four")
+        // Headroom compares against what those weeks still used from here (80 points), not
+        // against the expected curve, which is capped at the linear line.
+        Harness.expectClose(pace.speedMultiplierToReset, 50.0 / 80.0, "historical headroom uses replayed demand",
+                            tolerance: 1e-6)
+        Harness.expectEqual(pace.headroomLabel, "0.6× headroom over a usual week",
+                            "historical headroom names its comparison")
 
         let freshWindow = UsageWindow(
             usedPercent: 1,

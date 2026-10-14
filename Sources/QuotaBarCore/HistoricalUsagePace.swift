@@ -88,9 +88,13 @@ public enum HistoricalUsagePace {
         // current usage, and see whether the shifted curve reaches the cap before the reset.
         var runOutMass = 0.0
         var crossings: [(eta: TimeInterval, weight: Double)] = []
+        // What each past week still went on to use from this point, including demand a capped
+        // week would have spent had the cap not stopped it.
+        var remainingDemand: [Double] = []
         for entry in weighted {
             let extended = Self.extendPastCap(entry.week.curve)
             let weekNow = Self.interpolate(curve: extended, at: uNow)
+            remainingDemand.append(max(0, (extended.last ?? weekNow) - weekNow))
             let shift = actual - weekNow
             guard (extended.last ?? 0) + shift >= 100 - Self.epsilon else { continue }
 
@@ -132,7 +136,12 @@ public enum HistoricalUsagePace {
             etaSeconds: etaSeconds,
             willLastToReset: willLastToReset,
             runOutProbability: runOutProbability,
-            projectedRemainingUsage: max(0, (expectedCurve.last ?? expectedNow) - expectedNow)
+            // Not the expected curve: that is capped at the linear line, so it understates what
+            // a heavy week goes on to use and inflates the headroom.
+            projectedRemainingUsage: Self.weightedMedian(
+                values: remainingDemand,
+                weights: weighted.map(\.weight)
+            )
         )
     }
 
