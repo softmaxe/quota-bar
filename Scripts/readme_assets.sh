@@ -45,7 +45,7 @@ ffmpeg -v error -y \
 
 echo "==> interaction states"
 mkdir -p "$OUT/interactions"
-for state in main-dark main-light sign-in refresh-failed pricing-invalid; do
+for state in main-dark main-light sign-in refresh-failed; do
   cp "$WORK/interactions/$state.png" "$OUT/interactions/$state.png"
 done
 
@@ -60,8 +60,8 @@ ffmpeg -v error -y \
   -frames:v 1 "$OUT/menu-bar-icons.png"
 
 echo "==> settings"
-# The General pane is a short form in a tall window; the empty half below it says nothing.
-ffmpeg -v error -y -i "$WORK/settings/settings.png" -vf "crop=1240:620:0:0" -frames:v 1 "$OUT/settings-general.png"
+# The General pane is a short form in a tall window; the empty space below it says nothing.
+ffmpeg -v error -y -i "$WORK/settings/settings.png" -vf "crop=1240:900:0:0" -frames:v 1 "$OUT/settings-general.png"
 cp "$WORK/settings/settings-pricing-expanded.png" "$OUT/settings-pricing.png"
 
 # ffmpeg drops PNG profiles, so tag its now-sRGB composites for color-managed viewers.

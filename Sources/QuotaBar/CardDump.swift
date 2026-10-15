@@ -39,20 +39,6 @@ enum CardDump {
                 .environment(\.menuRefreshState, RefreshRowPolicy.state(cooldownRemaining: 90, isRefreshing: false)),
             named: "refresh-failed", into: root
         )
-        let pricing = PricingEditorModel(
-            costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
-            fixtures: Self.pricingFixtures,
-            saveOperations: .init(write: { _ in }, invalidate: {})
-        )
-        Task {
-            await pricing.load()
-            if let row = pricing.rows(in: .claude).first {
-                pricing.binding(for: row.id, keyPath: \.input).wrappedValue = "abc"
-            }
-        }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        Self.captureSettings(AnyView(PricingSettingsView(model: pricing, isLoadEnabled: false)),
-                             named: "pricing-invalid", into: root)
     }
 
     /// Renders the settings window's content off screen too, so its layout can be checked
@@ -61,10 +47,10 @@ enum CardDump {
         let root = OffscreenCapture.directory(directory)
 
         // A throwaway defaults domain keeps the dump from touching real preferences, and the
-        // fixtures keep the machine's own logs and saved rates out of the render.
+        // fixtures keep the machine's own logs and cached rates out of the render.
         let defaults = EphemeralDefaults.make("QuotaBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
-        let pricing = PricingEditorModel(
+        let pricing = PricingTableModel(
             costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
             fixtures: Self.pricingFixtures
         )
@@ -136,9 +122,9 @@ enum CardDump {
         }
     }
 
-    /// Made-up token totals and the built-in rate table, so the pricing pane renders the same
+    /// Made-up token totals, the built-in rate table, and two made-up models.dev rates, so the pricing pane renders the same
     /// on any machine and carries nobody's account in it.
-    private static let pricingFixtures = PricingEditorModel.PreviewFixtures(
+    private static let pricingFixtures = PricingTableModel.PreviewFixtures(
         usage: [
             .claude: [
                 ModelUsageTotal(model: "claude-opus-5", tokens: 412_000_000),
@@ -150,8 +136,18 @@ enum CardDump {
                 ModelUsageTotal(model: "gpt-5.6-sol", tokens: 236_000_000),
                 ModelUsageTotal(model: "gpt-5.6-terra", tokens: 91_000_000),
                 ModelUsageTotal(model: "gpt-5.6-luna", tokens: 12_400_000),
+                ModelUsageTotal(model: "deepseek-v4.1-flash", tokens: 48_000_000),
+                ModelUsageTotal(model: "glm-5.3", tokens: 6_200_000),
+                ModelUsageTotal(model: "qwen3.8-27b:latest", tokens: 2_100_000),
             ],
-        ]
+        ],
+        rateCard: RateCard(thirdParty: ThirdPartyRates(
+            current: [
+                "deepseek-v4.1-flash": ModelPricing(input: 0.15, output: 0.6, cacheRead: 0.003),
+                "glm-5.3": ModelPricing(input: 1.4, output: 4.4, cacheWrite: 0, cacheRead: 0.26),
+            ],
+            fetchedAt: Date(timeIntervalSinceNow: -3 * 3_600)
+        ))
     )
 
     /// `sampleCost` mixes three models into a day, which is the normal day and fits the block

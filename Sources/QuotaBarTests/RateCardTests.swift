@@ -1,14 +1,14 @@
 import Foundation
 import QuotaBarCore
 
-/// The rate card: the price book with the user's overrides laid over it, and the one place a
-/// rate is looked up.
+/// The rate card: the price book with the third-party rates beside it, and the one place a rate
+/// is looked up.
 enum RateCardTests {
     static func run() {
         guard let book = Self.book() else { return }
         Self.modelNames(book)
         Self.datedRates(book)
-        Self.overrides(book)
+        Self.thirdParty(book)
         Self.fast(book)
         Self.longContextTier(book)
         Self.unpricedUsage(book)
@@ -99,37 +99,62 @@ enum RateCardTests {
         )
     }
 
-    private static func overrides(_ book: PriceBook) {
-        let card = RateCard(book: book, overrides: [
-            "ox-dated": ModelPricing(input: 1, output: 1),
-            "ox-custom": ModelPricing(input: 2, output: 2),
-        ])
-        for day in ["2020-01-01", "2026-12-01"] {
-            Harness.expectEqual(
-                card.cost(of: Self.million, model: "ox-dated", provider: .codex, day: day, longContext: false),
-                1,
-                "an override replaces the Standard rates on \(day)"
-            )
-        }
+    private static func thirdParty(_ book: PriceBook) {
+        let card = RateCard(book: book, thirdParty: ThirdPartyRates(
+            models: [
+                "ox-dated": [.init(from: nil, rates: ModelPricing(input: 1, output: 1))],
+                "glm-dated": [
+                    .init(from: nil, rates: ModelPricing(input: 1, output: 2)),
+                    .init(from: "2026-11-22", rates: ModelPricing(input: 3, output: 4)),
+                ],
+                "claude-reseller": [.init(from: nil, rates: ModelPricing(input: 1, output: 1))],
+            ],
+            fetchedAt: nil
+        ))
         Harness.expectEqual(
-            card.cost(of: Self.million, model: "ox-custom", provider: .codex, day: "2026-12-01", longContext: false),
-            2,
-            "an override prices a model the book does not know"
+            card.cost(of: Self.million, model: "ox-dated", provider: .codex, day: "2026-12-01", longContext: false),
+            5,
+            "the book prices a model it lists even when models.dev lists it too"
+        )
+        Harness.expectEqual(card.source(for: "ox-dated", provider: .codex), .priceBook, "a book model is the book's")
+        Harness.expectEqual(
+            card.cost(of: Self.million, model: "glm-dated", provider: .codex, day: "2026-11-21", longContext: false),
+            1,
+            "models.dev prices a model the book does not list"
         )
         Harness.expectEqual(
-            card.withoutOverrides.cost(of: Self.million, model: "ox-dated", provider: .codex, day: "2026-12-01", longContext: false),
-            5,
-            "without overrides the book's rates return"
+            card.cost(of: Self.million, model: "glm-dated", provider: .claude, day: "2026-11-22", longContext: false),
+            3,
+            "a third-party rate change opens a period on the day it was seen, for either provider"
+        )
+        Harness.expectEqual(card.source(for: "glm-dated", provider: .claude), .modelsDev, "a third-party model is models.dev's")
+        Harness.expectEqual(
+            card.rates(for: "openrouter/z-ai/GLM-DATED", provider: .claude, day: "2026-11-22")?.input,
+            3,
+            "a routed name finds its third-party rates"
+        )
+        Harness.expect(
+            card.rates(for: "claude-reseller", provider: .claude, day: "2026-11-22") == nil
+                && card.source(for: "claude-reseller", provider: .claude) == nil,
+            "models.dev never prices a Claude or OpenAI model"
+        )
+        Harness.expect(
+            card.rates(for: "glm-dated", provider: .codex, day: "2026-11-22", fast: true) == nil,
+            "models.dev has no Fast tier, so Fast third-party usage is unpriced"
+        )
+        Harness.expect(
+            card.source(for: "ox-unlisted", provider: .codex) == nil,
+            "a model neither source lists has no source"
         )
     }
 
-    /// Fast is a multiple of the book's Standard rates; an override states Standard only.
+    /// Fast is a multiple of the book's Standard rates.
     private static func fast(_ book: PriceBook) {
-        let card = RateCard(book: book, overrides: ["ox-dated": ModelPricing(input: 1, output: 1)])
+        let card = RateCard(book: book)
         Harness.expectEqual(
             card.rates(for: "ox-dated", provider: .codex, day: "2026-11-21", fast: true),
             ModelPricing(input: 8, output: 40, thresholdTokens: 100, inputAbove: 16),
-            "Fast multiplies the book's rates and ignores the override"
+            "Fast multiplies the book's rates"
         )
         Harness.expect(
             card.rates(for: "ox-dated", provider: .codex, day: "2026-11-22", fast: true) == nil,
@@ -137,23 +162,14 @@ enum RateCardTests {
         )
 
         // Claude Fast mode follows the same rule, with prompt-caching rates scaled alongside.
-        let claude = RateCard(book: book, overrides: [
-            "claude-fixture-fast": ModelPricing(input: 1, output: 1),
-            "claude-fixture-5": ModelPricing(input: 1, output: 1),
-        ])
         Harness.expectEqual(
-            claude.rates(for: "claude-fixture-fast", provider: .claude, day: "2026-11-21", fast: true),
+            card.rates(for: "claude-fixture-fast", provider: .claude, day: "2026-11-21", fast: true),
             ModelPricing(input: 8, output: 40, cacheRead: 0.4),
-            "Claude Fast multiplies the book's rates and ignores the override"
-        )
-        Harness.expectEqual(
-            claude.rates(for: "claude-fixture-fast", provider: .claude, day: "2026-11-21"),
-            ModelPricing(input: 1, output: 1),
-            "Claude Standard usage still takes the override"
+            "Claude Fast multiplies the book's rates"
         )
         Harness.expect(
-            claude.rates(for: "claude-fixture-5", provider: .claude, day: "2026-11-21", fast: true) == nil,
-            "a Claude model without a Fast multiplier leaves Fast unpriced despite its override"
+            card.rates(for: "claude-fixture-5", provider: .claude, day: "2026-11-21", fast: true) == nil,
+            "a Claude model without a Fast multiplier leaves Fast unpriced"
         )
     }
 
@@ -172,34 +188,44 @@ enum RateCardTests {
             !card.isLongContext(request, model: "ox-dated", provider: .codex, day: "2026-11-22"),
             "a period without a threshold has no long-context tier"
         )
-        let overridden = RateCard(book: book, overrides: [
-            "ox-dated": ModelPricing(input: 1, output: 1, thresholdTokens: 50, inputAbove: 3),
-        ])
+        let thirdParty = RateCard(book: book, thirdParty: ThirdPartyRates(current: [
+            "glm-tiered": ModelPricing(input: 1, output: 1, thresholdTokens: 200_000, inputAbove: 3),
+        ]))
         Harness.expect(
-            overridden.isLongContext(TokenTotals(input: 51), model: "ox-dated", provider: .codex, day: "2026-11-22"),
-            "an override's threshold decides the tier"
+            thirdParty.isLongContext(TokenTotals(input: 150_000, cacheRead: 50_001), model: "glm-tiered", provider: .codex, day: "2026-11-22")
+                && !thirdParty.isLongContext(TokenTotals(input: 200_000), model: "glm-tiered", provider: .codex, day: "2026-11-22"),
+            "a third-party request is in the tier above 200K tokens"
+        )
+        Harness.expect(
+            RateCard(book: book).isLongContext(TokenTotals(input: 200_001), model: "glm-not-fetched", provider: .claude, day: "2026-11-22"),
+            "a third-party request is classified before its rates are downloaded"
+        )
+        Harness.expect(
+            !thirdParty.isLongContext(TokenTotals(input: 200_001), model: "glm-tiered", provider: .codex, day: "2026-11-22", fast: true)
+                && !RateCard(book: book).isLongContext(TokenTotals(input: 200_001), model: "claude-unlisted", provider: .claude, day: "2026-11-22"),
+            "Fast usage and unlisted Claude or OpenAI models are not classified against the third-party threshold"
         )
         Harness.expectEqual(
-            overridden.cost(of: Self.million, model: "ox-dated", provider: .codex, day: "2026-11-22", longContext: true),
+            thirdParty.cost(of: Self.million, model: "glm-tiered", provider: .codex, day: "2026-11-22", longContext: true),
             3,
-            "the long-context tier bills the override's rates above the threshold"
+            "the long-context tier bills the third-party rates above the threshold"
         )
 
         // A one-hour cache write bills at its own rate when one is stated.
-        let hourly = RateCard(book: book, overrides: [
-            "ox-dated": ModelPricing(
+        let hourly = RateCard(book: book, thirdParty: ThirdPartyRates(current: [
+            "glm-hourly": ModelPricing(
                 input: 1, output: 1, cacheWrite1h: 3.5,
                 thresholdTokens: 50, inputAbove: 3, cacheWrite1hAbove: 7
             ),
-        ])
+        ]))
         let oneHourWrite = TokenTotals(cacheWrite: 1_000_000, cacheWrite1h: 1_000_000)
         Harness.expectEqual(
-            hourly.cost(of: oneHourWrite, model: "ox-dated", provider: .codex, day: "2026-11-22", longContext: false),
+            hourly.cost(of: oneHourWrite, model: "glm-hourly", provider: .codex, day: "2026-11-22", longContext: false),
             3.5,
             "a stated one-hour rate is what bills"
         )
         Harness.expectEqual(
-            hourly.cost(of: oneHourWrite, model: "ox-dated", provider: .codex, day: "2026-11-22", longContext: true),
+            hourly.cost(of: oneHourWrite, model: "glm-hourly", provider: .codex, day: "2026-11-22", longContext: true),
             7,
             "the long-context one-hour rate applies above the threshold"
         )

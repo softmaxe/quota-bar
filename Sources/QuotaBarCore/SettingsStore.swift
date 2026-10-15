@@ -63,6 +63,7 @@ public final class SettingsStore: ObservableObject {
         static let menuBarProvider = "menuBarProvider"
         static let costChartLabelMode = "costChartLabelMode"
         static let quotaResetDisplayMode = "quotaResetDisplayMode"
+        static let modelsDevPricing = "modelsDevPricing"
     }
 
     private let defaults: UserDefaults
@@ -103,6 +104,20 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Whether models outside the price book are priced from models.dev, which means
+    /// downloading its catalog about once a day. On by default.
+    @Published public var modelsDevPricing: Bool {
+        didSet {
+            guard oldValue != self.modelsDevPricing else { return }
+            self.defaults.set(self.modelsDevPricing, forKey: Key.modelsDevPricing)
+        }
+    }
+
+    /// The saved `modelsDevPricing`, readable off the main actor by the cost service.
+    public nonisolated static func isModelsDevPricingEnabled(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.modelsDevPricing) as? Bool ?? true
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
@@ -113,5 +128,6 @@ public final class SettingsStore: ObservableObject {
             .flatMap(CostChartLabelMode.init(rawValue:)) ?? .tokens
         self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
+        self.modelsDevPricing = Self.isModelsDevPricingEnabled(defaults)
     }
 }

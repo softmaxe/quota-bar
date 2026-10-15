@@ -31,7 +31,7 @@ enum MenuLifecycleVerifier {
         let started = ContinuousClock.now
         let controller = StatusItemController(
             store: store, settings: settings,
-            pricing: PricingEditorModel(costService: service),
+            pricing: PricingTableModel(costService: service),
             // The fallback accepts in-process events; native sessions require real menu bar input.
             useSystemStatusItemSession: !verifyInteraction,
             reduceMotion: { reduceMotion }

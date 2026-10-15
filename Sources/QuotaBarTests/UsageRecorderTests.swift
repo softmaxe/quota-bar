@@ -23,7 +23,7 @@ enum UsageRecorderTests {
             ClaudeLine.assistant(id: "large", model: "claude-tier", input: 300_000, output: 10),
             ClaudeLine.assistant(id: "fast", model: "claude-tier", input: 2_000, output: 10, speed: "fast"),
         ])
-        let rateCard = RateCard(overrides: [
+        let rateCard = RateCard.fixture(claude: [
             "claude-tier": ModelPricing(input: 1, output: 1, thresholdTokens: 200_000, inputAbove: 2, outputAbove: 2),
         ])
 

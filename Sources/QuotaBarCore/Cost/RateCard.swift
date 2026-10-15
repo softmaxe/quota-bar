@@ -1,27 +1,30 @@
-// The price book with the user's overrides laid over it. Every rate the app bills, shows, or
-// scans against is looked up here, so what an override replaces, how Fast is priced, and when a
+// The price book with the third-party rates beside it. Every rate the app bills, shows, or scans
+// against is looked up here, so which source prices a model, how Fast is priced, and when a
 // request is in the long-context tier are each decided in one place.
 
 import Foundation
 
 public struct RateCard: Sendable {
+    /// Where a model's rates come from.
+    public enum Source: Sendable, Equatable {
+        /// The bundled price book, kept by hand for Claude and OpenAI models.
+        case priceBook
+        /// The local cache of models.dev rates, for every other model.
+        case modelsDev
+    }
+
     public let book: PriceBook
-    /// Keyed by model id. Each one replaces the book's Standard rates for that model on every day.
-    public let overrides: [String: ModelPricing]
+    public let thirdParty: ThirdPartyRates
 
-    public init(book: PriceBook = .bundled, overrides: [String: ModelPricing] = [:]) {
+    public init(book: PriceBook = .bundled, thirdParty: ThirdPartyRates = .empty) {
         self.book = book
-        self.overrides = overrides
+        self.thirdParty = thirdParty
     }
 
-    /// The shipped book with the overrides saved on this machine.
-    public static func onDisk(book: PriceBook = .bundled, file: OverrideFile = OverrideFile()) -> RateCard {
-        RateCard(book: book, overrides: file.load())
-    }
-
-    /// The same book with no overrides: what a model falls back to when its override is removed.
-    public var withoutOverrides: RateCard {
-        RateCard(book: self.book)
+    /// The shipped book with the third-party rates cached on this machine, unless that setting
+    /// is off.
+    public static func onDisk(book: PriceBook = .bundled, modelsDev: ModelsDevPricing = .live) -> RateCard {
+        RateCard(book: book, thirdParty: modelsDev.rates())
     }
 
     /// The id a model is priced and grouped under: `openai/gpt-5.1-2026-01-01` -> `gpt-5.1`,
@@ -47,21 +50,35 @@ public struct RateCard: Sendable {
             .sorted { $0.tokens != $1.tokens ? $0.tokens > $1.tokens : $0.model < $1.model }
     }
 
+    /// Which source prices a model, or nil when neither does. A model the book lists is the
+    /// book's on every day, even one it leaves unpriced.
+    public func source(for model: String, provider: Provider) -> Source? {
+        guard model != CostPricing.unknownModel, !model.isEmpty else { return nil }
+        if self.book.model(model, provider: provider) != nil { return .priceBook }
+        return self.thirdParty.prices(model) ? .modelsDev : nil
+    }
+
     /// Rates in force for a model on `day` (`yyyy-MM-dd`), or nil when nothing prices it. `model`
     /// is a model id as `modelID(for:provider:)` gives it and is looked up as is, so a recorded
     /// name must be resolved first.
     public func rates(for model: String, provider: Provider, day: String, fast: Bool = false) -> ModelPricing? {
-        guard model != CostPricing.unknownModel, !model.isEmpty else { return nil }
-        // Fast is a multiple of the book's Standard rates; an override states Standard rates only,
-        // so it cannot say what Fast costs, and an unknown Fast model stays unpriced.
-        if fast {
-            return self.book.rates(for: model, provider: provider, day: day, fast: true)
+        switch self.source(for: model, provider: provider) {
+        case .priceBook:
+            return self.book.rates(for: model, provider: provider, day: day, fast: fast)
+        case .modelsDev:
+            // models.dev publishes no Fast tier, so Fast usage of a third-party model stays unpriced.
+            return fast ? nil : self.thirdParty.rates(for: model, day: day)
+        case nil:
+            return nil
         }
-        return self.overrides[model] ?? self.book.rates(for: model, provider: provider, day: day)
     }
 
     /// Whether one request's input and cache tokens cross the model's long-context threshold.
     /// Scanners settle this per request, since rows are aggregated per day afterwards.
+    ///
+    /// models.dev only ever describes a tier above 200K tokens, so a third-party request is
+    /// classified against that threshold whether or not its rates have been downloaded yet, or
+    /// models.dev pricing is on. A model without long-context rates bills the tier at its base rates.
     public func isLongContext(
         _ request: TokenTotals,
         model: String,
@@ -69,8 +86,14 @@ public struct RateCard: Sendable {
         day: String,
         fast: Bool = false
     ) -> Bool {
-        guard let threshold = self.rates(for: model, provider: provider, day: day, fast: fast)?.thresholdTokens
-        else { return false }
+        let threshold: Int?
+        if self.book.model(model, provider: provider) == nil, ThirdPartyRates.isThirdParty(model),
+           model != CostPricing.unknownModel, !model.isEmpty {
+            threshold = fast ? nil : ModelsDevCatalog.longContextThreshold
+        } else {
+            threshold = self.rates(for: model, provider: provider, day: day, fast: fast)?.thresholdTokens
+        }
+        guard let threshold else { return false }
         return request.input + request.cacheRead + request.cacheWrite > threshold
     }
 

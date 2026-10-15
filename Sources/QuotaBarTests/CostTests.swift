@@ -70,13 +70,15 @@ enum CostTests {
             try lines.write(to: file, atomically: true, encoding: .utf8)
             let database = root.appendingPathComponent("usage.sqlite")
             let env = isolatedEnvironment(root: root)
-            let rateCard = RateCard(overrides: ["retention-model": ModelPricing(input: 1, output: 2)])
+            let retentionRates = ModelPricing(input: 1, output: 2)
+            let rateCard = RateCard.fixture(codex: ["retention-model": retentionRates], claude: ["retention-model": retentionRates])
             let first = await CostService(databaseURL: database, env: env, rateCard: rateCard).refresh(.codex)
             Harness.expectEqual(first?.windowTokens, 120, "retention fixture is scanned")
             let archive = home.appendingPathComponent("archived_sessions/\(name)")
             try FileManager.default.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.moveItem(at: file, to: archive)
-            let changedPrices = RateCard(overrides: ["retention-model": ModelPricing(input: 100, output: 200)])
+            let changedRates = ModelPricing(input: 100, output: 200)
+            let changedPrices = RateCard.fixture(codex: ["retention-model": changedRates], claude: ["retention-model": changedRates])
             let moved = await CostService(databaseURL: database, env: env, rateCard: changedPrices).refresh(.codex)
             Harness.expectEqual(moved?.windowTokens, 120, "archiving a Codex session does not double count")
             Harness.expectClose(moved?.windowCostUSD, 0.014, "archived usage is priced at the current rates")
@@ -355,7 +357,7 @@ enum CostTests {
         Harness.expectEqual(beforeAppend + afterAppend, [short, short], "a completed long line is skipped whole on the next scan")
     }
 
-    /// Cost is derived when usage is read, so a price edit reaches every recorded day, including
+    /// Cost is derived when usage is read, so new rates reach every recorded day, including
     /// usage that had no price when it was scanned.
     private static func pricingEditsRepriceHistory() async {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -382,7 +384,7 @@ enum CostTests {
 
             """
         }
-        try? (turn("gpt-5.6-luna") + turn("gpt-new-unlisted")).write(to: logFile, atomically: true, encoding: .utf8)
+        try? (turn("gpt-5.6-luna") + turn("glm-new-unlisted")).write(to: logFile, atomically: true, encoding: .utf8)
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("cache.sqlite"),
@@ -399,17 +401,17 @@ enum CostTests {
             "priced and unpriced usage together make a partial estimate"
         )
 
-        // What the settings pane does on Save: write the file, then drop the cached overrides.
-        await service.useRateCard(RateCard(book: Self.fixtureBook, overrides: [
-            "gpt-5.6-luna": ModelPricing(input: 5, output: 5),
-            "gpt-new-unlisted": ModelPricing(input: 1, output: 1),
-        ]))
+        // A later book raises luna's price, and models.dev starts pricing the unlisted model.
+        await service.useRateCard(RateCard.fixture(
+            codex: ["gpt-5.6-luna": ModelPricing(input: 5, output: 5)],
+            thirdParty: ["glm-new-unlisted": ModelPricing(input: 1, output: 1)]
+        ))
 
         let after = await service.refresh(.codex)
         Harness.expectEqual(after?.windowTokens, 400_000, "repricing changes no token counts")
         // 200k luna at the new $5/M plus 200k of the formerly unpriced model at $1/M.
-        Harness.expectClose(after?.windowCostUSD, 1.2, "a price edit reprices recorded usage")
-        Harness.expect(after?.hasUnpricedTokens == false, "an override prices usage that was scanned unpriced")
+        Harness.expectClose(after?.windowCostUSD, 1.2, "new rates reprice recorded usage")
+        Harness.expect(after?.hasUnpricedTokens == false, "third-party rates price usage that was scanned unpriced")
     }
 
     /// Scans count only the last 30 days, so a fixture stamped with a fixed date ages out of the
@@ -517,8 +519,8 @@ enum CostTests {
         await Self.escapedClassifierRecordsAreScanned(root: root)
     }
 
-    /// Saving overrides drops the service's rate card. The next refresh rereads the override
-    /// file the service was given and lays it over the same price book, not the shipped one.
+    /// New third-party rates drop the service's rate card. The next refresh rereads the cache the
+    /// service was given and sets it beside the same price book, not the shipped one.
     private static func invalidatingPricingKeepsTheBook(root: URL) async {
         let projects = root.appendingPathComponent("invalidate-claude/projects/app")
         try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
@@ -526,7 +528,7 @@ enum CostTests {
         func line(_ id: String, model: String) -> String {
             #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-\#(id)","message":{"id":"msg-\#(id)","model":"\#(model)","usage":{"input_tokens":1000000,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
         }
-        let lines = [line("a", model: "claude-book-only"), line("b", model: "claude-override-only")]
+        let lines = [line("a", model: "claude-book-only"), line("b", model: "glm-third-party")]
         try? (lines.joined(separator: "\n") + "\n")
             .write(to: projects.appendingPathComponent("session.jsonl"), atomically: true, encoding: .utf8)
 
@@ -547,25 +549,29 @@ enum CostTests {
             Harness.expect(false, "invalidation fixture book threw: \(error)")
             return
         }
-        let overrideFile = OverrideFile(url: root.appendingPathComponent("invalidate-overrides.json"))
-        try? overrideFile.save(["claude-override-only": ModelPricing(input: 3, output: 3)])
+        let modelsDev = ModelsDevPricing(
+            cacheURL: root.appendingPathComponent("invalidate-third-party-rates.json"),
+            isEnabled: { true },
+            download: { throw URLError(.notConnectedToInternet) }
+        )
+        try? modelsDev.save(ThirdPartyRates(current: ["glm-third-party": ModelPricing(input: 3, output: 3)]))
 
         let service = CostService(
             databaseURL: root.appendingPathComponent("invalidate-cache.sqlite"),
             env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("invalidate-claude").path]),
             rateCard: RateCard(book: book),
-            overrideFile: overrideFile
+            modelsDev: modelsDev
         )
         Harness.expectClose(
             await service.refresh(.claude)?.windowCostUSD,
             2,
-            "a pinned rate card prices from its own book and ignores the override file"
+            "a pinned rate card prices from its own book and ignores the third-party cache"
         )
         await service.invalidatePricing()
         Harness.expectClose(
             await service.refresh(.claude)?.windowCostUSD,
             5,
-            "after invalidation the service rereads its override file over the same book"
+            "after invalidation the service rereads its third-party cache beside the same book"
         )
     }
 
@@ -589,7 +595,7 @@ enum CostTests {
         let service = CostService(
             databaseURL: root.appendingPathComponent("ttl-cache.sqlite"),
             env: isolatedEnvironment(root: root, overriding: ["CLAUDE_CONFIG_DIR": root.appendingPathComponent("ttl-claude").path]),
-            rateCard: RateCard(overrides: [
+            rateCard: RateCard.fixture(claude: [
                 "ttl-model": ModelPricing(input: 10, output: 0, cacheWrite: 12.5, cacheRead: 0),
             ])
         )
@@ -733,7 +739,7 @@ enum ProviderRefreshCooldownTests {
         Harness.expect(!cooldowns.claimRefresh(.claude, at: 1_059), "which says nothing about the other one")
         Harness.expect(cooldowns.claimRefresh(.claude, at: 1_089), "the other one comes back a minute after its own")
 
-        // A forced refresh — a pricing edit the user is looking at — restarts only that provider.
+        // A forced refresh restarts only that provider.
         cooldowns.recordRefresh(.codex, at: 1_100)
         Harness.expectEqual(cooldowns.remaining(.codex, at: 1_100), 59, "a forced refresh restarts that provider's cooldown")
         Harness.expectEqual(cooldowns.remaining(.claude, at: 1_100), 48, "and leaves the other provider's running")

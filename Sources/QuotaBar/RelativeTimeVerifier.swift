@@ -25,7 +25,7 @@ enum RelativeTimeVerifier {
         let controller = StatusItemController(
             store: store,
             settings: settings,
-            pricing: PricingEditorModel(costService: costService),
+            pricing: PricingTableModel(costService: costService),
             now: { now },
             openMenuClockInterval: 0.01
         )

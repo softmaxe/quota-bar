@@ -4,11 +4,14 @@ import SwiftUI
 @MainActor
 final class SettingsSelection: ObservableObject {
     @Published var tab: SettingsTab = .general
+    /// Bumped whenever the pricing pane comes into view, so it rereads rates that a models.dev
+    /// download or the General toggle changed while it sat mounted behind another pane.
+    @Published var pricingReloads = 0
 }
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
-    @ObservedObject var pricing: PricingEditorModel
+    @ObservedObject var pricing: PricingTableModel
     @ObservedObject var export: ExportSettingsModel = ExportSettingsModel()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -34,7 +37,10 @@ struct SettingsView: View {
         }
         .frame(width: Self.paneWidth)
         .onChange(of: self.selection.tab) { _, newValue in
-            if newValue == .pricing { self.pricingWasOpened = true }
+            if newValue == .pricing {
+                self.pricingWasOpened = true
+                self.selection.pricingReloads += 1
+            }
         }
         .onAppear {
             if self.selection.tab == .pricing { self.pricingWasOpened = true }
@@ -47,7 +53,11 @@ struct SettingsView: View {
         ZStack(alignment: .topLeading) {
             self.pane(.general) { self.general }
             self.pane(.pricing) {
-                PricingSettingsView(model: self.pricing, isLoadEnabled: self.pricingWasOpened)
+                PricingSettingsView(
+                    model: self.pricing,
+                    isLoadEnabled: self.pricingWasOpened,
+                    reload: self.selection.pricingReloads
+                )
             }
             self.pane(.export) {
                 ExportSettingsView(model: self.export)
@@ -88,6 +98,16 @@ struct SettingsView: View {
                 }
                 Text("One item at a time. Pick it here or use the switch at the top of its "
                     + "menu. Sign-in status does not change this.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Pricing") {
+                Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
+                Text("Claude and OpenAI models use the built-in price book. Other models, such as "
+                    + "DeepSeek or GLM, are estimated from models.dev, which QuotaBar downloads "
+                    + "about once a day. Off, those models stay unpriced.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
