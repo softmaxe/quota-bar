@@ -32,59 +32,21 @@ enum UsageReportTests {
         }
     }
 
+    /// The shared seed over three days: 09-13 holds Codex and Claude rows, 09-14 nothing, and
+    /// 09-15 every source, while 09-12, an old row, and a future row fall outside the window.
     private static func aggregatesSupportedSources() throws {
-        let fixture = try RecordedUsageFixture(seed: false)
+        let fixture = try RecordedUsageFixture()
         let riskyModel = "x</script><script>alert('report')</script>"
         try fixture.database.exec("""
-            INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES
-              ('private-path-a', '2026-09-14', 'codex/model', 0, 0, 10, 2, 4, 1, 3),
-              ('private-path-b', '2026-09-14', 'codex/model', 1, 1, 20, 3, 6, 2, 4),
-              ('old', '2026-09-12', 'old-model', 0, 0, 1000, 0, 0, 0, 0),
-              ('future', '2026-09-16', 'future-model', 0, 0, 1000, 0, 0, 0, 0);
-
-            INSERT INTO claude_message (\(RecordedUsageFixture.claudeColumns)) VALUES
-              ('secret-key-a', 'private-path-c', '2026-09-14', 'claude/model', 0, 0, 7, 1, 2, 2, 5),
-              ('secret-key-b', 'private-path-d', '2026-09-15', 'claude/model', 1, 0, 4, 0, 0, 0, 1);
-
             INSERT INTO opencode_part (\(RecordedUsageFixture.openCodeColumns)) VALUES
-              ('part-a', 1, 0, '2026-09-15', '\(self.sql(riskyModel))', 1, 1, 8, 2, 1, 1, 3),
-              ('part-b', 0, 0, '2026-09-15', 'excluded-model', 0, 0, 5000, 0, 0, 0, 0);
-
-            INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES
-              ('message-a', 1, '2026-09-15', 'pi-zero', 0, 0, 0, 0, 0, 0),
-              ('message-b', 0, '2026-09-15', 'excluded-pi', 0, 9000, 0, 0, 0, 0);
+              ('risky', 1, 0, '\(fixture.day())', '\(self.sql(riskyModel))', 0, 0, 0, 0, 0, 0, 0);
             """)
-
-        // $1 a token on every Standard bucket, $2 above 100 tokens, and Fast at ten times
-        // either. Nothing else in the fixture is priced.
-        let book = try PriceBook(data: Data("""
-            {
-              "schemaVersion": 1,
-              "providers": {
-                "codex": {
-                  "source": "https://example.com/codex", "checkedAt": "2026-09-01",
-                  "models": [{
-                    "id": "codex/model",
-                    "periods": [{
-                      "rates": {
-                        "input": 1000000, "output": 1000000, "cacheWrite": 1000000,
-                        "cacheWrite1h": 1000000, "cacheRead": 1000000, "thresholdTokens": 100,
-                        "inputAbove": 2000000, "outputAbove": 2000000, "cacheWriteAbove": 2000000,
-                        "cacheWrite1hAbove": 2000000, "cacheReadAbove": 2000000
-                      },
-                      "fastMultiplier": 10
-                    }]
-                  }]
-                }
-              }
-            }
-            """.utf8))
         let report = try UsageReportReader.read(
             databaseURL: fixture.databaseURL,
             windowDays: 3,
-            now: self.captureDate,
+            now: fixture.now,
             calendar: self.calendar,
-            rateCard: RateCard(book: book)
+            rateCard: try RecordedUsageFixture.rateCard()
         )
 
         Harness.expectEqual(report.period, "2026-09-13 至 2026-09-15", "report period")
@@ -94,40 +56,41 @@ enum UsageReportTests {
         Harness.expectEqual(
             report.totals,
             UsageReportTotals(
-                input: 49,
-                output: 8,
-                cacheRead: 16,
-                cacheWrite: 13,
-                cacheWrite1h: 6,
-                cost: 679,
+                input: 61,
+                output: 9,
+                cacheRead: 17,
+                cacheWrite: 15,
+                cacheWrite1h: 7,
+                cost: 695,
                 unpricedTokens: 34,
-                total: 86
+                total: 102
             ),
             "all-source totals"
         )
         Harness.expectEqual(report.days.map(\.day), ["2026-09-13", "2026-09-14", "2026-09-15"], "day order")
-        Harness.expect(!report.days[0].recorded, "missing day is not recorded")
-        Harness.expectEqual(report.days[0].total, 0, "missing day is zero-filled")
-        Harness.expectEqual(report.days[1].total, 67, "first recorded day total")
-        Harness.expectEqual(report.days[1].unpricedTokens, 15, "a model the book does not list is unpriced")
-        // 19 Standard tokens at $1, then 33 long-context Fast tokens at $2 x 10.
-        Harness.expectClose(report.days[1].cost, 679, "each tier is priced at its own rates")
-        Harness.expectEqual(report.days[2].total, 19, "future rows are excluded")
-        Harness.expectEqual(report.days[2].unpricedTokens, 19, "a day with no priced model is fully unpriced")
-        Harness.expectEqual(report.days[2].cost, 0, "an unpriced day has no cost")
+        Harness.expectEqual(report.days[0].total, 43, "first recorded day total")
+        Harness.expectEqual(report.days[0].unpricedTokens, 15, "a model the book does not list is unpriced")
+        Harness.expectClose(report.days[0].cost, 28, "Standard tokens cost $1 each")
+        Harness.expect(!report.days[1].recorded, "missing day is not recorded")
+        Harness.expectEqual(report.days[1].total, 0, "missing day is zero-filled")
+        Harness.expectEqual(report.days[2].total, 59, "future rows are excluded")
+        Harness.expectEqual(report.days[2].unpricedTokens, 19, "unpriced Claude and OpenCode rows stay unpriced")
+        // 7 Standard tokens at $1, then 33 long-context Fast tokens at $2 x 10.
+        Harness.expectClose(report.days[2].cost, 667, "each tier is priced at its own rates")
 
-        Harness.expectEqual(report.models.first?.name, "codex/model", "models rank by derived cost")
-        Harness.expectEqual(report.models.first?.total, 52, "long-context and fast tiers combine by model")
-        Harness.expectEqual(report.models.first?.cacheWrite1h, 3, "one-hour cache writes sum as a subset")
+        Harness.expectEqual(report.models.first?.name, "priced-model", "models rank by derived cost")
+        Harness.expectEqual(report.models.first?.total, 68, "sources, long-context, and fast tiers combine by model")
+        Harness.expectEqual(report.models.first?.cacheWrite1h, 4, "one-hour cache writes sum as a subset")
         Harness.expect(report.models.contains(where: { $0.name == riskyModel }), "HTML-risk model name remains intact")
         Harness.expect(!report.models.contains(where: { $0.name == "excluded-model" }), "excluded OpenCode row stays out")
         Harness.expect(!report.models.contains(where: { $0.name == "excluded-pi" }), "excluded Pi row stays out")
-        Harness.expectEqual(report.weekdays.map(\.total), [67, 19, 0, 0, 0, 0, 0], "weekday totals")
+        Harness.expectEqual(report.weekdays.map(\.total), [0, 59, 0, 0, 0, 0, 43], "weekday totals")
 
         let data = try JSONEncoder().encode(report)
         let encoded = String(decoding: data, as: UTF8.self)
-        Harness.expect(!encoded.contains("private-path"), "snapshot omits source paths")
-        Harness.expect(!encoded.contains("secret-key"), "snapshot omits record identifiers")
+        for identifier in ["codex-a", "codex-fast", "claude-a", "claude-b", "open-a", "pi-a"] {
+            Harness.expect(!encoded.contains(identifier), "snapshot omits source paths and record identifiers")
+        }
         let decoded = try JSONDecoder().decode(UsageReportSnapshot.self, from: data)
         Harness.expectEqual(decoded, report, "snapshot JSON round trip")
     }
