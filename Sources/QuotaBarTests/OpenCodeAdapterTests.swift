@@ -1,6 +1,5 @@
 import QuotaBarCore
 import Foundation
-import SQLite3
 
 /// OpenCode database rows in, observed requests out, with no recorder.
 enum OpenCodeAdapterTests {
@@ -119,26 +118,24 @@ enum OpenCodeAdapterTests {
 /// points OpenCode, written the way OpenCode stores messages and their parts.
 final class OpenCodeFixtureDatabase {
     let url: URL
-    private var db: OpaquePointer?
+    private let db: TestDatabase
 
     init?(at root: URL, partColumns: String = "id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL") {
         let directory = root.appendingPathComponent("opencode")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.url = directory.appendingPathComponent("opencode.db")
-        guard sqlite3_open(self.url.path, &self.db) == SQLITE_OK else {
+        do {
+            self.db = try TestDatabase(self.url)
+        } catch {
             Harness.expect(false, "OpenCode fixture database opens")
-            sqlite3_close(self.db)
             return nil
         }
-        sqlite3_exec(self.db, "CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)", nil, nil, nil)
-        sqlite3_exec(self.db, "CREATE TABLE part (\(partColumns))", nil, nil, nil)
+        self.execute("CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        self.execute("CREATE TABLE part (\(partColumns))")
     }
 
-    deinit { self.close() }
-
     func close() {
-        sqlite3_close(self.db)
-        self.db = nil
+        self.db.close()
     }
 
     /// An assistant message with one `step-finish` part carrying its tokens.
@@ -185,24 +182,14 @@ final class OpenCodeFixtureDatabase {
     }
 
     func execute(_ sql: String) {
-        sqlite3_exec(self.db, sql, nil, nil, nil)
+        try? self.db.exec(sql)
     }
 
     private func insert(_ table: String, id: String, messageID: String? = nil, data: String) {
-        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-        var stmt: OpaquePointer?
-        let sql = messageID == nil
-            ? "INSERT INTO \(table) (id, data) VALUES (?, ?)"
-            : "INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)"
-        sqlite3_prepare_v2(self.db, sql, -1, &stmt, nil)
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, id, -1, transient)
         if let messageID {
-            sqlite3_bind_text(stmt, 2, messageID, -1, transient)
-            sqlite3_bind_text(stmt, 3, data, -1, transient)
+            try? self.db.exec("INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)", id, messageID, data)
         } else {
-            sqlite3_bind_text(stmt, 2, data, -1, transient)
+            try? self.db.exec("INSERT INTO \(table) (id, data) VALUES (?, ?)", id, data)
         }
-        sqlite3_step(stmt)
     }
 }

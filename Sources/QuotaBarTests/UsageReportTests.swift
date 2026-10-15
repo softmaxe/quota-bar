@@ -1,6 +1,5 @@
 import Foundation
 import QuotaBarCore
-import SQLite3
 
 enum UsageReportTests {
     static func run() {
@@ -38,8 +37,8 @@ enum UsageReportTests {
             let databaseURL = directory.appendingPathComponent("usage.sqlite")
             let riskyModel = "x</script><script>alert('report')</script>"
             try self.withDatabase(at: databaseURL) { database in
-                try self.execute(self.completeSchema, on: database)
-                try self.execute("""
+                try database.exec(self.completeSchema)
+                try database.exec("""
                     INSERT INTO codex_day VALUES
                       ('private-path-a', '2026-09-14', 'codex/model', 0, 0, 10, 2, 4, 1, 3),
                       ('private-path-b', '2026-09-14', 'codex/model', 1, 1, 20, 3, 6, 2, 4),
@@ -57,7 +56,7 @@ enum UsageReportTests {
                     INSERT INTO pi_message VALUES
                       ('message-a', 1, '2026-09-15', 'pi-zero', 0, 0, 0, 0, 0, 0),
                       ('message-b', 0, '2026-09-15', 'excluded-pi', 0, 9000, 0, 0, 0, 0);
-                    """, on: database)
+                    """)
             }
 
             // $1 a token on every Standard bucket, $2 above 100 tokens, and Fast at ten times
@@ -143,14 +142,14 @@ enum UsageReportTests {
         try self.withTemporaryDirectory { directory in
             let databaseURL = directory.appendingPathComponent("dated.sqlite")
             try self.withDatabase(at: databaseURL) { database in
-                try self.execute(self.codexSchema + self.claudeSchema, on: database)
-                try self.execute("""
+                try database.exec(self.codexSchema + self.claudeSchema)
+                try database.exec("""
                     INSERT INTO codex_day VALUES
                       ('a', '2026-09-14', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0),
                       ('b', '2026-09-15', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0);
                     INSERT INTO claude_message VALUES
                       ('k', 'c', '2026-09-15', 'claude-opus-5', 0, 0, 1000000, 0, 0, 0, 0);
-                    """, on: database)
+                    """)
             }
             let book = try PriceBook(data: Data("""
                 {
@@ -204,11 +203,11 @@ enum UsageReportTests {
 
             let zeroURL = directory.appendingPathComponent("zero.sqlite")
             try self.withDatabase(at: zeroURL) { database in
-                try self.execute(self.piSchema, on: database)
-                try self.execute("""
+                try database.exec(self.piSchema)
+                try database.exec("""
                     INSERT INTO pi_message VALUES
                       ('zero', 1, '2026-09-15', 'zero-model', 0, 0, 0, 0, 0, 0)
-                    """, on: database)
+                    """)
             }
             let zero = try UsageReportReader.read(
                 databaseURL: zeroURL,
@@ -238,7 +237,7 @@ enum UsageReportTests {
 
             let schemaURL = directory.appendingPathComponent("bad-schema.sqlite")
             try self.withDatabase(at: schemaURL) { database in
-                try self.execute("CREATE TABLE codex_day (day TEXT)", on: database)
+                try database.exec("CREATE TABLE codex_day (day TEXT)")
             }
             Harness.expectThrows("incomplete usage schema") {
                 _ = try UsageReportReader.read(databaseURL: schemaURL)
@@ -267,14 +266,14 @@ enum UsageReportTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: walURL.path)
         Harness.expect((attributes[.size] as? NSNumber)?.intValue ?? 0 > 0,
                        "committed fixture data remains in a nonempty WAL with its writer open")
-        try fixture.execute("""
+        try fixture.database.exec("""
             BEGIN IMMEDIATE;
             INSERT INTO codex_day VALUES ('uncommitted', '\(fixture.day())', 'pending', 0, 0, 700, 0, 0, 0, 0);
             """)
         let report = try self.read(fixture)
         Harness.expectEqual(report.totals.total, 102, "export sees committed usage from the open writer's WAL")
         Harness.expect(!report.models.contains { $0.name == "pending" }, "uncommitted writes remain invisible")
-        try fixture.execute("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
+        try fixture.database.exec("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
         Harness.expectEqual(try self.read(fixture).totals.total, 103,
                             "the writer remains usable after the read-only export")
     }
@@ -286,7 +285,7 @@ enum UsageReportTests {
             calendar: fixture.calendar, rateCard: try RecordedUsageFixture.rateCard(),
             afterSchemaDiscovery: {
                 // This writer commits after production schema discovery and before its token queries.
-                try fixture.execute("""
+                try fixture.database.exec("""
                     BEGIN IMMEDIATE;
                     UPDATE codex_day SET input = input + 100 WHERE path = 'codex-a';
                     DROP TABLE pi_message;
@@ -313,7 +312,7 @@ enum UsageReportTests {
         ]
         for (label, values) in fixtures {
             let fixture = try RecordedUsageFixture(seed: false)
-            try fixture.execute("""
+            try fixture.database.exec("""
                 WITH raw(path, input, output, cache_write, cache_write_1h, cache_read) AS (VALUES \(values))
                 INSERT INTO codex_day SELECT path, '\(fixture.day())', 'bad', 0, 0,
                     input, output, cache_write, cache_write_1h, cache_read FROM raw;
@@ -322,7 +321,7 @@ enum UsageReportTests {
         }
 
         let fixture = try RecordedUsageFixture(seed: false)
-        try fixture.execute("""
+        try fixture.database.exec("""
             INSERT INTO codex_day VALUES
                 ('safe', '\(fixture.day())', 'safe', 0, 0, 9007199254740991, 0, 0, 0, 0),
                 ('old-invalid', '\(fixture.day(-4))', 'bad', 0, 0, -1, 0, 0, 0, 0),
@@ -332,13 +331,13 @@ enum UsageReportTests {
             """)
         Harness.expectEqual(try self.read(fixture).totals.total, 9_007_199_254_740_991,
                             "export validates only included rows in its bounded date window")
-        try fixture.execute("""
+        try fixture.database.exec("""
             INSERT INTO pi_message VALUES ('one-more', 1, '\(fixture.day())', 'other', 0, 1, 0, 0, 0, 0);
             """)
         Harness.expectThrows("cross-source presentation totals retain safe integer checks") { _ = try self.read(fixture) }
 
         let malformed = try RecordedUsageFixture(seed: false)
-        try malformed.execute("DROP TABLE pi_message; CREATE VIEW pi_message AS SELECT * FROM codex_day;")
+        try malformed.database.exec("DROP TABLE pi_message; CREATE VIEW pi_message AS SELECT * FROM codex_day;")
         Harness.expectThrows("supported views fail even without rows in the window") { _ = try self.read(malformed) }
     }
 
@@ -351,7 +350,7 @@ enum UsageReportTests {
         } catch UsageReportReaderError.queryFailed(let message) {
             Harness.expect(message.contains("integer overflow"), "export propagates the SQLite stepping error")
         }
-        try fixture.execute("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
+        try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
         Harness.expectEqual(try self.read(fixture).totals.total, 102, "export recovers after the failed source is repaired")
     }
 
@@ -426,37 +425,13 @@ enum UsageReportTests {
         try body(directory)
     }
 
-    private static func withDatabase(at url: URL, _ body: (OpaquePointer) throws -> Void) throws {
-        var database: OpaquePointer?
-        let result = sqlite3_open(url.path, &database)
-        guard result == SQLITE_OK, let database else {
-            if let database { sqlite3_close(database) }
-            throw TestError.sqlite("Could not create fixture")
-        }
-        defer { sqlite3_close(database) }
+    private static func withDatabase(at url: URL, _ body: (TestDatabase) throws -> Void) throws {
+        let database = try TestDatabase(url)
+        defer { database.close() }
         try body(database)
-    }
-
-    private static func execute(_ sql: String, on database: OpaquePointer) throws {
-        var message: UnsafeMutablePointer<CChar>?
-        guard sqlite3_exec(database, sql, nil, nil, &message) == SQLITE_OK else {
-            let error = message.map { String(cString: $0) } ?? "unknown SQLite error"
-            sqlite3_free(message)
-            throw TestError.sqlite(error)
-        }
     }
 
     private static func sql(_ value: String) -> String {
         value.replacingOccurrences(of: "'", with: "''")
-    }
-
-    private enum TestError: LocalizedError {
-        case sqlite(String)
-
-        var errorDescription: String? {
-            switch self {
-            case let .sqlite(message): "SQLite fixture failed: \(message)"
-            }
-        }
     }
 }

@@ -1,6 +1,5 @@
 import QuotaBarCore
 import Foundation
-import SQLite3
 
 /// One failing Usage source must not hide the others: its previously recorded usage keeps
 /// counting, its scan status reports the failure, and the refresh still returns a snapshot.
@@ -87,11 +86,17 @@ enum SourceFailureTests {
             ClaudeLine.assistant(id: "two", model: "claude-opus-5", input: 30, output: 3, timestamp: Self.now),
         ])
 
-        guard let writer = RawDatabase(fixture.databaseURL) else { return }
-        writer.exec("BEGIN IMMEDIATE")
+        let writer: TestDatabase
+        do {
+            writer = try TestDatabase(fixture.databaseURL)
+            try writer.exec("BEGIN IMMEDIATE")
+        } catch {
+            Harness.expect(false, "a second connection locks the recorder's database: \(error.localizedDescription)")
+            return
+        }
         let snapshot = await service.refresh(.claude)
         fixture.record(.claude)
-        writer.exec("ROLLBACK")
+        try? writer.exec("ROLLBACK")
         writer.close()
 
         Harness.expect(snapshot != nil, "a Claude Code scan failure still yields a snapshot")
@@ -138,12 +143,14 @@ enum SourceFailureTests {
         ])
         await record()
         try? FileManager.default.removeItem(at: fixture.codexRollout(Self.rollout))
-        guard let db = RawDatabase(fixture.databaseURL) else { return }
-        db.exec("""
-            CREATE TRIGGER fail_codex_cursor BEFORE INSERT ON file_cursor WHEN NEW.provider = 'codex'
-            BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END
-            """)
-        db.close()
+        do {
+            try TestDatabase(fixture.databaseURL).exec("""
+                CREATE TRIGGER fail_codex_cursor BEFORE INSERT ON file_cursor WHEN NEW.provider = 'codex'
+                BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END
+                """)
+        } catch {
+            Harness.expect(false, "the Codex cursor trigger installs: \(error.localizedDescription)")
+        }
     }
 
     /// OpenCode usage of 10 input tokens and Pi Agent usage of 5, both of the Codex account.
@@ -169,26 +176,5 @@ enum SourceFailureTests {
             for (key, usage) in day.byModel { totals[key.source, default: 0] += usage.tokens.input }
         }
         return totals
-    }
-}
-
-/// A second connection to a recorder's database, standing in for a fault outside the recorder.
-private final class RawDatabase {
-    private var db: OpaquePointer?
-
-    init?(_ url: URL) {
-        guard sqlite3_open(url.path, &self.db) == SQLITE_OK else {
-            Harness.expect(false, "raw database connection opens")
-            sqlite3_close(self.db)
-            return nil
-        }
-    }
-
-    func exec(_ sql: String) {
-        Harness.expect(sqlite3_exec(self.db, sql, nil, nil, nil) == SQLITE_OK, "raw SQL runs: \(sql)")
-    }
-
-    func close() {
-        sqlite3_close(self.db)
     }
 }

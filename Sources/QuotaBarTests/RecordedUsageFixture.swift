@@ -1,6 +1,5 @@
 import Foundation
 import QuotaBarCore
-import SQLite3
 
 /// A real usage database shared by reader and consumer tests. The writer stays open so tests
 /// can commit changes, hold transactions, and read committed WAL data through production readers.
@@ -9,7 +8,8 @@ final class RecordedUsageFixture {
     let databaseURL: URL
     let now: Date
     let calendar: Calendar
-    private(set) var database: OpaquePointer?
+    /// The fixture's writer connection.
+    let database: TestDatabase
 
     init(
         now: Date = Date(timeIntervalSince1970: 1_789_446_896.789),
@@ -23,14 +23,12 @@ final class RecordedUsageFixture {
         self.databaseURL = self.directory.appendingPathComponent("usage.sqlite")
         try FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
         do {
-            guard sqlite3_open(self.databaseURL.path, &self.database) == SQLITE_OK else {
-                throw FixtureError.sqlite("Could not open fixture")
-            }
-            try self.execute("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
-            try self.execute(Self.schema)
+            self.database = try TestDatabase(self.databaseURL)
+            try self.database.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;")
+            try self.database.exec(Self.schema)
             if seed { try self.seedUsage() }
         } catch {
-            self.close()
+            try? FileManager.default.removeItem(at: self.directory)
             throw error
         }
     }
@@ -38,8 +36,7 @@ final class RecordedUsageFixture {
     deinit { self.close() }
 
     func close() {
-        if let database { sqlite3_close(database) }
-        self.database = nil
+        self.database.close()
         try? FileManager.default.removeItem(at: self.directory)
     }
 
@@ -47,37 +44,28 @@ final class RecordedUsageFixture {
         DayKey.make(from: self.calendar.date(byAdding: .day, value: offset, to: self.now)!, calendar: self.calendar)
     }
 
-    func execute(_ sql: String) throws {
-        var message: UnsafeMutablePointer<CChar>?
-        guard sqlite3_exec(self.database, sql, nil, nil, &message) == SQLITE_OK else {
-            let error = message.map { String(cString: $0) } ?? "unknown SQLite error"
-            sqlite3_free(message)
-            throw FixtureError.sqlite(error)
-        }
-    }
-
     /// Two individually valid integers overflow SQLite's SUM while it steps the query.
     func addOverflow(source: CostUsageSource) throws {
         switch source {
         case .codex:
-            try self.execute("""
+            try self.database.exec("""
                 INSERT INTO codex_day VALUES
                 ('overflow-a', '\(self.day())', 'zz-overflow', 0, 0, \(Int64.max), 0, 0, 0, 0),
                 ('overflow-b', '\(self.day())', 'zz-overflow', 0, 0, 1, 0, 0, 0, 0);
                 """)
         case .piAgent:
-            try self.execute("""
+            try self.database.exec("""
                 INSERT INTO pi_message VALUES
                 ('overflow-a', 1, '\(self.day())', 'zz-overflow', 0, \(Int64.max), 0, 0, 0, 0),
                 ('overflow-b', 1, '\(self.day())', 'zz-overflow', 0, 1, 0, 0, 0, 0);
                 """)
         default:
-            throw FixtureError.sqlite("Overflow fixture supports Codex and Pi Agent")
+            throw TestDatabaseError.sqlite("Overflow fixture supports Codex and Pi Agent")
         }
     }
 
     private func seedUsage() throws {
-        try self.execute("""
+        try self.database.exec("""
             INSERT INTO codex_day VALUES
             ('codex-a', '\(self.day(-2))', 'priced-model', 0, 0, 10, 2, 4, 1, 3),
             ('codex-b', '\(self.day(-2))', 'priced-model', 0, 0, 5, 1, 2, 1, 1),
@@ -147,6 +135,4 @@ final class RecordedUsageFixture {
             cache_write INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL, cache_read INTEGER NOT NULL
         );
         """
-
-    private enum FixtureError: Error { case sqlite(String) }
 }

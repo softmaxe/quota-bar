@@ -26,7 +26,7 @@ enum RecordedUsageTests {
                             "Claude cumulative usage stays separate")
         Harness.expectEqual(models.map(\.tokens), models.map(\.tokens).sorted(by: >),
                             "model usage remains ordered by cumulative tokens")
-        try fixture.execute("""
+        try fixture.database.exec("""
             INSERT INTO pi_message VALUES
             ('unknown', 1, '\(fixture.day())', '\(CostPricing.unknownModel)', 0, 99, 0, 0, 0, 0);
             """)
@@ -57,7 +57,7 @@ enum RecordedUsageTests {
                 Harness.expect(message.contains("integer overflow"), "model usage propagates SQLite stepping failures")
             }
         }
-        try fixture.execute("DROP TABLE pi_message")
+        try fixture.database.exec("DROP TABLE pi_message")
         Harness.expectThrows("Pricing continues to require every provider source table") {
             _ = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL)
         }
@@ -92,7 +92,7 @@ enum RecordedUsageTests {
         Harness.expect(claude.values.flatMap { $0.keys }.allSatisfy { !$0.isFast },
                        "Claude rows recorded as Standard stay Standard")
 
-        try fixture.execute("""
+        try fixture.database.exec("""
             INSERT INTO claude_message VALUES
             ('claude-fast', 'claude-fast', '\(fixture.day())', 'claude-model', 0, 1, 9, 1, 0, 0, 0);
             """)
@@ -117,7 +117,7 @@ enum RecordedUsageTests {
         }
 
         let fixture = try RecordedUsageFixture(seed: false)
-        try fixture.execute("DROP TABLE pi_message")
+        try fixture.database.exec("DROP TABLE pi_message")
         let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
         Harness.expectThrows("menu reads continue to require every provider source table") {
             _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day(), rateCard: RateCard())
@@ -132,7 +132,7 @@ enum RecordedUsageTests {
     private static func menuNumericPolicy() throws {
         let fixture = try RecordedUsageFixture(seed: false)
         let large = 9_007_199_254_740_992
-        try fixture.execute("""
+        try fixture.database.exec("""
             INSERT INTO codex_day VALUES ('large', '\(fixture.day())', 'large', 0, 0, \(large), 0, 0, 0, 0);
             """)
         let rows = try RecordedUsageReader(databaseURL: fixture.databaseURL)
@@ -186,8 +186,8 @@ enum RecordedUsageTests {
         try fixture.addOverflow(source: .piAgent)
         let failed = await service.refresh(.codex)
         Harness.expect(failed == nil, "CostService reports late query failure instead of a partial success")
-        try fixture.execute("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
-        try fixture.execute("UPDATE pi_message SET input = 7 WHERE key = 'pi-a'")
+        try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
+        try fixture.database.exec("UPDATE pi_message SET input = 7 WHERE key = 'pi-a'")
         let recovered = await service.refresh(.codex)
         Harness.expectEqual(recovered?.windowTokens, 1_083, "CostService can read again after query failure")
         Harness.expectClose(recovered?.windowCostUSD, 696, "a successful retry returns the current complete snapshot")

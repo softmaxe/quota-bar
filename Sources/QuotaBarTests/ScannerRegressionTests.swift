@@ -1,6 +1,5 @@
 import QuotaBarCore
 import Foundation
-import SQLite3
 
 enum ScannerRegressionTests {
     static func run() async {
@@ -247,41 +246,13 @@ enum ScannerRegressionTests {
     }
 
     private static func hasStoredResumeState(database: URL) -> Bool {
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            if let db { sqlite3_close(db) }
-            return false
-        }
-        defer { sqlite3_close(db) }
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(
-            db,
-            "SELECT 1 FROM file_cursor WHERE resume_state IS NOT NULL AND length(resume_state) > 0",
-            -1,
-            &statement,
-            nil
-        ) == SQLITE_OK else { return false }
-        return sqlite3_step(statement) == SQLITE_ROW
+        let count = try? TestDatabase(database, readOnly: true).scalarInt(
+            "SELECT COUNT(*) FROM file_cursor WHERE resume_state IS NOT NULL AND length(resume_state) > 0"
+        )
+        return (count ?? 0) > 0
     }
 
     private static func updateResumeState(database: URL, value: String?) -> Bool {
-        var db: OpaquePointer?
-        guard sqlite3_open(database.path, &db) == SQLITE_OK, let db else {
-            if let db { sqlite3_close(db) }
-            return false
-        }
-        defer { sqlite3_close(db) }
-        var statement: OpaquePointer?
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_prepare_v2(db, "UPDATE file_cursor SET resume_state = ?", -1, &statement, nil) == SQLITE_OK else {
-            return false
-        }
-        if let value {
-            sqlite3_bind_text(statement, 1, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        } else {
-            sqlite3_bind_null(statement, 1)
-        }
-        return sqlite3_step(statement) == SQLITE_DONE
+        (try? TestDatabase(database).exec("UPDATE file_cursor SET resume_state = ?", value)) != nil
     }
 }

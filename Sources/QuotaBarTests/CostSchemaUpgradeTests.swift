@@ -1,6 +1,5 @@
 import Foundation
 import QuotaBarCore
-import SQLite3
 
 /// Databases written by 1.0.7 and earlier stored frozen costs. Opening one upgrades it in place
 /// without losing usage whose source logs are gone.
@@ -109,12 +108,7 @@ enum CostSchemaUpgradeTests {
     }
 
     private static func createLegacyUsageDatabase(at database: URL) throws {
-        var connection: OpaquePointer?
-        guard sqlite3_open(database.path, &connection) == SQLITE_OK, let connection else {
-            throw TestError.sqlite("Could not open legacy schema fixture")
-        }
-        defer { sqlite3_close(connection) }
-        try self.execute("""
+        try TestDatabase(database).exec("""
             CREATE TABLE file_cursor (
                 path TEXT PRIMARY KEY,
                 provider TEXT NOT NULL,
@@ -183,36 +177,11 @@ enum CostSchemaUpgradeTests {
             CREATE INDEX opencode_part_unpriced ON opencode_part(cost_usd)
                 WHERE cost_usd IS NULL OR unpriced_tokens IS NULL;
             PRAGMA user_version = 6;
-            """, on: connection)
+            """)
     }
 
     private static func scalarInt(_ sql: String, from database: URL) throws -> Int {
-        var connection: OpaquePointer?
-        guard sqlite3_open_v2(database.path, &connection, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
-              let connection else {
-            throw TestError.sqlite("Could not open usage database")
-        }
-        defer { sqlite3_close(connection) }
-
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(connection, sql, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
-            throw TestError.sqlite(String(cString: sqlite3_errmsg(connection)))
-        }
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw TestError.sqlite(String(cString: sqlite3_errmsg(connection)))
-        }
-        return Int(sqlite3_column_int64(statement, 0))
-    }
-
-    private static func execute(_ sql: String, on database: OpaquePointer) throws {
-        var error: UnsafeMutablePointer<CChar>?
-        guard sqlite3_exec(database, sql, nil, nil, &error) == SQLITE_OK else {
-            let message = error.map { String(cString: $0) } ?? "unknown SQLite error"
-            sqlite3_free(error)
-            throw TestError.sqlite(message)
-        }
+        try TestDatabase(database, readOnly: true).scalarInt(sql)
     }
 
     private static func withTemporaryDirectory(_ body: (URL) async throws -> Void) async throws {
@@ -221,9 +190,5 @@ enum CostSchemaUpgradeTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try await body(directory)
-    }
-
-    private enum TestError: Error {
-        case sqlite(String)
     }
 }
