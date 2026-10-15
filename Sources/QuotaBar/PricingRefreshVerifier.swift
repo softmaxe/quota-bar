@@ -35,9 +35,7 @@ enum PricingRefreshVerifier {
     }
 
     static func run() -> Never {
-        Task { await Self.verify() }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
+        VerifierReport.runAsync { await Self.verify() }
     }
 
     private static func verify() async -> Never {
@@ -67,20 +65,20 @@ enum PricingRefreshVerifier {
         let pricing = PricingEditorModel(costService: service)
         let controller = StatusItemController(store: store, settings: settings, pricing: pricing)
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("fixture requests did not start")
         }
         // Exercise the same callback installed for a successful PricingEditorModel.save().
         for _ in 0..<3 { pricing.onSaved?() }
         fetches.cost?.resume(returning: Fetches.snapshot(cost: 1))
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             fetches.costCalls == 2 && store.displays[.codex]?.cost == Fetches.snapshot(cost: 2)
         }) else {
             finish("a pricing save was lost while quota and cost work were in flight")
         }
         pricing.onSaved?()
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             fetches.costCalls == 3 && store.displays[.codex]?.cost == Fetches.snapshot(cost: 3)
         }) else {
             finish("an in-flight quota request blocked a local cost refresh")
@@ -92,14 +90,6 @@ enum PricingRefreshVerifier {
         store.stop()
         withExtendedLifetime(controller) {}
         finish()
-    }
-
-    private static func wait(until ready: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while !ready(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-        return ready()
     }
 }
 #endif

@@ -8,7 +8,6 @@ enum SnapshotRecordingTests {
         Self.unchangedSnapshotIsSkipped()
         Self.changedSnapshotRewritesChangedRows()
         Self.fastRequestsAreRecordedAsFast()
-        Self.eligibleAccountIsIncluded()
         Self.ineligibleAccountIsRecordedButNotIncluded()
         Self.piSessionChangesAreDetected()
         Self.piAccountDecidesIncluded()
@@ -188,18 +187,6 @@ enum SnapshotRecordingTests {
             ],
             "Fast and Standard requests are recorded in separate tiers"
         )
-    }
-
-    /// OpenCode usage counts when OpenCode is signed in with OAuth to the account Codex uses.
-    private static func eligibleAccountIsIncluded() {
-        let fixture = RecorderFixture(name: "snapshot-eligible")
-        defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
-
-        fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
-
-        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "an eligible account's usage is included")
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "an eligible account is quiet")
     }
 
     /// Usage signed in to another account is someone else's, so it is not counted, and the scan

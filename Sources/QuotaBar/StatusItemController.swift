@@ -114,11 +114,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         NSApp.mainMenu = menu
     }
 
-    func showExportSettings() {
-        self.closePopover()
-        self.settingsWindow.showExport()
-    }
-
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action != #selector(self.refreshClicked)
             || self.store.canRefresh(self.settings.menuBarProvider)

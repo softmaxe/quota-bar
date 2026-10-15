@@ -38,11 +38,6 @@ final class SettingsWindowController {
         self.show()
     }
 
-    func showExport() {
-        self.selection.tab = .export
-        self.show()
-    }
-
     func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
         guard self.pricing.hasUnsavedChanges else { return .terminateNow }
         if self.pricing.saveStatus == .saving {

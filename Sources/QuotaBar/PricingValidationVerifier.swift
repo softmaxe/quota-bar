@@ -50,9 +50,7 @@ enum PricingValidationVerifier {
     }
 
     static func run() -> Never {
-        Task { await Self.verify() }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
+        VerifierReport.runAsync { await Self.verify() }
     }
 
     private static func verify() async -> Never {
@@ -116,7 +114,7 @@ enum PricingValidationVerifier {
         let gate = Gate()
         recorder.invalidateGate = gate
         let firstSave = Task { await model.save() }
-        Self.expect(await Self.wait(until: { gate.continuation != nil }),
+        Self.expect(await AsyncWait.wait(until: { gate.continuation != nil }),
                     "the asynchronous save did not begin", &failures)
         Self.expect(model.saveStatus == .saving, "Saving status was not visible", &failures)
         Self.expect(!(await model.save()), "a duplicate save was accepted", &failures)
@@ -163,7 +161,7 @@ enum PricingValidationVerifier {
             saveOperations: recorder.operations()
         )
         let pendingLoad = Task { await loading.load() }
-        Self.expect(await Self.wait(until: { loadGate.continuation != nil }),
+        Self.expect(await AsyncWait.wait(until: { loadGate.continuation != nil }),
                     "table rebuild did not reach the pending commit", &failures)
         loading.debugSetRows([priced])
         loading.binding(for: priced.id, keyPath: \.input).wrappedValue = "11"
@@ -287,7 +285,7 @@ enum PricingValidationVerifier {
         let readGate = Gate()
         source.gate = readGate
         let pendingRetry = Task { await drafts.retryUsage() }
-        self.expect(await self.wait(until: { readGate.continuation != nil }), "retry did not suspend", &failures)
+        self.expect(await AsyncWait.wait(until: { readGate.continuation != nil }), "retry did not suspend", &failures)
         drafts.binding(for: editableID, keyPath: \.output).wrappedValue = "13"
         drafts.binding(for: localID, keyPath: \.input).wrappedValue = "14"
         drafts.binding(for: localID, keyPath: \.output).wrappedValue = "15"
@@ -324,7 +322,7 @@ enum PricingValidationVerifier {
         let invalidateGate = Gate()
         recorder.invalidateGate = invalidateGate
         let pendingSave = Task { await drafts.save() }
-        self.expect(await self.wait(until: { invalidateGate.continuation != nil }),
+        self.expect(await AsyncWait.wait(until: { invalidateGate.continuation != nil }),
                     "save did not suspend for recovery overlap", &failures)
         source.result = .success([.codex: [.init(model: "editable-model", tokens: 70)]])
         await drafts.retryUsage()
@@ -342,7 +340,7 @@ enum PricingValidationVerifier {
         ]])
         source.gate = readGate
         let delayedRetry = Task { await drafts.retryUsage() }
-        self.expect(await self.wait(until: { readGate.continuation != nil }), "late retry did not suspend", &failures)
+        self.expect(await AsyncWait.wait(until: { readGate.continuation != nil }), "late retry did not suspend", &failures)
         drafts.reset(id: editableID)
         self.expect(await drafts.save(), "Restore during a pending retry did not save", &failures)
         readGate.release()
@@ -372,14 +370,6 @@ enum PricingValidationVerifier {
 
     private static func expect(_ condition: Bool, _ message: String, _ failures: inout [String]) {
         if !condition { failures.append(message) }
-    }
-
-    private static func wait(until ready: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while !ready(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-        return ready()
     }
 }
 #endif

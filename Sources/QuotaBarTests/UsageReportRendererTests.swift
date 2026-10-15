@@ -13,8 +13,11 @@ func runUsageReportRendererTests() {
         Harness.expect(!html.contains("href=\"http"), "report does not load remote fonts")
         Harness.expect(!html.contains("sourceMappingURL="), "embedded chart library has no external source map")
 
-        let start = html.range(of: "const REPORT=")!.upperBound
-        let end = html.range(of: ";\n/* Report runtime */", range: start..<html.endIndex)!.lowerBound
+        guard let start = html.range(of: "const REPORT=")?.upperBound,
+              let end = html.range(of: ";\n/* Report runtime */", range: start..<html.endIndex)?.lowerBound else {
+            Harness.expect(false, "report embeds its snapshot between the REPORT marker and the runtime")
+            return
+        }
         let decoded = try JSONDecoder().decode(UsageReportSnapshot.self, from: Data(html[start..<end].utf8))
         Harness.expectEqual(decoded.models.first?.name, hostile, "script-safe encoding preserves the original identifier")
         Harness.expectEqual(decoded.totals.total, 1_000, "embedded snapshot matches displayed metrics")

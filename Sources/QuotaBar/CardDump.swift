@@ -248,7 +248,7 @@ enum CardDump {
         let days = values.enumerated().map { index, value in
             let date = calendar.date(byAdding: .day, value: index - (values.count - 1), to: today) ?? today
             return CostDay(
-                dayKey: Formatters.dayKey(for: date),
+                dayKey: DayKey.make(from: date),
                 byModel: Dictionary(uniqueKeysWithValues: mix.map { source, model, share in
                     (ModelUsageKey(source: source, model: model), ModelDayUsage(
                         tokens: TokenTotals(input: Int(value * share * 1_000_000)),

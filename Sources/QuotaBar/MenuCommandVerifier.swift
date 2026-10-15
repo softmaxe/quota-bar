@@ -21,16 +21,10 @@ enum MenuCommandVerifier {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
-        Task { await Self.verify() }
-        RunLoop.main.run()
-        fatalError("menu command verification run loop stopped")
+        VerifierReport.runAsync { await Self.verify() }
     }
 
     private static func verify() async -> Never {
-        guard UserDefaults(suiteName: Self.suite) != nil else {
-            VerifierReport.report("could not isolate preferences", label: "menu command verification")
-            exit(2)
-        }
         let defaults = EphemeralDefaults.make(Self.suite)
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuotaBarMenuCommand-\(UUID().uuidString)", isDirectory: true)
@@ -80,7 +74,7 @@ enum MenuCommandVerifier {
         commands.update()
         require(refreshItem.isEnabled, "the Refresh command started disabled")
         require(menu.performKeyEquivalent(with: key), "Cmd-R did not reach the application menu")
-        require(await Self.wait(until: { requests.quota == 1 && !store.isRefreshing(.codex) }),
+        require(await AsyncWait.wait(until: { requests.quota == 1 && !store.isRefreshing(.codex) }),
                 "Cmd-R did not complete one fixture request")
 
         commands.update()
@@ -93,7 +87,7 @@ enum MenuCommandVerifier {
         commands.update()
         require(refreshItem.isEnabled, "the Refresh command did not re-enable after cooldown")
         require(menu.performKeyEquivalent(with: key), "Cmd-R remained disabled after cooldown")
-        require(await Self.wait(until: { requests.quota == 2 && !store.isRefreshing(.codex) }),
+        require(await AsyncWait.wait(until: { requests.quota == 2 && !store.isRefreshing(.codex) }),
                 "Cmd-R did not run after cooldown")
 
         store.stop()
@@ -101,13 +95,6 @@ enum MenuCommandVerifier {
         Self.finish(nil, scratch: scratch)
     }
 
-    private static func wait(until ready: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while !ready(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(2))
-        }
-        return ready()
-    }
 
     private static func finish(_ failure: String?, scratch: URL) -> Never {
         EphemeralDefaults.clear(Self.suite)

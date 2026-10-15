@@ -110,7 +110,7 @@ enum PricingSortPolicy {
         }
     }
 
-    static func rate(_ text: String) -> Double? {
+    private static func rate(_ text: String) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         return Double(trimmed)

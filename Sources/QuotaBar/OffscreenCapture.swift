@@ -1,6 +1,5 @@
 #if DEBUG
 import AppKit
-import SwiftUI
 
 /// The `--dump-*` flags all render a view that normally lives in the menu or the settings window
 /// off screen and write it to a PNG. `OffscreenCapture` owns that mechanism so each dump only has
@@ -11,10 +10,6 @@ enum OffscreenCapture {
     /// `cacheDisplay` paints no window background, so the render also needs an opaque ground of its
     /// own — without one the dark-mode text comes out white on white.
     private static let ground = NSColor(white: 0.13, alpha: 1)
-
-    /// The same ground, for the `renderPNG` path: `ImageRenderer` composites no window behind the
-    /// view, so those dumps paint it themselves rather than coming out white on white.
-    static var groundColor: Color { Color(nsColor: Self.ground) }
 
     enum Outcome {
         case written(URL)
@@ -44,9 +39,7 @@ enum OffscreenCapture {
         return .written(url)
     }
 
-    /// The same render, handed back as pixels. A verifier compares two of these rather than
-    /// writing them out.
-    static func render(
+    private static func render(
         _ hosting: NSView,
         titled: Bool = false,
         settle: TimeInterval = 0
@@ -85,20 +78,6 @@ enum OffscreenCapture {
         }
         ground.cacheDisplay(in: ground.bounds, to: rep)
         return rep
-    }
-
-    /// Renders `view` at 2x and writes it to `<root>/<name>.png`. Frame dumps use this rather
-    /// than `writePNG` because a view frozen at one instant needs no window to lay out in.
-    static func renderPNG(_ view: some View, named name: String, into root: URL) {
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        guard let image = renderer.nsImage,
-              let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let data = bitmap.representation(using: .png, properties: [:]) else {
-            return
-        }
-        try? data.write(to: root.appendingPathComponent("\(name).png"))
     }
 
     /// `<dir>` as the dumps take it: tilde-expanded and created if it is not there yet.

@@ -9,14 +9,14 @@ enum RateFieldFocusMotion {
     static let duration: TimeInterval = 0.09
     static let curve = (0.16, 1.0, 0.3, 1.0)
 
-    static func animation(speed: Double = 1, reduceMotion: Bool) -> Animation? {
+    static func animation(reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
         return .timingCurve(
             Self.curve.0,
             Self.curve.1,
             Self.curve.2,
             Self.curve.3,
-            duration: Self.duration / max(0.01, speed)
+            duration: Self.duration
         )
     }
 }
@@ -24,38 +24,25 @@ enum RateFieldFocusMotion {
 struct RateField: View {
     let placeholder: String
     @Binding var text: String
-    let animationSpeed: Double
-    let reduceMotionOverride: Bool
-    let clearFocusToken: Int
     let accessibilityLabel: String?
     let error: String?
     let isDisabled: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
 
     init(
         _ placeholder: String,
         text: Binding<String>,
-        animationSpeed: Double = 1,
-        reduceMotionOverride: Bool = false,
-        clearFocusToken: Int = 0,
         accessibilityLabel: String? = nil,
         error: String? = nil,
         isDisabled: Bool = false
     ) {
         self.placeholder = placeholder
         self._text = text
-        self.animationSpeed = animationSpeed
-        self.reduceMotionOverride = reduceMotionOverride
-        self.clearFocusToken = clearFocusToken
         self.accessibilityLabel = accessibilityLabel
         self.error = error
         self.isDisabled = isDisabled
-    }
-
-    private var reduceMotion: Bool {
-        self.systemReduceMotion || self.reduceMotionOverride
     }
 
     var body: some View {
@@ -96,10 +83,7 @@ struct RateField: View {
             .strokeBorder(Color.accentColor, lineWidth: 1)
             .opacity(self.isFocused ? 1 : 0)
             .animation(
-                RateFieldFocusMotion.animation(
-                    speed: self.animationSpeed,
-                    reduceMotion: self.reduceMotion
-                ),
+                RateFieldFocusMotion.animation(reduceMotion: self.reduceMotion),
                 value: self.isFocused
             )
             .allowsHitTesting(false)
@@ -111,8 +95,5 @@ struct RateField: View {
                 style: .continuous
             )
         )
-        .onChange(of: self.clearFocusToken) { _, _ in
-            self.isFocused = false
-        }
     }
 }

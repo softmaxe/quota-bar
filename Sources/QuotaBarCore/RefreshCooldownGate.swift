@@ -1,8 +1,8 @@
 import Foundation
 
-/// One cooldown shared by every refresh path. Whatever caused the last refresh — the polling
-/// timer, opening the menu, the Refresh action — the next minute serves the result already on
-/// screen instead of hitting the quota endpoints again.
+/// One provider's cooldown, shared by every refresh path. Whatever caused the last refresh — the
+/// polling timer, opening the menu, the Refresh action — the next minute serves the result
+/// already on screen instead of hitting the quota endpoints again.
 public struct RefreshCooldownGate {
     public static let defaultMinimumInterval: TimeInterval = 60
     /// A timer callback hops to the main actor before it claims, so a 60-second poll records its
