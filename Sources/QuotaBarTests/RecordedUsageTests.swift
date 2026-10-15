@@ -27,7 +27,7 @@ enum RecordedUsageTests {
         Harness.expectEqual(models.map(\.tokens), models.map(\.tokens).sorted(by: >),
                             "model usage remains ordered by cumulative tokens")
         try fixture.database.exec("""
-            INSERT INTO pi_message VALUES
+            INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES
             ('unknown', 1, '\(fixture.day())', '\(CostPricing.unknownModel)', 0, 99, 0, 0, 0, 0);
             """)
         let visible = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL)
@@ -93,7 +93,7 @@ enum RecordedUsageTests {
                        "Claude rows recorded as Standard stay Standard")
 
         try fixture.database.exec("""
-            INSERT INTO claude_message VALUES
+            INSERT INTO claude_message (\(RecordedUsageFixture.claudeColumns)) VALUES
             ('claude-fast', 'claude-fast', '\(fixture.day())', 'claude-model', 0, 1, 9, 1, 0, 0, 0);
             """)
         let claudeToday = try reader.dailyUsage(provider: .claude, fromDay: fixture.day(), rateCard: RateCard())[fixture.day()] ?? [:]
@@ -133,7 +133,7 @@ enum RecordedUsageTests {
         let fixture = try RecordedUsageFixture(seed: false)
         let large = 9_007_199_254_740_992
         try fixture.database.exec("""
-            INSERT INTO codex_day VALUES ('large', '\(fixture.day())', 'large', 0, 0, \(large), 0, 0, 0, 0);
+            INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES ('large', '\(fixture.day())', 'large', 0, 0, \(large), 0, 0, 0, 0);
             """)
         let rows = try RecordedUsageReader(databaseURL: fixture.databaseURL)
             .dailyUsage(provider: .codex, fromDay: fixture.day(), rateCard: RateCard())
