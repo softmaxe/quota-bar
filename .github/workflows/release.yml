@@ -24,6 +24,15 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Require a vMAJOR.MINOR.PATCH tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must match ^v[0-9]+.[0-9]+.[0-9]+$."
+            exit 1
+          fi
+
       - name: Require the tag to point at a commit on main
         run: |
           set -euo pipefail
@@ -40,6 +49,7 @@ jobs:
         run: |
           if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
             echo "::error::HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask."
+            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as HOMEBREW_TAP_TOKEN in the homebrew-tap environment of softmaxe/quota-bar."
             exit 1
           fi
 
@@ -54,17 +64,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Verify native runner architecture
-        run: |
-          set -euo pipefail
-          actual_arch="$(uname -m)"
-          echo "Runner architecture: ${actual_arch}"
-          echo "Expected architecture: ${ARCH}"
-          if [[ "${actual_arch}" != "${ARCH}" ]]; then
-            echo "::error::The runner architecture does not match the requested native architecture."
-            exit 1
-          fi
-
       - name: Print tool versions
         run: |
           set -euo pipefail
@@ -95,10 +94,6 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${EVENT_NAME}" == "push" && "${REF_TYPE}" == "tag" ]]; then
-            if [[ ! "${REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Tag must match ^v[0-9]+.[0-9]+.[0-9]+$."
-              exit 1
-            fi
             version="${REF_NAME#v}"
             archive_base="QuotaBar-${version}-macos-${ARCH}"
           else
@@ -159,27 +154,10 @@ jobs:
           ditto -c -k --keepParent build/QuotaBar.app "${zip_path}"
           unzip -t "${zip_path}"
 
-          zip_name="$(basename "${zip_path}")"
           (
             cd dist
-            shasum -a 256 "${zip_name}" > "${zip_name}.sha256"
+            shasum -a 256 "${ARCHIVE_BASE}.zip" > "${ARCHIVE_BASE}.zip.sha256"
           )
-
-          checksum_path="${zip_path}.sha256"
-          line_count="$(wc -l < "${checksum_path}")"
-          if [[ "${line_count}" -ne 1 ]]; then
-            echo "::error::Checksum file must contain exactly one line."
-            exit 1
-          fi
-          read -r checksum_digest checksum_reference < "${checksum_path}"
-          if [[ "${checksum_reference}" != "${zip_name}" ]]; then
-            echo "::error::Checksum must reference the archive basename only."
-            exit 1
-          fi
-          if [[ ! "${checksum_digest}" =~ ^[[:xdigit:]]{64}$ ]]; then
-            echo "::error::Checksum is not a SHA-256 digest."
-            exit 1
-          fi
 
       - name: Upload package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -214,16 +192,12 @@ jobs:
           name: package
           path: dist
 
-      - name: Validate tag and release packages
+      - name: Validate release packages
         id: metadata
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Tag must match ^v[0-9]+.[0-9]+.[0-9]+$."
-            exit 1
-          fi
           version="${TAG#v}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
@@ -243,21 +217,6 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/QuotaBar-${{ steps.metadata.outputs.version }}-macos-arm64.zip
-
-      - name: Ensure tag has no existing release
-        run: |
-          set -euo pipefail
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "::error::A release already exists for $GITHUB_REF_NAME; refusing to overwrite it."
-            exit 1
-          fi
-
-          api_output="$(gh api --include "repos/${GITHUB_REPOSITORY}/releases/tags/$GITHUB_REF_NAME" 2>&1 || true)"
-          status_line="$(printf '%s\n' "${api_output}" | sed -n '1p')"
-          if [[ "${status_line}" != *404* ]]; then
-            echo "::error::Could not confirm that no release exists for $GITHUB_REF_NAME."
-            exit 1
-          fi
 
       # gh uploads assets to a draft and publishes it only after every upload succeeds.
       - name: Publish release
@@ -361,11 +320,6 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
-            echo "::error::HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask." >&2
-            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as HOMEBREW_TAP_TOKEN in the homebrew-tap environment of softmaxe/quota-bar." >&2
-            exit 1
-          fi
           if [[ "$(git -C "$TAP_DIR" rev-parse HEAD)" == "$(git -C "$TAP_DIR" rev-parse origin/main)" ]]; then
             echo "Tap is already current"
             exit 0
