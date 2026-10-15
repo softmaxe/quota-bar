@@ -1,5 +1,7 @@
 # Derive cost from a dated price book
 
+> Partly superseded by [ADR 0002](0002-price-third-party-models-from-models-dev.md): user overrides are gone, and models.dev prices the models the book does not cover, through a local cache. Deriving cost at read time and the book's dated periods still stand.
+
 QuotaBar stores only token counts and computes cost each time usage is read. The rates come from a bundled price book, `Sources/QuotaBarCore/Resources/Pricing/price-book.json`, where every model lists its rates in dated periods. User overrides sit on top and apply to every day.
 
 Up to 1.0.7, each row's cost was computed at scan time and frozen in SQLite, and a models.dev catalog fetched at runtime sat between the overrides and a Swift rate table. Two problems made us drop both:

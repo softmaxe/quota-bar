@@ -18,7 +18,7 @@ enum CostSchemaUpgradeTests {
             let env = isolatedEnvironment(root: directory, overriding: [
                 "CODEX_HOME": missingHome.path, "CLAUDE_CONFIG_DIR": claudeHome.path,
             ])
-            let rateCard = RateCard(overrides: [
+            let rateCard = RateCard.fixture(codex: [
                 "migration-model": ModelPricing(input: 1, output: 2),
             ])
             let service = CostService(databaseURL: database, env: env, rateCard: rateCard)

@@ -1,6 +1,6 @@
-// The rules every set of rates must follow, wherever it comes from. The price book and the user's
-// override file both read rates through here, so a rate the book would refuse cannot reach billing
-// through an override instead.
+// The rules every set of rates must follow, wherever it comes from. The price book and the
+// third-party rates cache both read rates through here, so a rate the book would refuse cannot
+// reach billing through the cache instead.
 
 import Foundation
 
@@ -51,7 +51,7 @@ extension ModelPricing {
         Set(["input", "output", Self.thresholdKey] + Self.optionalRates.map(\.json))
     }
 
-    /// Every rule `rates` breaks, keyed as the price book and the override file spell them.
+    /// Every rule `rates` breaks, keyed as the price book and the third-party rates cache spell them.
     /// Empty means `init(rates:)` will accept them.
     public static func violations(in rates: [String: Double]) -> [RateViolation] {
         var violations: [RateViolation] = []
@@ -97,12 +97,11 @@ extension ModelPricing {
         )
     }
 
-    /// A rate set from a JSON object. The price book takes JSON numbers only; the override file
-    /// also takes numbers written as strings, which hand edits have always been allowed.
-    init(json object: [String: Any], numericStrings: Bool) throws {
+    /// A rate set from a JSON object of JSON numbers.
+    init(json object: [String: Any]) throws {
         var rates: [String: Double] = [:]
         for (key, raw) in object {
-            guard let value = Self.number(raw, numericStrings: numericStrings) else {
+            guard let value = Self.number(raw) else {
                 throw RateViolation(key: key, rule: Self.rateKeys.contains(key) ? .notANumber : .unknownKey)
             }
             rates[key] = value
@@ -121,13 +120,8 @@ extension ModelPricing {
     }
 
     /// Booleans also bridge to NSNumber and are rejected.
-    private static func number(_ value: Any, numericStrings: Bool) -> Double? {
-        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
-            return number.doubleValue
-        }
-        if numericStrings, let string = value as? String {
-            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return nil
+    private static func number(_ value: Any) -> Double? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        return number.doubleValue
     }
 }

@@ -4,7 +4,8 @@ import Foundation
 
 /// Owns provider state and the refresh schedule. Polling, opening the menu, and the Refresh row
 /// refresh only the displayed provider. Switching providers refreshes the newly selected one.
-/// Price edits refresh local costs independently of quota requests.
+/// New third-party rates, and turning them on or off, refresh local costs independently of
+/// quota requests.
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var displays: [Provider: ProviderDisplay] = [:]
@@ -22,6 +23,9 @@ final class UsageStore: ObservableObject {
     private let settings: SettingsStore
     private var settingsObserver: AnyCancellable?
     private var providerObserver: AnyCancellable?
+    private var modelsDevObserver: AnyCancellable?
+    /// The models.dev download in flight, so cost refreshes started meanwhile do not queue more.
+    private var thirdPartyRatesTask: Task<Void, Never>?
     /// One cooldown per provider, claimed by whichever path asked, so the minute after any
     /// refresh of that provider stays quiet. Switching back and forth buys no extra refreshes:
     /// each provider's own minute has to elapse before it is fetched again.
@@ -30,6 +34,9 @@ final class UsageStore: ObservableObject {
     private let dateClock: () -> Date
     private let fetchState: (Provider, ClaudeRefreshInteraction) async -> ProviderState
     private let fetchCost: (Provider) async -> CostSnapshot?
+    /// Downloads models.dev when it is due; true when the rates changed.
+    private let updateThirdPartyRates: () async -> Bool
+    private let invalidatePricing: () async -> Void
 
     init(
         settings: SettingsStore,
@@ -38,6 +45,7 @@ final class UsageStore: ObservableObject {
         dateClock: @escaping () -> Date = Date.init,
         fetchState: ((Provider, ClaudeRefreshInteraction) async -> ProviderState)? = nil,
         fetchCost: ((Provider) async -> CostSnapshot?)? = nil,
+        updateThirdPartyRates: (() async -> Bool)? = nil,
         historyStore: UsageHistoryStore? = nil,
         recoveryDefaults: UserDefaults = .standard
     ) {
@@ -48,6 +56,8 @@ final class UsageStore: ObservableObject {
         self.dateClock = dateClock
         self.fetchState = fetchState ?? { await Self.fetch($0, interaction: $1) }
         self.fetchCost = fetchCost ?? { await costService.refresh($0) }
+        self.updateThirdPartyRates = updateThirdPartyRates ?? { await costService.updateThirdPartyRates() }
+        self.invalidatePricing = { await costService.invalidatePricing() }
     }
 
     func start() {
@@ -69,6 +79,23 @@ final class UsageStore: ObservableObject {
             .sink { [weak self] provider in
                 guard let self else { return }
                 self.refresh(provider: provider)
+            }
+
+        // Turning models.dev off unprices third-party usage at once; turning it on prices it from
+        // the cache and downloads whatever is due.
+        self.modelsDevObserver = self.settings.$modelsDevPricing
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if !enabled {
+                    self.thirdPartyRatesTask?.cancel()
+                    self.thirdPartyRatesTask = nil
+                }
+                Task { @MainActor in
+                    await self.invalidatePricing()
+                    self.refreshCostsAfterPricingChange()
+                }
             }
     }
 
@@ -97,8 +124,11 @@ final class UsageStore: ObservableObject {
         for task in self.costTasks.values { task.cancel() }
         self.costTasks = [:]
         self.pendingCostRefreshes = []
+        self.thirdPartyRatesTask?.cancel()
+        self.thirdPartyRatesTask = nil
         self.settingsObserver = nil
         self.providerObserver = nil
+        self.modelsDevObserver = nil
     }
 
     /// Refreshes the provider on screen. `force` only skips the local cooldown for an explicit
@@ -184,6 +214,7 @@ final class UsageStore: ObservableObject {
     /// hold up the quota numbers, which are what the menu bar icon needs. Utility priority lets
     /// that multi-second pass yield the performance cores to whatever the user is doing.
     private func refreshCosts(for provider: Provider, afterPricingChange: Bool = false) {
+        self.updateThirdPartyRatesIfDue()
         guard self.costTasks[provider] == nil else {
             if afterPricingChange { self.pendingCostRefreshes.insert(provider) }
             return
@@ -210,10 +241,24 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Price edits only affect local costs. Coalesce edits during a scan into one follow-up
-    /// so its earlier snapshot cannot hide the result of saving new rates.
+    /// New rates only affect local costs. Coalesce changes during a scan into one follow-up
+    /// so its earlier snapshot cannot hide the result of the new rates.
     func refreshCostsAfterPricingChange() {
         self.refreshCosts(for: self.settings.menuBarProvider, afterPricingChange: true)
+    }
+
+    /// Checks models.dev alongside a cost refresh without holding the scan up. The service
+    /// decides whether a download is due, so this is cheap to call on every refresh.
+    private func updateThirdPartyRatesIfDue() {
+        guard self.thirdPartyRatesTask == nil else { return }
+        self.thirdPartyRatesTask = Task(priority: .utility) { [weak self, updateThirdPartyRates] in
+            let changed = await updateThirdPartyRates()
+            await MainActor.run {
+                guard let self else { return }
+                self.thirdPartyRatesTask = nil
+                if changed { self.refreshCostsAfterPricingChange() }
+            }
+        }
     }
 
     /// Retries only the selected provider's local usage scan. This has no quota cooldown and

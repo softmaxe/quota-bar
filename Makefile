@@ -11,7 +11,6 @@ LOG_SUBSYSTEM := com.quotabar.app
 VERIFIERS := \
 	menu-command \
 	provider-state \
-	pricing-validation \
 	menu-lifecycle \
 	pricing-refresh \
 	cost-chart-highlighting \

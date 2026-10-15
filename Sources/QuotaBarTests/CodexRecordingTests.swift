@@ -142,7 +142,7 @@ enum CodexRecordingTests {
             CodexLine.turnContext(model: "codex-tier"),
             CodexLine.tokenCount(input: 250_000, output: 10, total: 400_020),
         ])
-        let rateCard = RateCard(overrides: [
+        let rateCard = RateCard.fixture(codex: [
             "codex-tier": ModelPricing(input: 1, output: 1, thresholdTokens: 200_000, inputAbove: 2, outputAbove: 2),
         ])
 

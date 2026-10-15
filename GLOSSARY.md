@@ -13,29 +13,29 @@ Token usage saved from local sessions, attributed to its Usage source, model, an
 _Avoid_: stored cost, cached cost
 
 **Price book**:
-The list of published model rates that ships with the app, each model's rates split into dated periods.
+The list of Claude and OpenAI model rates that ships with the app, kept by hand, each model's rates split into dated periods.
 _Avoid_: pricing table, catalog, built-in table
+
+**Third-party rates**:
+Rates for every model the price book does not cover, taken from models.dev and kept in a cache on this machine. A model's rates open a new period on the day a fetch first sees them change. Never used for a Claude or OpenAI model.
+_Avoid_: catalog, fallback rates
 
 **Period**:
 A span of days, starting on a given day, during which one set of rates applies to a model.
 _Avoid_: price version, tier
 
-**Override**:
-A rate the user sets for a model in the pricing settings. It replaces the price book's Standard rates on every day. An override that breaks the rules the price book's own rates must follow is ignored, and the price book's rates apply instead.
-_Avoid_: custom price, user price
-
 **Rate card**:
-The price book with the user's overrides laid over it: what every model costs on any given day, and the only place a rate is looked up.
+The price book with the third-party rates beside it: what every model costs on any given day, and the only place a rate is looked up. A model the price book lists is priced by the book alone. Every cost it gives is an estimate at API list prices.
 _Avoid_: pricing overlay, effective pricing
 
 **Unpriced usage**:
-Recorded tokens whose model has no rate on their day. They count toward token totals but not toward cost.
+Recorded tokens whose model has no rate on their day, including models that models.dev lists only for free and all third-party usage while models.dev pricing is off. They count toward token totals but not toward cost.
 _Avoid_: unknown cost, free usage
 
 **Long-context tier**:
-The higher rates a model charges when one request's input and cache tokens exceed its threshold. Whether a request is in the tier is settled when it is scanned, against the rate card's threshold at that moment, and does not change when the threshold later does.
+The higher rates a model charges when one request's input and cache tokens exceed its threshold. Whether a request is in the tier is settled when it is scanned, against the rate card's threshold at that moment, and does not change when the threshold later does. A third-party model's threshold is always 200K tokens, the only tier models.dev describes, so its requests are classified even before its rates are downloaded.
 _Avoid_: above-threshold pricing
 
 **Fast**:
-Codex's priority service tier or Claude's Fast mode, billed as a multiple of the period's Standard rates.
+Codex's priority service tier or Claude's Fast mode, billed as a multiple of the period's Standard rates. Only the price book has Fast multipliers, so Fast usage of a third-party model is unpriced.
 _Avoid_: priority tier

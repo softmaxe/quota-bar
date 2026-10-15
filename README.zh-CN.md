@@ -11,7 +11,7 @@
 
 在 macOS 菜单栏查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估 API 成本。
 
-[安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#编辑模型费率) · [开发](#构建与开发) · [排查](#排查)
+[安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#模型费率) · [开发](#构建与开发) · [排查](#排查)
 
 截图使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
 
@@ -19,7 +19,7 @@
 
 - 查看会话与每周额度、重置时间、使用节奏和 Codex Credits 余额。刷新失败时保留上次有效读数。
 - 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode 和 Pi Agent OAuth 用量计入总计。
-- 用内置价格表估算 Standard、Fast 和长上下文成本，在设置中编辑 Standard 费率。
+- 估算 Standard、Fast 和长上下文成本：Claude 和 OpenAI 模型使用内置价格表，DeepSeek、GLM 等其他模型使用 models.dev 的价格。
 - 将最近 7 天或 30 天的已保存用量导出为离线 HTML 报告，支持中英文切换。
 
 ## 安装
@@ -78,7 +78,7 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔和菜单栏显示的供应商，或[编辑模型费率](#编辑模型费率)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中修改刷新间隔、菜单栏显示的供应商，以及是否用 models.dev 为其他模型计价，或[查看模型费率](#模型费率)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
@@ -138,7 +138,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 | ⌘1 / ⌘2 | 查看 Claude / Codex |
 | ⌘R | 可用时刷新或检查登录状态 |
 | ⌘, | 打开设置 |
-| ⌘Q | 退出，有未保存的费率修改时先询问 |
+| ⌘Q | 退出 |
 | Esc | 关闭卡片 |
 
 ## 成本统计方式
@@ -160,7 +160,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 | **—**、**Unpriced** | 已记录用量，但没有适用的费率。Cost 视图显示虚线短条。 |
 | **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
 
-缺失的 Standard 费率可在 **Settings → Pricing** 中补充。Fast 用量需要内置价格表提供倍率，不能通过手动覆盖费率补充。
+**Settings → Pricing** 列出每个模型的费率及其来源。未计价的通常是本地或免费模型、价格表尚未收录的新 Claude 或 OpenAI 模型，以及没有 Fast 倍率的 Fast 用量。
 
 ### 数据来源
 
@@ -190,12 +190,13 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ### 计价规则
 
-- Standard 用量优先使用已保存的覆盖费率，否则使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。
-- 价格表按生效日期分段记录费率，每天的用量使用当天的费率。覆盖费率会替换该模型所有已记录日期的 Standard 费率。
-- Fast 用量（Codex priority 层级和 Claude Fast mode）使用价格表中的费率乘以该时段的 Fast 倍率，缓存费率同样适用，不受手动覆盖影响。没有 Fast 倍率时，用量保持未计价状态。QuotaBar 开始记录 Fast mode 之前扫描的 Claude 用量仍按 Standard 计价。
+- 所有成本都是按 API 公开价格的估算。
+- Claude 和 OpenAI 模型使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。价格表按生效日期分段记录费率，每天的用量使用当天的费率。
+- 其他模型使用 [models.dev](https://models.dev) 的费率：模型厂商自己有报价时用厂商价，否则取各家供应商报价的中间值。QuotaBar 把这些费率缓存在本地，每天最多更新一次；价格变化后，之前的日期仍按旧费率计算。只有免费报价的模型保持未计价。可在 **Settings → General** 中关闭。
+- Fast 用量（Codex priority 层级和 Claude Fast mode）使用价格表中的费率乘以该时段的 Fast 倍率，缓存费率同样适用。没有 Fast 倍率的模型，以及使用 models.dev 计价的模型，其 Fast 用量保持未计价状态。QuotaBar 开始记录 Fast mode 之前扫描的 Claude 用量仍按 Standard 计价。
 - 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。QuotaBar 在扫描时记录这一归类，之后修改阈值不会重新归类已保存的用量。
 
-供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法见[维护价格表](docs/pricing.md)。
+供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法以及 models.dev 费率的选取方式见[维护价格表](docs/pricing.md)。
 
 ## 导出用量报告
 
@@ -210,35 +211,19 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 报告是一个可离线打开、切换中英文的 HTML 文件，包含所选时段已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。图表和可展开的数据表展示每日用量、按模型汇总的成本，以及 token 与缓存构成。
 
-导出只读取已保存的数据，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。总额包含缓存成本，报告列出缓存 token 数量，不单独列出缓存成本。
+导出只读取已保存的数据和缓存的费率，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。总额包含缓存成本，报告列出缓存 token 数量，不单独列出缓存成本。
 
 文件包含时段、生成时间、时区、来源、模型、token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。完整的数据格式与验证方法见[用量报告导出](docs/usage-report-export.md)。
 
-## 编辑模型费率
+## 模型费率
 
-打开 **Settings → Pricing**，覆盖 Standard 费率，单位为美元/百万 token。展开模型行，可以编辑一小时缓存写入费率、长上下文阈值及超过阈值后的费率。
-
-列表显示受支持的 API 模型和本地发现的未计价模型。点击列标题排序；恢复默认顺序后，API 模型回到固定顺序，**Others** 按用量排序。
+打开 **Settings → Pricing**，可以查看所有估算使用的费率，单位为美元/百万 token。列表分为 **Claude**、**Codex** 和 **Others** 三组：前两组来自价格表，**Others** 列出本地发现的其他模型，由 models.dev 计价或未计价。展开模型行可以查看一小时缓存写入费率、长上下文阈值及超过阈值后的费率。点击列标题排序；恢复默认顺序后，API 模型回到固定顺序，**Others** 按用量排序。
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="价格设置，包含可编辑费率、展开的长上下文字段和各模型的操作菜单">
+  <img src="docs/images/settings-pricing.png" width="620" alt="只读价格表，按 Claude、Codex 和 Others 分组，其中一行已展开显示长上下文费率">
 </p>
 
-- 费率须为非负有限数值，长上下文阈值须为正整数 token 数量。保存超过阈值后的费率前，须先填写阈值。无效字段会禁用 **Save**。
-- **Save** 显示进度和结果。应用运行期间，保存失败、切换标签页或关闭设置窗口都会保留草稿。**Discard** 恢复上次保存的费率。
-- 移除覆盖费率时，在模型的 **…** 菜单选择 **Restore default rate** 或 **Clear custom rate**，然后保存。
-- 有有效草稿时退出，可选择 **Save**、**Discard** 或 **Cancel**。无效草稿须修正后才能保存。
-
-<details>
-<summary>无效费率示例</summary>
-
-<p align="center">
-  <img src="docs/images/interactions/pricing-invalid.png" width="620" alt="费率输入非数字时显示字段错误和错误汇总，Save 按钮不可用">
-</p>
-
-</details>
-
-保存后，该模型已记录的 Standard 用量会重新计价，包括之前未计价的部分。恢复默认后，重新使用价格表中对应日期的费率。Fast 用量始终使用价格表。修改阈值只影响新扫描的请求。
+费率不可编辑。如需修改 Claude 或 OpenAI 的费率，请更新价格表（见[维护价格表](docs/pricing.md)）。旧版本把自定义费率保存在 `pricing-overrides.json`，此版本启动时会删除该文件。
 
 ## 隐私与网络
 
@@ -251,14 +236,14 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 
 ```text
 ~/Library/Application Support/QuotaBar/usage-history.json
-~/Library/Application Support/QuotaBar/pricing-overrides.json
+~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Preferences/com.quotabar.app.plist
 ```
 
 </details>
 
-Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度。模型价格随应用发布，不会联网获取。本地会话记录不会发送到这些服务。
+Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度。Claude 和 OpenAI 的价格随应用发布。开启 **Price other models with models.dev** 时，QuotaBar 每天最多请求一次 `https://models.dev/api.json`，请求不携带用量或账号数据。本地会话记录不会发送到这些服务。
 
 ## 构建与开发
 
@@ -337,9 +322,8 @@ make build
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中补充 Standard 费率。Fast 用量需要内置价格表提供倍率。 |
+| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型和第三方模型的 Fast 用量保持未计价。其他模型请确认 **Settings → General** 中已开启 models.dev 计价，且 models.dev 收录了该模型。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
-| 费率修改无法保存 | 修正标记的字段。保存失败时草稿仍会保留，可以重试或放弃修改。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
 | 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |
 

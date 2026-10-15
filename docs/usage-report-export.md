@@ -11,7 +11,7 @@ QuotaBar exports a bilingual usage snapshot as one HTML file. The file contains 
 
 QuotaBar checks the selected period before opening the Save panel. If it finds no saved usage, it shows **No saved usage in this period** and does not create a file. A successful export offers **Open Report** and **Show in Finder**. Cancelling the Save panel leaves the destination unchanged, and a failed read or write can be retried.
 
-The settings tabs remain separate. While Settings is active, ⌘1 opens **General**, ⌘2 opens **Pricing**, and ⌘3 opens **Export**. The menu card keeps its existing ⌘1 and ⌘2 shortcuts for Codex and Claude. Adding the Export tab does not change the General or Pricing workflows, including unsaved Pricing drafts.
+The settings tabs remain separate. While Settings is active, ⌘1 opens **General**, ⌘2 opens **Pricing**, and ⌘3 opens **Export**. The menu card keeps its existing ⌘1 and ⌘2 shortcuts for Codex and Claude. Adding the Export tab does not change the General or Pricing workflows.
 
 ## What the report shows
 
@@ -34,11 +34,11 @@ The export does not contain prompts, responses, reasoning text, credentials, acc
 
 The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. Export does not scan the original session files or reassess eligibility.
 
-The export uses the same pricing rules as the menu. Standard usage uses the price book's rates for each recorded day, unless a manual override replaces them. An override applies to every recorded day of its model. Fast usage, from Codex's priority tier or Claude's Fast mode, ignores overrides and uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
+The export uses the same pricing rules as the menu. Claude and OpenAI models use the price book's rates for each recorded day. Other models use the third-party rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every third-party model, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
 
 Rows without a usable price contribute tokens but no cost. The report labels a fully unpriced total as **Unpriced** and a mixed total as a partial estimate. Cache-read and cache-write costs are part of each cost total, but the report does not break them out as separate USD values. It shows cache token counts instead.
 
-Export only reads SQLite and writes the selected HTML file. It does not refresh quota, scan logs, fetch pricing, invoke a CLI, contact a model, or make any network request.
+Export only reads SQLite and the local third-party rates cache, and writes the selected HTML file. It does not refresh quota, scan logs, download prices, invoke a CLI, contact a model, or make any network request.
 
 ## Implementation
 

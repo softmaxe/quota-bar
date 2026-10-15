@@ -206,14 +206,14 @@ public struct PriceBook: Sendable {
         )
     }
 
-    /// Rates use the same keys, and follow the same rules, as the user override file, in USD per
+    /// Rates use the same keys, and follow the same rules, as the third-party rates cache, in USD per
     /// million tokens.
     private static func rates(_ value: Any?, at path: String) throws -> ModelPricing {
         guard let object = value as? [String: Any] else {
             throw PriceBookError.invalid("\(path) must be a JSON object")
         }
         do {
-            return try ModelPricing(json: object, numericStrings: false)
+            return try ModelPricing(json: object)
         } catch let violation as RateViolation {
             throw PriceBookError.invalid("\(path): \(violation)")
         }

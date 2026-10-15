@@ -95,7 +95,7 @@ enum UsageReportTests {
         Harness.expectEqual(decoded, report, "snapshot JSON round trip")
     }
 
-    /// A usage day is priced by the period in force on that day, under the user's overrides.
+    /// A usage day is priced by the period in force on that day.
     private static func pricesEachDayAtItsPeriod() throws {
         let fixture = try RecordedUsageFixture(seed: false)
         try fixture.database.exec("""
@@ -131,9 +131,9 @@ enum UsageReportTests {
             windowDays: 2,
             now: self.captureDate,
             calendar: self.calendar,
-            rateCard: RateCard(book: book, overrides: ["claude-opus-5": ModelPricing(input: 7, output: 7)])
+            rateCard: RateCard(book: book)
         )
-        Harness.expectEqual(report.days.map(\.cost), [1, 10], "each day uses its own period and the override")
+        Harness.expectEqual(report.days.map(\.cost), [1, 8], "each day uses its own period")
         Harness.expectEqual(report.totals.unpricedTokens, 0, "every dated row is priced")
     }
 
