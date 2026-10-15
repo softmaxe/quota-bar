@@ -13,10 +13,6 @@ enum InterfacePreview {
             print("Unknown interface preview state: \(state)")
             exit(2)
         }
-        guard UserDefaults(suiteName: Self.suite) != nil else {
-            print("Could not isolate interface preview preferences")
-            exit(2)
-        }
         let defaults = EphemeralDefaults.make(Self.suite)
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuotaBarInterfacePreview-\(UUID().uuidString)", isDirectory: true)

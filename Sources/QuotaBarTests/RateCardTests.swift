@@ -60,6 +60,16 @@ enum RateCardTests {
         Harness.expectEqual(card.modelID(for: "OpenAI/ox-20260101", provider: .codex), "ox-dated", "an alias resolves through the card's book")
         Harness.expectEqual(card.modelID(for: "anthropic.claude-fixture-5-v1:0", provider: .claude), "claude-fixture-5", "a Claude name loses its vendor decorations")
         Harness.expectEqual(card.modelID(for: "ox-dated", provider: .codex), "ox-dated", "a model id is already its own name")
+        // Decorations are stripped whether or not the book knows the model.
+        for (raw, provider, expected, label) in [
+            ("claude-haiku-4-5-20251001", Provider.claude, "claude-haiku-4-5", "claude date suffix stripped"),
+            ("anthropic.claude-3-5-haiku-20241022-v1:0", .claude, "claude-3-5-haiku", "Bedrock id normalized"),
+            ("claude-3-5-haiku@20241022", .claude, "claude-3-5-haiku", "Vertex id normalized"),
+            ("anthropic.claude-fable-5-1-v1:0", .claude, "claude-fable-5-1", "a point-release id keeps its minor version"),
+            ("openai/gpt-5.1-2026-01-01", .codex, "gpt-5.1", "codex vendor prefix and dated suffix stripped"),
+        ] {
+            Harness.expectEqual(card.modelID(for: raw, provider: provider), expected, label)
+        }
         Harness.expect(
             card.rates(for: "ox", provider: .codex, day: "2026-01-01") == nil,
             "rates are looked up by model id, the name usage is stored under"

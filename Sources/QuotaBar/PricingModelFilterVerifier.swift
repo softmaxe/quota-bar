@@ -8,9 +8,7 @@ import Foundation
 @MainActor
 enum PricingModelFilterVerifier {
     static func run() -> Never {
-        Task { await Self.verify() }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
+        VerifierReport.runAsync { await Self.verify() }
     }
 
     private static func verify() async -> Never {

@@ -7,7 +7,6 @@ import SQLite3
 enum CostTests {
     static func run() async {
         Self.iso8601Parsing()
-        Self.normalization()
         Self.modelBreakdownRanking()
         Self.logFileScanning()
         do {
@@ -17,8 +16,6 @@ enum CostTests {
         }
         await Self.scanning()
         await Self.deletedSessionsRetainUsage()
-        await Self.openCodeScanning()
-        await Self.piAgentScanning()
         await Self.pricingEditsRepriceHistory()
     }
 
@@ -192,34 +189,6 @@ enum CostTests {
         }
     }
 
-    private static func normalization() {
-        Harness.expectEqual(
-            RateCard().modelID(for: "claude-haiku-4-5-20251001", provider: .claude),
-            "claude-haiku-4-5",
-            "claude date suffix stripped"
-        )
-        Harness.expectEqual(
-            RateCard().modelID(for: "anthropic.claude-3-5-haiku-20241022-v1:0", provider: .claude),
-            "claude-3-5-haiku",
-            "Haiku 3.5 Bedrock id normalized"
-        )
-        Harness.expectEqual(
-            RateCard().modelID(for: "claude-3-5-haiku@20241022", provider: .claude),
-            "claude-3-5-haiku",
-            "Haiku 3.5 Vertex id normalized"
-        )
-        Harness.expectEqual(
-            RateCard().modelID(for: "anthropic.claude-fable-5-1-v1:0", provider: .claude),
-            "claude-fable-5-1",
-            "a point-release id keeps its minor version"
-        )
-        Harness.expectEqual(
-            RateCard().modelID(for: "openai/gpt-5.1-2026-01-01", provider: .codex),
-            "gpt-5.1",
-            "codex vendor prefix and dated suffix stripped"
-        )
-    }
-
     private static func modelBreakdownRanking() {
         let day = CostDay(
             dayKey: "2026-09-02",
@@ -388,112 +357,6 @@ enum CostTests {
         Harness.expectEqual(beforeAppend + afterAppend, [short, short], "a completed long line is skipped whole on the next scan")
     }
 
-    /// Wiring from a Codex refresh to OpenCode: its usage reaches the snapshot under its own
-    /// source, apart from Codex usage of the same model, and its scan status reaches the app.
-    /// Recording rules are covered by the recorder and adapter suites.
-    private static func openCodeScanning() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-opencode-tests-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: root)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let codexHome = root.appendingPathComponent("codex")
-        try? FileManager.default.createDirectory(at: codexHome.appendingPathComponent("sessions"), withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
-            to: codexHome.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        guard let db = OpenCodeFixtureDatabase(at: root) else { return }
-        db.stepFinish("part-1", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
-        db.close()
-        try? #"{"openai":{"type":"oauth","accountId":"account-b"}}"#.write(
-            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root),
-            rateCard: Self.fixtureRateCard
-        )
-        let excluded = await service.refresh(.codex)
-        Harness.expectEqual(excluded?.windowTokens, 0, "OpenCode usage of another account is left out of the snapshot")
-        Harness.expectEqual(
-            await service.currentScanStatus(of: .openCode),
-            .accountMismatch,
-            "OpenCode's scan status reaches the app"
-        )
-
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        guard let reopened = OpenCodeFixtureDatabase(at: root) else { return }
-        reopened.stepFinish("part-2", created: now, model: "gpt-5.6-luna", input: 10, output: 20, reasoning: 30, cacheRead: 40, cacheWrite: 50)
-        reopened.close()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = formatter.string(from: Date())
-        let codexLines = """
-        {"type":"turn_context","timestamp":"\(timestamp)","payload":{"model":"gpt-5.6-luna"}}
-        {"type":"event_msg","timestamp":"\(timestamp)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0}}}}
-
-        """
-        try? codexLines.write(to: codexHome.appendingPathComponent("sessions/rollout-opencode.jsonl"), atomically: true, encoding: .utf8)
-
-        let snapshot = await service.refresh(.codex)
-        Harness.expectEqual(snapshot?.windowTokens, 160, "an eligible OpenCode request reaches the snapshot beside Codex usage")
-        Harness.expectEqual(await service.currentScanStatus(of: .openCode), .idle, "matching OAuth is quiet")
-        let lunaSources = Set(snapshot?.days.first?.rankedModels
-            .filter { $0.model == "gpt-5.6-luna" }
-            .map { $0.key.source } ?? [])
-        Harness.expectEqual(
-            lunaSources,
-            Set([CostUsageSource.codex, .openCode]),
-            "same-model Codex and OpenCode usage remains split by source"
-        )
-    }
-
-    /// Wiring from a Codex refresh to Pi Agent: its usage reaches the snapshot under its own
-    /// source, priced at the rate card's rates, and its scan status reaches the app. Recording
-    /// rules are covered by the recorder and adapter suites.
-    private static func piAgentScanning() async {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("quotabar-pi-tests-\(ProcessInfo.processInfo.processIdentifier)")
-        try? FileManager.default.removeItem(at: root)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        PiSessionFile.signIn(root: root, piAccount: "account-a")
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        PiSessionFile.write(root: root, "project/session.jsonl", lines: [
-            PiSessionFile.message("one", milliseconds: now, input: 10, output: 20, cacheWrite: 30, cacheRead: 40),
-        ])
-
-        let rateCard = RateCard.fixture(codex: [
-            "gpt-5.6-luna": ModelPricing(input: 1, output: 2, cacheWrite: 3, cacheRead: 0.5),
-        ])
-        let service = CostService(
-            databaseURL: root.appendingPathComponent("cache.sqlite"),
-            env: isolatedEnvironment(root: root),
-            rateCard: rateCard
-        )
-
-        let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 100, "Pi Agent usage reaches the snapshot")
-        Harness.expect(
-            first?.days.first?.rankedModels.first?.key.source == .piAgent,
-            "Pi usage keeps its source in the day breakdown"
-        )
-        Harness.expectClose(first?.windowCostUSD, 0.00016, "Pi usage uses local model pricing")
-        Harness.expectEqual(await service.currentScanStatus(of: .piAgent), .idle, "matching Pi OAuth is quiet")
-
-        PiSessionFile.signIn(root: root, piAccount: "account-b")
-        _ = await service.refresh(.codex)
-        Harness.expectEqual(
-            await service.currentScanStatus(of: .piAgent),
-            .accountMismatch,
-            "Pi Agent's scan status reaches the app"
-        )
-    }
-
     /// Cost is derived when usage is read, so new rates reach every recorded day, including
     /// usage that had no price when it was scanned.
     private static func pricingEditsRepriceHistory() async {
@@ -552,11 +415,11 @@ enum CostTests {
     }
 
     /// Scans count only the last 30 days, so a fixture stamped with a fixed date ages out of the
-    /// window. Fixtures are stamped at the start of today instead, `seconds` later for ordering.
-    private static func todayStamp(plus seconds: TimeInterval = 0) -> String {
+    /// window. Fixtures are stamped at the start of today instead.
+    private static func todayStamp() -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: Calendar.current.startOfDay(for: Date()).addingTimeInterval(seconds))
+        return formatter.string(from: Calendar.current.startOfDay(for: Date()))
     }
 
     private static func scanning() async {

@@ -40,11 +40,6 @@ final class SettingsWindowController {
         self.show()
     }
 
-    func showExport() {
-        self.selection.tab = .export
-        self.show()
-    }
-
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing, export: self.export,

@@ -33,9 +33,7 @@ enum ProviderStateVerifier {
     }
 
     static func run() -> Never {
-        Task { await Self.verify() }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
+        VerifierReport.runAsync { await Self.verify() }
     }
 
     private static func verify() async -> Never {
@@ -71,7 +69,7 @@ enum ProviderStateVerifier {
         )
 
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("initial work did not start")
         }
         guard store.isRefreshing(.codex),
@@ -85,7 +83,7 @@ enum ProviderStateVerifier {
 
         fetches.quota?.resume(returning: .signedOut("Run codex login to sign in."))
         fetches.quota = nil
-        guard await Self.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
+        guard await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
             finish("signed-out state was not applied")
         }
         guard store.displays[.codex]?.signedOutReason == "Run codex login to sign in.",
@@ -95,7 +93,7 @@ enum ProviderStateVerifier {
 
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }) else {
@@ -106,7 +104,7 @@ enum ProviderStateVerifier {
         }
 
         store.retryLocalUsage()
-        guard await Self.wait(until: { fetches.costCalls == 2 && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.costCalls == 2 && fetches.cost != nil }) else {
             finish("local usage retry did not start")
         }
         guard fetches.quotaCalls == 1,
@@ -119,7 +117,7 @@ enum ProviderStateVerifier {
         }
         fetches.cost?.resume(returning: Fetches.snapshot(at: origin))
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.completed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }) else {
@@ -135,7 +133,7 @@ enum ProviderStateVerifier {
         uptime = 1_059
         guard store.canRefresh(.codex) else { finish("local cooldown did not expire") }
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("second refresh did not start")
         }
         let snapshot = UsageSnapshot(
@@ -144,7 +142,7 @@ enum ProviderStateVerifier {
         )
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
-        guard await Self.wait(until: { store.displays[.codex]?.snapshot == snapshot }) else {
+        guard await AsyncWait.wait(until: { store.displays[.codex]?.snapshot == snapshot }) else {
             finish("quota success did not apply")
         }
         guard store.displays[.codex]?.failure == nil,
@@ -153,7 +151,7 @@ enum ProviderStateVerifier {
         }
         fetches.cost?.resume(returning: Fetches.snapshot(at: origin.addingTimeInterval(59)))
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.completed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }) else {
@@ -166,12 +164,12 @@ enum ProviderStateVerifier {
         uptime = 1_118
         let deadline = origin.addingTimeInterval(118 + 300)
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("rate-limit fixture did not start")
         }
         fetches.quota?.resume(returning: .rateLimited(reason: "API limited", retryAfter: deadline))
         fetches.quota = nil
-        guard await Self.wait(until: { store.displays[.codex]?.retryDeadline == deadline }) else {
+        guard await AsyncWait.wait(until: { store.displays[.codex]?.retryDeadline == deadline }) else {
             finish("server retry deadline was not kept")
         }
         guard store.displays[.codex]?.snapshot == snapshot,
@@ -187,7 +185,7 @@ enum ProviderStateVerifier {
         }
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }) else {
@@ -197,17 +195,17 @@ enum ProviderStateVerifier {
         uptime = 1_418
         guard store.canRefresh(.codex) else { finish("server deadline did not expire") }
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("post-limit refresh did not start")
         }
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
-        guard await Self.wait(until: { store.displays[.codex]?.failure == nil }) else {
+        guard await AsyncWait.wait(until: { store.displays[.codex]?.failure == nil }) else {
             finish("successful retry did not clear the warning")
         }
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }) else {
@@ -217,12 +215,12 @@ enum ProviderStateVerifier {
         let savedCost = store.displays[.codex]?.cost
         uptime = 1_477
         store.refresh()
-        guard await Self.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
+        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
             finish("sign-out refresh did not start")
         }
         fetches.quota?.resume(returning: .signedOut("Run codex login to sign in."))
         fetches.quota = nil
-        guard await Self.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
+        guard await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
             finish("sign-out after a successful login did not apply")
         }
         guard savedCost != nil,
@@ -233,7 +231,7 @@ enum ProviderStateVerifier {
         }
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await Self.wait(until: {
+        guard await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
         }), store.displays[.codex]?.cost == savedCost else {
@@ -281,7 +279,7 @@ enum ProviderStateVerifier {
         )
         defer { store.stop() }
         store.retryLocalUsage()
-        guard await Self.wait(until: { store.displays[.claude]?.cost?.windowTokens == 1 }), quotaCalls == 0 else {
+        guard await AsyncWait.wait(until: { store.displays[.claude]?.cost?.windowTokens == 1 }), quotaCalls == 0 else {
             return "the menu did not load recorded usage independently of quota"
         }
         return nil
@@ -324,14 +322,6 @@ enum ProviderStateVerifier {
             }
         }
         return nil
-    }
-
-    private static func wait(until ready: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while !ready(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-        return ready()
     }
 }
 #endif

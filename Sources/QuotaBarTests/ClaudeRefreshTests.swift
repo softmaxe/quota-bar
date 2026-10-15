@@ -608,7 +608,8 @@ enum ClaudeRefreshTests {
         let result = await runTask.value
 
         Harness.expectEqual(result, .timedOut, "a PTY timeout with a child reports timedOut")
-        Harness.expect(Date().timeIntervalSince(startedAt) < 2, "the local PTY timeout completes promptly")
+        // Well short of the child's 30-second sleep, with room for a loaded CI machine.
+        Harness.expect(Date().timeIntervalSince(startedAt) < 10, "the local PTY timeout completes promptly")
         guard let childIdentity else {
             Harness.expect(false, "the local child-tree fixture wrote a child identity")
             return

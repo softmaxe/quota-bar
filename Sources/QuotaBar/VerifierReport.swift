@@ -34,16 +34,41 @@ enum VerifierReport {
     static func report(_ message: String, label: String) {
         fputs("\(label) failed: \(message)\n", stderr)
     }
+
+    /// Runs an async check on the main run loop. `body` owns the process: it must end it with
+    /// `finish`, `fail`, or `exit`.
+    @MainActor
+    static func runAsync(_ body: @escaping @MainActor () async -> Void) -> Never {
+        Task { await body() }
+        RunLoop.main.run()
+        fatalError("verification run loop stopped")
+    }
+}
+
+/// Polls from async code until `ready` holds. The deadline only turns a state that never arrives
+/// into a failure instead of a hang.
+@MainActor
+enum AsyncWait {
+    static func wait(until ready: () -> Bool, timeout: Duration = .seconds(3)) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !ready(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return ready()
+    }
 }
 
 /// A throwaway defaults domain, so a verifier never reads or writes the user's real preferences.
 /// The suite name is fixed rather than PID-stamped: a run that dies before its cleanup leaves one
 /// domain behind for the next run to clear, instead of one per crash.
 enum EphemeralDefaults {
-    /// An empty domain to run against. Falls back to `.standard` only when the suite cannot be
-    /// opened at all, which on a developer machine means the check runs rather than vanishing.
+    /// An empty domain to run against. A suite that cannot be opened ends the run rather than
+    /// falling back to `.standard`, which would write into the user's real preferences.
     static func make(_ suite: String) -> UserDefaults {
-        let defaults = UserDefaults(suiteName: suite) ?? .standard
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            fputs("could not open the \(suite) defaults suite\n", stderr)
+            exit(2)
+        }
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }

@@ -104,11 +104,8 @@ enum CostChartHighlightVerifier {
 
         if CostChartHighlightPolicy.value(for: priced, mode: .tokens) != 200
             || CostChartHighlightPolicy.value(for: priced, mode: .cost) != 10
-            || CostChartHighlightPolicy.maxValue(for: days, mode: .cost) != 10
-            || CostChartHighlightPolicy.labelText(
-                selectedMode: .cost, tokens: 70, costUSD: nil
-            ) != "—" {
-            failures.append("chart values and labels expected to follow the selected unit")
+            || CostChartHighlightPolicy.maxValue(for: days, mode: .cost) != 10 {
+            failures.append("chart values expected to follow the selected unit")
         }
         let available = Set(keys)
         let selected = CostChartHighlightPolicy.selectedDayKey(

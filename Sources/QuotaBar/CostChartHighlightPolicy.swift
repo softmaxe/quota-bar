@@ -87,28 +87,6 @@ enum CostChartHighlightPolicy {
     static func opacity(dayKey: String, selectedDayKey: String?) -> Double {
         dayKey == selectedDayKey ? 1 : self.restingOpacity
     }
-
-    static func labelText(
-        selectedMode: CostChartLabelMode,
-        tokens: Int,
-        costUSD: Double?
-    ) -> String {
-        switch selectedMode {
-        case .tokens: Formatters.tokens(tokens)
-        case .cost: costUSD.map(Formatters.compactCost) ?? "—"
-        }
-    }
-
-    static func labelText(
-        dayKey: String,
-        selectedDayKey: String?,
-        selectedMode: CostChartLabelMode,
-        tokens: Int,
-        costUSD: Double?
-    ) -> String? {
-        guard dayKey == selectedDayKey else { return nil }
-        return self.labelText(selectedMode: selectedMode, tokens: tokens, costUSD: costUSD)
-    }
 }
 
 /// Sizing for the model breakdown rows and disclosure control.

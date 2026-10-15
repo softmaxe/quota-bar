@@ -8,12 +8,9 @@ import Foundation
 enum RelativeTimeVerifier {
     /// Fixed, not PID-stamped, for the reason spelled out in `finish`.
     private static let suite = "QuotaBarRelativeTimeVerifier"
-    /// Held so the exit path can reach the domain this run wrote to.
-    private static var defaults: UserDefaults?
 
     static func run() -> Never {
         let defaults = EphemeralDefaults.make(Self.suite)
-        Self.defaults = defaults
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)

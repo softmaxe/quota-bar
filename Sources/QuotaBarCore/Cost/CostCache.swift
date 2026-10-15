@@ -97,13 +97,16 @@ final class CostCache {
             cache_read INTEGER NOT NULL
         )
         """)
-        try self.exec("CREATE INDEX IF NOT EXISTS claude_message_path ON claude_message(path)")
+        // Claude rows survive a rewritten transcript (see `forget(path:)`), so nothing looks them up
+        // by path. Earlier builds indexed it anyway; the index only slowed every upsert.
+        try self.exec("DROP INDEX IF EXISTS claude_message_path")
         try self.exec("CREATE INDEX IF NOT EXISTS claude_message_day ON claude_message(day)")
         try self.exec("CREATE INDEX IF NOT EXISTS codex_day_day ON codex_day(day)")
         try self.exec("""
         CREATE TABLE IF NOT EXISTS opencode_part (
             key TEXT PRIMARY KEY,
             included INTEGER NOT NULL,
+            -- Unread. Kept, and written as 0, because existing databases declare it NOT NULL.
             legacy_inferred INTEGER NOT NULL,
             day TEXT NOT NULL,
             model TEXT NOT NULL,
@@ -133,12 +136,6 @@ final class CostCache {
         )
         """)
         try self.exec("CREATE INDEX IF NOT EXISTS pi_message_day ON pi_message(day)")
-        try self.exec("""
-        CREATE TABLE IF NOT EXISTS opencode_state (
-            key TEXT PRIMARY KEY,
-            value INTEGER NOT NULL
-        )
-        """)
 
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
@@ -277,10 +274,10 @@ final class CostCache {
     }
 
     /// Drops everything derived from a file, for when it was rewritten rather than appended to.
+    /// Only Codex rows are keyed by path; Claude messages outlive their transcript.
     func forget(path: String) throws {
         for sql in [
             "DELETE FROM codex_day WHERE path = ?",
-            "DELETE FROM claude_message WHERE path = ?",
             "DELETE FROM file_cursor WHERE path = ?",
         ] {
             let stmt = try self.reusable(sql)
@@ -367,20 +364,9 @@ final class CostCache {
         try self.step(stmt)
     }
 
-    func hasCompletedOpenCodeBackfill() throws -> Bool {
-        let stmt = try self.prepared("SELECT value FROM opencode_state WHERE key = 'backfill_complete'")
-        defer { sqlite3_finalize(stmt) }
-        return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) != 0
-    }
-
-    func markOpenCodeBackfillComplete() throws {
-        try self.exec("INSERT OR REPLACE INTO opencode_state (key, value) VALUES ('backfill_complete', 1)")
-    }
-
     func addOpenCodePart(
         key: String,
         included: Bool,
-        legacyInferred: Bool,
         day: String,
         model: String,
         longContext: Bool,
@@ -391,7 +377,7 @@ final class CostCache {
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
                  output, cache_write, cache_write_1h, cache_read)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 day = excluded.day,
                 model = excluded.model,
@@ -414,12 +400,11 @@ final class CostCache {
         defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 2, included ? 1 : 0)
-        sqlite3_bind_int64(stmt, 3, legacyInferred ? 1 : 0)
-        sqlite3_bind_text(stmt, 4, day, -1, sqliteTransient)
-        sqlite3_bind_text(stmt, 5, model, -1, sqliteTransient)
-        sqlite3_bind_int64(stmt, 6, longContext ? 1 : 0)
-        sqlite3_bind_int64(stmt, 7, isFast ? 1 : 0)
-        self.bindUsage(stmt, from: 8, totals: totals)
+        sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
+        sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
+        sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
+        sqlite3_bind_int64(stmt, 6, isFast ? 1 : 0)
+        self.bindUsage(stmt, from: 7, totals: totals)
         try self.step(stmt)
     }
 

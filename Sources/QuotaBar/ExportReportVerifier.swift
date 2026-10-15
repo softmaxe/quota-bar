@@ -6,12 +6,10 @@ import QuotaBarCore
 @MainActor
 enum ExportReportVerifier {
     static func run() -> Never {
-        Task {
+        VerifierReport.runAsync {
             let failures = await Self.verify()
             VerifierReport.finish(failures, label: "report export", passed: "Report export saves HTML, handles errors and empty data, and rejects duplicate work")
         }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
     }
 
     private static func verify() async -> [String] {
@@ -167,7 +165,7 @@ enum ExportReportVerifier {
     }
 
     static func exportLive(to path: String) -> Never {
-        Task {
+        VerifierReport.runAsync {
             let destination = URL(fileURLWithPath: path)
             let model = ExportSettingsModel()
             model.openAfterExport = false
@@ -178,8 +176,6 @@ enum ExportReportVerifier {
             fputs("Report export failed: \(model.status)\n", stderr)
             exit(1)
         }
-        RunLoop.main.run()
-        fatalError("export run loop stopped")
     }
 }
 #endif
