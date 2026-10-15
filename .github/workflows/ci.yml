@@ -1,22 +1,17 @@
 name: CI
 
+# Only PRs run CI. main takes squash merges of PRs that passed these checks while up to date
+# with main, so each main commit is a tree CI already tested.
 on:
-  # Every PR runs CI: the main ruleset requires these checks, so a skipped run would block merging.
   pull_request:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - "docs/**"
-      - "*.md"
 
 permissions:
   contents: read
 
-# A newer push to the same PR supersedes the running check; every main commit keeps its own run.
+# A newer push to the same PR supersedes the running check.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -26,6 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macos-15 compiles the pre-macOS 27 SDK path; xcode-27 builds what releases ship.
         os: [macos-15, xcode-27]
     defaults:
       run:
@@ -44,3 +40,11 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      # Release tags are permanent, so a broken packaging script must fail here, not on a tag.
+      - name: Package app
+        if: ${{ matrix.os == 'xcode-27' }}
+        run: |
+          set -euo pipefail
+          make app
+          codesign --verify --deep --strict build/QuotaBar.app
