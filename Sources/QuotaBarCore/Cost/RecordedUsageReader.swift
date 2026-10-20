@@ -189,7 +189,7 @@ package final class RecordedUsageReader {
                 // price book adds prices usage recorded before it.
                 let tier = ModelTier(
                     source: source.source,
-                    model: rateCard.modelID(recordedAs: model, provider: source.provider),
+                    model: rateCard.modelID(for: model, provider: source.provider),
                     longContext: sqlite3_column_int64(statement, 2) != 0,
                     isFast: sqlite3_column_int64(statement, 3) != 0
                 )

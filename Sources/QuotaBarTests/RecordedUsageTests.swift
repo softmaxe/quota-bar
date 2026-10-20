@@ -30,7 +30,10 @@ enum RecordedUsageTests {
             INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES
             ('unknown', 1, '\(fixture.day())', '\(CostPricing.unknownModel)', 0, 99, 0, 0, 0, 0);
             """)
-        let visible = try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL)
+        let visible = RateCard().modelUsage(
+            try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL),
+            provider: .codex
+        )
         Harness.expectEqual(Dictionary(uniqueKeysWithValues: visible.map { ($0.model, $0.tokens) }),
                             Dictionary(uniqueKeysWithValues: models.map { ($0.model, $0.tokens) }),
                             "Pricing excludes the unknown-model sentinel")

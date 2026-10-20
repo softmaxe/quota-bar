@@ -239,12 +239,12 @@ extension UsageRecorder {
         let model = request.model.map { ModelNames.stripped($0, provider: provider) } ?? CostPricing.unknownModel
         let day = DayKey.make(from: request.timestamp)
         // The Long-context tier is a property of the individual request, so it has to be decided
-        // here, against the model ID this rate card resolves the name to; deciding it from a
-        // day's aggregate would rewrite history. The price is not: it is derived from the stored
+        // here, against the model this rate card resolves the name to; deciding it from a day's
+        // aggregate would rewrite history. The price is not: it is derived from the stored
         // tokens whenever they are read.
         let longContext = rateCard.isLongContext(
             request.tokens,
-            model: rateCard.modelID(recordedAs: model, provider: provider),
+            model: model,
             provider: provider,
             day: day,
             fast: request.isFast

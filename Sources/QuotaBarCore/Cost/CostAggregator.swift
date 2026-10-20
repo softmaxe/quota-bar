@@ -99,7 +99,7 @@ enum CostAggregator {
 
     /// Highest accumulated cost wins; models with equal cost fall back to token count.
     static func topModel(cost: [String: Double], tokens: [String: Int]) -> String? {
-        let candidates = Set(cost.keys).union(tokens.keys).subtracting([CostPricing.unknownModel])
+        let candidates = Set(cost.keys).union(tokens.keys).filter(RateCard.isKnown)
         return candidates.max { lhs, rhs in
             let lhsCost = cost[lhs] ?? 0
             let rhsCost = cost[rhs] ?? 0

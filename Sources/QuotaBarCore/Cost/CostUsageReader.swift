@@ -7,7 +7,8 @@ import Foundation
 /// takes milliseconds to answer. The cache is in WAL mode, so a connection of its own can read
 /// the same rows concurrently with the writer.
 public enum CostUsageReader {
-    /// Models seen in local logs with their cumulative token totals, most-used first.
+    /// Models seen in local logs with their cumulative token totals under the names they were
+    /// recorded as, most-used first. `RateCard.modelUsage` regroups them under model IDs.
     /// An absent cache means no recorded usage. Existing but unreadable caches throw.
     public static func knownModelUsage(
         provider: Provider,
@@ -24,6 +25,5 @@ public enum CostUsageReader {
             throw error
         }
         return try RecordedUsageReader(databaseURL: databaseURL).modelUsage(provider: provider)
-            .filter { $0.model != CostPricing.unknownModel }
     }
 }
