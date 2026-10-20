@@ -3,11 +3,11 @@ import QuotaBarCore
 import SwiftUI
 
 private struct MenuRefreshStateKey: EnvironmentKey {
-    static let defaultValue = RefreshRowPolicy.State(title: "Refresh", trailingText: nil, isEnabled: true)
+    static let defaultValue = RefreshEligibility.Row.idle
 }
 
 extension EnvironmentValues {
-    var menuRefreshState: RefreshRowPolicy.State {
+    var menuRefreshState: RefreshEligibility.Row {
         get { self[MenuRefreshStateKey.self] }
         set { self[MenuRefreshStateKey.self] = newValue }
     }

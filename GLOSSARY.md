@@ -43,3 +43,13 @@ _Avoid_: above-threshold pricing
 **Fast**:
 Codex's priority service tier or Claude's Fast mode, billed as a multiple of the period's Standard rates. Only the price book has Fast multipliers, so Fast usage of a third-party model is unpriced.
 _Avoid_: priority tier
+
+## Quota
+
+**Refresh cooldown**:
+The minute each provider waits after any refresh of its quota before the next one, whichever path asked: polling, opening the menu, switching providers, or the Refresh row. A server 429 holds every path until the server's retry date.
+_Avoid_: throttle, debounce
+
+**Credential recovery**:
+One user-initiated repair of a provider credential the last refresh found expired or rejected. It may skip the Refresh cooldown, but never a server 429.
+_Avoid_: force refresh, bypass

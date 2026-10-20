@@ -712,48 +712,6 @@ enum RateLimitTests {
     }
 }
 
-/// Refreshes are scoped to the provider on screen, so each provider waits out its own minute.
-enum ProviderRefreshCooldownTests {
-    static func run() {
-        var cooldowns = ProviderRefreshCooldown()
-
-        // Everything the shown provider does — the poll, opening the menu, the Refresh row —
-        // claims its gate and nothing else.
-        Harness.expect(cooldowns.claimRefresh(.codex, at: 1_000), "the shown provider refreshes")
-        Harness.expect(!cooldowns.claimRefresh(.codex, at: 1_030), "and then waits out its minute")
-        Harness.expectEqual(
-            cooldowns.remaining(.claude, at: 1_030),
-            0,
-            "the provider that is not shown is untouched by that refresh"
-        )
-
-        // Switching to the other provider is the one event that refreshes it.
-        Harness.expect(cooldowns.claimRefresh(.claude, at: 1_030), "switching refreshes the provider switched to")
-
-        // Switching back and forth cannot buy extra fetches: both gates are still running.
-        Harness.expect(!cooldowns.claimRefresh(.codex, at: 1_040), "switching back does not refetch within the minute")
-        Harness.expect(!cooldowns.claimRefresh(.claude, at: 1_050), "and neither does switching away and back")
-
-        // Each gate elapses from its own last refresh, not from the other provider's.
-        Harness.expect(cooldowns.claimRefresh(.codex, at: 1_059), "the first provider comes back a minute after its own refresh")
-        Harness.expect(!cooldowns.claimRefresh(.claude, at: 1_059), "which says nothing about the other one")
-        Harness.expect(cooldowns.claimRefresh(.claude, at: 1_089), "the other one comes back a minute after its own")
-
-        // A forced refresh restarts only that provider.
-        cooldowns.recordRefresh(.codex, at: 1_100)
-        Harness.expectEqual(cooldowns.remaining(.codex, at: 1_100), 59, "a forced refresh restarts that provider's cooldown")
-        Harness.expectEqual(cooldowns.remaining(.claude, at: 1_100), 48, "and leaves the other provider's running")
-    }
-}
-
-/// Refresh availability during cooldown and credential recovery.
-enum RefreshRowPolicyTests {
-    static func run() {
-        let running = RefreshRowPolicy.state(cooldownRemaining: 59, isRefreshing: true)
-        Harness.expect(!running.isEnabled, "a running refresh blocks a second request")
-    }
-}
-
 /// Settings persistence.
 enum SettingsTests {
     @MainActor

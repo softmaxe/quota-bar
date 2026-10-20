@@ -26,10 +26,8 @@ final class UsageStore: ObservableObject {
     private var modelsDevObserver: AnyCancellable?
     /// The models.dev download in flight, so cost refreshes started meanwhile do not queue more.
     private var thirdPartyRatesTask: Task<Void, Never>?
-    /// One cooldown per provider, claimed by whichever path asked, so the minute after any
-    /// refresh of that provider stays quiet. Switching back and forth buys no extra refreshes:
-    /// each provider's own minute has to elapse before it is fetched again.
-    private var cooldowns = ProviderRefreshCooldown()
+    /// Whether each provider may be refreshed now, claimed by whichever path asked.
+    private var eligibility = RefreshEligibility()
     private let clock: () -> TimeInterval
     private let dateClock: () -> Date
     private let fetchState: (Provider, ClaudeRefreshInteraction) async -> ProviderState
@@ -131,17 +129,9 @@ final class UsageStore: ObservableObject {
         self.modelsDevObserver = nil
     }
 
-    /// Refreshes the provider on screen. `force` only skips the local cooldown for an explicit
-    /// user-initiated credential recovery already requested by the provider.
-    func refresh(
-        force: Bool = false,
-        interaction: ClaudeRefreshInteraction = .automatic
-    ) {
-        self.refresh(
-            provider: self.settings.menuBarProvider,
-            force: force,
-            interaction: interaction
-        )
+    /// Refreshes the provider on screen when `RefreshEligibility` lets `trigger` through.
+    func refresh(trigger: RefreshEligibility.Trigger = .automatic) {
+        self.refresh(provider: self.settings.menuBarProvider, trigger: trigger)
     }
 
     /// Whether this provider currently has a fetch in flight.
@@ -149,20 +139,18 @@ final class UsageStore: ObservableObject {
         self.refreshingProviders.contains(provider)
     }
 
-    private func refresh(
-        provider: Provider,
-        force: Bool = false,
-        interaction: ClaudeRefreshInteraction = .automatic
-    ) {
+    private func refresh(provider: Provider, trigger: RefreshEligibility.Trigger = .automatic) {
         // Coalesce: clicking the status item during a poll should not start a second round of
         // requests. Manual refreshes do not reschedule the independent polling timer.
-        guard self.refreshTasks[provider] == nil else { return }
-        // Only a user click on a known credential-recovery state can skip the local cooldown.
-        // A server 429 remains authoritative, even for that click.
-        let allowsRecoveryBypass = force && interaction == .userInitiated
-            && self.displays[provider]?.canAttemptCredentialRecovery == true
-        guard self.serverCooldownRemaining(for: provider) == 0 else { return }
-        guard self.claimRefresh(for: provider, force: allowsRecoveryBypass, at: self.clock()) else { return }
+        guard self.refreshTasks[provider] == nil,
+              self.eligibility.claim(
+                  provider,
+                  by: trigger,
+                  given: self.conditions(for: provider),
+                  uptime: self.clock(),
+                  now: self.dateClock()
+              ) else { return }
+        let interaction: ClaudeRefreshInteraction = trigger == .user ? .userInitiated : .automatic
 
         self.refreshingProviders.insert(provider)
 
@@ -199,15 +187,6 @@ final class UsageStore: ObservableObject {
         case .codex: await CodexProvider.fetch()
         case .claude: await ClaudeProvider.fetch(interaction: interaction)
         }
-    }
-
-    /// Takes the local cooldown for this provider. A permitted recovery restarts it too.
-    private func claimRefresh(for provider: Provider, force: Bool, at time: TimeInterval) -> Bool {
-        guard !force else {
-            self.cooldowns.recordRefresh(provider, at: time)
-            return true
-        }
-        return self.cooldowns.claimRefresh(provider, at: time)
     }
 
     /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
@@ -268,10 +247,8 @@ final class UsageStore: ObservableObject {
     }
 
     func cooldownRemaining(for provider: Provider) -> TimeInterval {
-        max(
-            self.cooldowns.remaining(provider, at: self.clock()),
-            self.serverCooldownRemaining(for: provider)
-        )
+        self.eligibility.remaining(provider, given: self.conditions(for: provider),
+                                   uptime: self.clock(), now: self.dateClock())
     }
 
     /// The same effective eligibility used by refresh(), expressed as a wall-clock date for UI.
@@ -280,17 +257,25 @@ final class UsageStore: ObservableObject {
         return remaining > 0 ? self.dateClock().addingTimeInterval(remaining) : nil
     }
 
+    /// Whether a user click on the Refresh row would start a refresh now.
     func canRefresh(_ provider: Provider) -> Bool {
-        guard !self.isRefreshing(provider) else { return false }
-        if self.displays[provider]?.canAttemptCredentialRecovery == true {
-            return self.serverCooldownRemaining(for: provider) == 0
-        }
-        return self.cooldownRemaining(for: provider) == 0
+        self.refreshRow(for: provider).isEnabled
     }
 
-    private func serverCooldownRemaining(for provider: Provider) -> TimeInterval {
-        guard let deadline = self.displays[provider]?.retryDeadline else { return 0 }
-        return max(0, deadline.timeIntervalSince(self.dateClock()))
+    /// What the menu's Refresh row shows for this provider right now.
+    func refreshRow(for provider: Provider) -> RefreshEligibility.Row {
+        self.eligibility.row(provider, given: self.conditions(for: provider),
+                             uptime: self.clock(), now: self.dateClock())
+    }
+
+    private func conditions(for provider: Provider) -> RefreshEligibility.Conditions {
+        let display = self.displays[provider] ?? ProviderDisplay()
+        return RefreshEligibility.Conditions(
+            isRefreshing: self.isRefreshing(provider),
+            serverRetryAfter: display.retryDeadline,
+            allowsCredentialRecovery: display.canAttemptCredentialRecovery,
+            isSignedOut: display.isSignedOut
+        )
     }
 
     /// Window resets that have not been shown yet. Consuming them arms the animation, so only the
@@ -307,7 +292,7 @@ final class UsageStore: ObservableObject {
     /// Starts the cooldown without the network round trip a real refresh would make, so the menu
     /// wiring can be verified headlessly.
     func debugRecordRefresh(at time: TimeInterval, provider: Provider? = nil) {
-        self.cooldowns.recordRefresh(provider ?? self.settings.menuBarProvider, at: time)
+        self.eligibility.recordRefresh(provider ?? self.settings.menuBarProvider, uptime: time)
     }
 #endif
 

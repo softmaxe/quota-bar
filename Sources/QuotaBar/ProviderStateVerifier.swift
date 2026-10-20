@@ -179,7 +179,7 @@ enum ProviderStateVerifier {
               !store.canRefresh(.codex) else {
             finish("cached quota or effective server retry state is wrong")
         }
-        store.refresh(force: true, interaction: .userInitiated)
+        store.refresh(trigger: .user)
         guard fetches.quotaCalls == 3 else {
             finish("a force request bypassed the server retry deadline")
         }
