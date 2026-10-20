@@ -28,6 +28,10 @@ _Avoid_: price version, tier
 The price book with the third-party rates beside it: what every model costs on any given day, and the only place a rate is looked up. A model the price book lists is priced by the book alone. Every cost it gives is an estimate at API list prices.
 _Avoid_: pricing overlay, effective pricing
 
+**Priced usage**:
+Recorded usage grouped under the model ID the Rate card resolves each recorded name to, with each row's cost at the rates in force on its day, or none when it is Unpriced usage. The menu and the usage report both total the same Priced usage.
+_Avoid_: cost rows, aggregated cost
+
 **Unpriced usage**:
 Recorded tokens whose model has no rate on their day, including models that models.dev lists only for free and all third-party usage while models.dev pricing is off. They count toward token totals but not toward cost.
 _Avoid_: unknown cost, free usage

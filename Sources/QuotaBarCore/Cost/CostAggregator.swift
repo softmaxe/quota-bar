@@ -1,7 +1,6 @@
 import Foundation
 
-/// Turns the cache's day/model/tier rows into the numbers the popover shows, pricing each one
-/// at the rate card's rates for its day.
+/// Folds priced recorded usage into the numbers the popover shows.
 enum CostAggregator {
     static func snapshot(
         provider: Provider,
@@ -12,10 +11,9 @@ enum CostAggregator {
         calendar: Calendar = .current
     ) throws -> CostSnapshot {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
-        let rows = try reader.dailyUsage(
-            provider: provider,
-            fromDay: DayKey.make(from: start, calendar: calendar),
-            rateCard: rateCard
+        let rows = PricedUsage.price(
+            try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar)),
+            on: rateCard
         )
 
         var days: [CostDay] = []
@@ -24,7 +22,7 @@ enum CostAggregator {
         var modelTokens: [String: Int] = [:]
         var hasUnpriced = false
 
-        for (dayKey, buckets) in rows {
+        for (dayKey, dayRows) in Dictionary(grouping: rows, by: \.day) {
             var dayTokens: [ModelUsageKey: TokenTotals] = [:]
             // Per-source/model cost stays nil until something prices it, so an unpriced row reads
             // as "no price" in the breakdown rather than as zero dollars.
@@ -33,28 +31,18 @@ enum CostAggregator {
             var dayPriced = false
             var dayUnpricedTokens = 0
 
-            for (key, totals) in buckets {
-                let model = key.model
-                let usageKey = ModelUsageKey(source: key.source, model: model, isFast: key.isFast)
-                dayTokens[usageKey, default: TokenTotals()] += totals
-                modelTokens[model, default: 0] += totals.total
-                guard totals.total > 0 else { continue }
-
-                if let cost = rateCard.cost(
-                    of: totals,
-                    model: model,
-                    provider: provider,
-                    day: dayKey,
-                    fast: key.isFast,
-                    longContext: key.longContext
-                ) {
+            for row in dayRows {
+                let usageKey = ModelUsageKey(source: row.source, model: row.model, isFast: row.key.isFast)
+                dayTokens[usageKey, default: TokenTotals()] += row.tokens
+                modelTokens[row.model, default: 0] += row.tokens.total
+                if let cost = row.cost {
                     dayCost += cost
                     dayPriced = true
                     dayCostByModel[usageKey, default: 0] += cost
-                    modelCost[model, default: 0] += cost
-                } else {
+                    modelCost[row.model, default: 0] += cost
+                } else if row.unpricedTokens > 0 {
                     hasUnpriced = true
-                    dayUnpricedTokens += totals.total
+                    dayUnpricedTokens += row.unpricedTokens
                 }
             }
 
