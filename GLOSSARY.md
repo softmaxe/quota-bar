@@ -53,3 +53,11 @@ _Avoid_: throttle, debounce
 **Credential recovery**:
 One user-initiated repair of a provider credential the last refresh found expired or rejected. It may skip the Refresh cooldown, but never a server 429.
 _Avoid_: force refresh, bypass
+
+**Quota window**:
+One of a provider's two rolling limits: the session window (Codex's primary, Claude's five-hour) or the weekly one. Each resets on its own.
+_Avoid_: limit, bucket
+
+**Pace**:
+How a Quota window is being spent against what it should have used by now. A weekly window is read against completed past weeks once there are at least three, and otherwise against the clock in its user's usual active hours. A session window is read against the clock, sharpened by its recent readings and paused when they stop moving.
+_Avoid_: burn rate, velocity

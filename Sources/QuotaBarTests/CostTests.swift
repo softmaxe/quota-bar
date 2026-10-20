@@ -865,7 +865,7 @@ enum PaceTests {
         Harness.expectEqual(justReset?.stage, .onTrack, "unused fresh quota starts on pace")
 
         // Keep the warmup boundary for both default window lengths.
-        for context in [UsagePace.Context.session, .weekly] {
+        for context in [QuotaWindowKind.session, .weekly] {
             let duration = TimeInterval(context.defaultWindowMinutes * 60)
             for elapsedFraction in [0.01, 0.03] {
                 let pace = UsagePace.evaluate(
@@ -902,7 +902,7 @@ enum PaceTests {
                             "early weekly usage includes remaining headroom")
 
         // Check the consumption boundary and one session projection without an explicit duration.
-        let cases: [(UsagePace.Context, Double)] = [(.weekly, 2.99), (.weekly, 3), (.session, 3)]
+        let cases: [(QuotaWindowKind, Double)] = [(.weekly, 2.99), (.weekly, 3), (.session, 3)]
         for (context, used) in cases {
             let duration = TimeInterval(context.defaultWindowMinutes * 60)
             let elapsed = duration * 0.01

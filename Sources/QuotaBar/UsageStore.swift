@@ -166,11 +166,8 @@ final class UsageStore: ObservableObject {
 
             await MainActor.run {
                 guard let self else { return }
-                self.apply(state: state, to: provider)
+                self.apply(state: state, to: provider, history: history)
                 Self.log(provider: provider, state: state)
-                if let history {
-                    self.displays[provider, default: ProviderDisplay()].history = history
-                }
                 self.refreshingProviders.remove(provider)
                 self.refreshTasks[provider] = nil
             }
@@ -298,7 +295,7 @@ final class UsageStore: ObservableObject {
 
     /// A failed refresh keeps whatever snapshot we already had: showing yesterday's numbers with
     /// an error line beats blanking a working card because one request was rate-limited.
-    private func apply(state: ProviderState, to provider: Provider) {
+    private func apply(state: ProviderState, to provider: Provider, history: UsageHistoryDataset? = nil) {
         var display = self.displays[provider] ?? ProviderDisplay()
         switch state {
         case let .signedOut(reason):
@@ -340,9 +337,7 @@ final class UsageStore: ObservableObject {
             // Every reading of this provider, not just the ones the card is looking at: a window
             // that runs dry has to be noticed even when the menu has not been opened in hours.
             self.recovery.observe(snapshot: snapshot)
-            if let session = snapshot.session {
-                display.sessionTrail.append(session, at: snapshot.fetchedAt)
-            }
+            display.pace.observe(snapshot, history: history)
         }
         self.displays[provider] = display
     }

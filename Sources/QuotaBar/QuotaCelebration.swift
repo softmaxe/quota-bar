@@ -1,12 +1,6 @@
 import CoreGraphics
 import Foundation
 
-/// One quota window. It also keeps five-hour and weekly reset tracking independent.
-enum QuotaWindowKind: String, Hashable, CaseIterable {
-    case session
-    case weekly
-}
-
 /// Choreography for a quota reset: the fill resumes from the last pre-reset reading and
 /// continuously slows into 100%. Nothing trails the head on the way there — the landing is the
 /// whole event, synchronizing the bar pop, the flash, and a soft glow rising under the bar. The

@@ -216,6 +216,7 @@ await RateLimitTests.run()
 await ClaudeRefreshTests.run()
 await CodexRefreshTests.run()
 RefreshEligibilityTests.run()
+QuotaPaceTests.run()
 MenuBarProviderPolicyTests.run()
 await MainActor.run { SettingsTests.run() }
 PaceTests.run()
