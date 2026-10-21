@@ -1,4 +1,4 @@
-#if DEBUG
+@testable import QuotaBarApp
 import QuotaBarCore
 import Foundation
 
@@ -6,41 +6,31 @@ import Foundation
 /// logs name, counts an alias's usage under the model it names, and shows a third-party model
 /// once whichever provider's logs named it.
 @MainActor
-enum PricingModelFilterVerifier {
-    static func run() -> Never {
-        VerifierReport.runAsync { await Self.verify() }
-    }
-
-    private static func verify() async -> Never {
-        var failures: [String] = []
+enum PricingModelFilterTests {
+    static func run() async {
         let rateCard = RateCard(thirdParty: ThirdPartyRates(current: [
             "deepseek-flash": ModelPricing(input: 0.15, output: 0.6),
         ]))
 
-        self.expect(
+        Harness.expect(
             PricingGroup.classify(model: "gpt-6-astra", provider: .codex, rateCard: rateCard) == .codex,
-            "Astra was not classified as Codex",
-            failures: &failures
+            "Astra was not classified as Codex"
         )
-        self.expect(
+        Harness.expect(
             PricingGroup.classify(model: "gpt-local-unpriced", provider: .codex, rateCard: rateCard) == .others,
-            "an unpriced GPT model returned to the Codex group",
-            failures: &failures
+            "an unpriced GPT model returned to the Codex group"
         )
-        self.expect(
+        Harness.expect(
             PricingGroup.classify(model: "claude-local-unpriced", provider: .claude, rateCard: rateCard) == .others,
-            "an unpriced Claude model returned to the Claude group",
-            failures: &failures
+            "an unpriced Claude model returned to the Claude group"
         )
-        self.expect(
+        Harness.expect(
             PricingGroup.classify(model: "claude-haiku-4-5", provider: .claude, rateCard: rateCard) == .claude,
-            "the actual Haiku model id was not classified as Claude",
-            failures: &failures
+            "the actual Haiku model id was not classified as Claude"
         )
-        self.expect(
+        Harness.expect(
             PricingGroup.classify(model: "deepseek-flash", provider: .codex, rateCard: rateCard) == .others,
-            "a models.dev model left the Others group",
-            failures: &failures
+            "a models.dev model left the Others group"
         )
 
         let codexSettingsModels = rateCard.settingsModels(for: .codex)
@@ -54,11 +44,10 @@ enum PricingModelFilterVerifier {
             ],
             rateCard: rateCard
         )
-        self.expectNames(
+        Harness.expectEqual(
             visibleCodex,
             codexSettingsModels + ["deepseek-flash", "gpt-local-unpriced"],
-            "Codex visible models",
-            failures: &failures
+            "Codex visible models"
         )
 
         // `gpt-5.6` is the price book's alias of `gpt-5.6-sol`: the pane shows one row for the
@@ -80,44 +69,19 @@ enum PricingModelFilterVerifier {
         )
         await pricing.load()
         let sol = pricing.rows.first { $0.id == "Codex|gpt-5.6-sol" }
-        self.expect(
+        Harness.expect(
             sol?.seenInLogs == true && sol?.usageTokens == 150 && sol?.source == .priceBook,
-            "alias and model ID usage did not add up on one row: \(String(describing: sol?.usageTokens))",
-            failures: &failures
+            "alias and model ID usage did not add up on one row: \(String(describing: sol?.usageTokens))"
         )
-        self.expect(
+        Harness.expect(
             !pricing.rows.contains { $0.model == "gpt-5.6" },
-            "an alias got a row of its own",
-            failures: &failures
+            "an alias got a row of its own"
         )
         let deepseek = pricing.rows.filter { $0.model == "deepseek-flash" }
-        self.expect(
+        Harness.expect(
             deepseek.count == 1 && deepseek.first?.usageTokens == 150
                 && deepseek.first?.source == .modelsDev && deepseek.first?.input == 0.15,
-            "a third-party model was not one priced row with both providers' usage: \(deepseek)",
-            failures: &failures
+            "a third-party model was not one priced row with both providers' usage: \(deepseek)"
         )
-
-        VerifierReport.finish(
-            failures,
-            label: "pricing model filter verification",
-            passed: "pricing model filter kept the API whitelists and listed every other model once"
-        )
-    }
-
-    private static func expect(_ condition: Bool, _ message: String, failures: inout [String]) {
-        if !condition { failures.append(message) }
-    }
-
-    private static func expectNames(
-        _ actual: [String],
-        _ expected: [String],
-        _ message: String,
-        failures: inout [String]
-    ) {
-        if actual != expected {
-            failures.append("\(message): got \(actual), expected \(expected)")
-        }
     }
 }
-#endif

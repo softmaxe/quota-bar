@@ -3,14 +3,15 @@ import QuotaBarCore
 import AppKit
 import Foundation
 
-/// Exercises the real controller without provider requests or user preferences.
+/// Manual checks of the real controller that need the system menu bar, so they run as launch
+/// flags rather than in `QuotaBarTests`: the status-item construction benchmark, and status-button
+/// toggling and dismissal with real input. `MenuLifecycleTests` covers the deferred menu.
 @MainActor
 enum MenuLifecycleVerifier {
     static func benchmark() -> Never { self.run(benchmarkOnly: true) }
-    static func run() -> Never { self.run(benchmarkOnly: false) }
-    static func verifyInteraction() -> Never { self.run(benchmarkOnly: false, verifyInteraction: true) }
+    static func verifyInteraction() -> Never { self.run(benchmarkOnly: false) }
 
-    private static func run(benchmarkOnly: Bool, verifyInteraction: Bool = false) -> Never {
+    private static func run(benchmarkOnly: Bool) -> Never {
         let suite = "QuotaBarMenuLifecycleVerifier"
         let defaults = EphemeralDefaults.make(suite)
         func finish(_ code: Int32) -> Never {
@@ -33,7 +34,7 @@ enum MenuLifecycleVerifier {
             store: store, settings: settings,
             pricing: PricingTableModel(costService: service),
             // The fallback accepts in-process events; native sessions require real menu bar input.
-            useSystemStatusItemSession: !verifyInteraction,
+            useSystemStatusItemSession: benchmarkOnly,
             reduceMotion: { reduceMotion }
         )
         let elapsed = started.duration(to: .now)
@@ -42,8 +43,6 @@ enum MenuLifecycleVerifier {
                 + Double(elapsed.components.attoseconds) / 1e15,
             controller.debugHasMenu ? "yes" : "no"))
         if benchmarkOnly { finish(0) }
-        PopoverInputActivationVerifier.run()
-        require(!controller.debugHasMenu, "startup eagerly built the hidden menu")
 
         // No observers are started on the store, and both cooldowns are pinned, so even
         // opening the actual menu delegate cannot initiate a provider or cost request.
@@ -70,10 +69,6 @@ enum MenuLifecycleVerifier {
         settings.menuBarProvider = Provider.allCases.first { $0 != settings.menuBarProvider }!
         require(controller.debugStatusLine() == "No data yet", "provider switch kept the old card")
         controller.debugEndPresentation()
-        if !verifyInteraction {
-            print("Menu creation is deferred; closed cards stay idle and reopen with current state")
-            finish(0)
-        }
 
         // Exercise the real button and popover with another app left in the foreground.
         // Status-item placement arrives asynchronously from the system menu bar.
