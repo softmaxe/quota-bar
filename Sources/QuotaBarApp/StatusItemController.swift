@@ -455,22 +455,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     @objc private func refreshClicked() {
         let provider = self.settings.menuBarProvider
         guard self.store.canRefresh(provider) else { return }
-        let recovery = self.store.displays[provider]?.canAttemptCredentialRecovery == true
-        self.store.refresh(force: recovery, interaction: .userInitiated)
+        self.store.refresh(trigger: .user)
         self.updateRefreshRow()
     }
 
     private func updateRefreshRow() {
         guard self.isMenuOpen, let presentation = self.presentation else { return }
-        let provider = presentation.provider
-        let display = self.store.displays[provider] ?? ProviderDisplay()
-        let allowsRecovery = display.canAttemptCredentialRecovery && self.store.canRefresh(provider)
-        let state = RefreshRowPolicy.state(
-            cooldownRemaining: self.store.cooldownRemaining(for: provider),
-            isRefreshing: self.store.isRefreshing(provider),
-            allowsCredentialRecovery: allowsRecovery,
-            action: display.isSignedOut ? .checkSignIn : .refresh
-        )
+        let state = self.store.refreshRow(for: presentation.provider)
         // Any assignment, even of an equal value, re-renders the whole menu, and this runs every
         // second while it is open.
         if presentation.refreshState != state { presentation.refreshState = state }

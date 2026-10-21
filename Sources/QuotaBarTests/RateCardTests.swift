@@ -67,12 +67,16 @@ enum RateCardTests {
             ("claude-3-5-haiku@20241022", .claude, "claude-3-5-haiku", "Vertex id normalized"),
             ("anthropic.claude-fable-5-1-v1:0", .claude, "claude-fable-5-1", "a point-release id keeps its minor version"),
             ("openai/gpt-5.1-2026-01-01", .codex, "gpt-5.1", "codex vendor prefix and dated suffix stripped"),
+            ("openrouter/z-ai/GLM-5", .claude, "glm-5", "a routed Claude Code name keeps only its model segment"),
+            ("anthropic/claude-fixture-5", .claude, "claude-fixture-5", "a slashed Anthropic name loses its vendor"),
         ] {
             Harness.expectEqual(card.modelID(for: raw, provider: provider), expected, label)
         }
         Harness.expect(
-            card.rates(for: "ox", provider: .codex, day: "2026-01-01") == nil,
-            "rates are looked up by model id, the name usage is stored under"
+            card.rates(for: "ox", provider: .codex, day: "2026-01-01") != nil
+                && card.rates(for: "ox", provider: .codex, day: "2026-01-01")
+                == card.rates(for: "OpenAI/ox-dated-20260101", provider: .codex, day: "2026-01-01"),
+            "every lookup resolves a recorded name or alias to its model first"
         )
     }
 

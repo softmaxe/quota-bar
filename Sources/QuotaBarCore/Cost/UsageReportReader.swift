@@ -190,15 +190,14 @@ public enum UsageReportReader {
         }
 
         let range = try self.dayRange(windowDays: windowDays, now: now, calendar: calendar)
-        let rows: [RecordedUsageReader.DayUsage]
+        let rows: [PricedUsage]
         do {
             let reader = try RecordedUsageReader(databaseURL: databaseURL)
-            rows = try reader.reportUsage(
+            rows = PricedUsage.price(try reader.reportUsage(
                 fromDay: range.keys[0],
                 throughDay: range.keys[windowDays - 1],
-                rateCard: rateCard,
                 afterSchemaDiscovery: afterSchemaDiscovery
-            )
+            ), on: rateCard)
         } catch let error as RecordedUsageReaderError {
             switch error {
             case let .openFailed(message): throw UsageReportReaderError.openFailed(message)
@@ -226,24 +225,16 @@ public enum UsageReportReader {
                 cacheWrite: Int64(row.tokens.cacheWrite),
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
-            let model = row.tier.model
-            if let cost = rateCard.cost(
-                of: row.tokens,
-                model: model,
-                provider: row.tier.source.provider,
-                day: row.day,
-                fast: row.tier.isFast,
-                longContext: row.tier.longContext
-            ) {
+            if let cost = row.cost {
                 usage.cost = cost
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
             }
-            _ = try usage.snapshot(label: "\(row.tier.source.displayName) \(row.day) \(model)")
+            _ = try usage.snapshot(label: "\(row.source.displayName) \(row.day) \(row.model)")
             try total.add(usage)
             try dayTotals[row.day, default: CheckedUsage()].add(usage)
-            try modelTotals[model, default: CheckedUsage()].add(usage)
-            try sourceTotals[row.tier.source, default: CheckedUsage()].add(usage)
+            try modelTotals[row.model, default: CheckedUsage()].add(usage)
+            try sourceTotals[row.source, default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
         }
 

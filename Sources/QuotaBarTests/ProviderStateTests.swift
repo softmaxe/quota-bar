@@ -1,4 +1,4 @@
-#if DEBUG
+@testable import QuotaBarApp
 import QuotaBarCore
 import AppKit
 import Foundation
@@ -6,7 +6,7 @@ import SwiftUI
 
 /// Exercises quota and local-scan state without reading credentials, logs, or the network.
 @MainActor
-enum ProviderStateVerifier {
+enum ProviderStateTests {
     private final class Fetches {
         var quotaCalls = 0
         var costCalls = 0
@@ -32,25 +32,27 @@ enum ProviderStateVerifier {
         }
     }
 
-    static func run() -> Never {
-        VerifierReport.runAsync { await Self.verify() }
+    private static let suite = "QuotaBarProviderStateTests"
+
+    static func run() async {
+        await AppCheck.run("signed-out cards keep saved usage") {
+            if let failure = Self.verifySignedOutCards() { throw CheckFailure(description: failure) }
+        }
+        await AppCheck.run("provider states preserve reasons, readings, scan progress, and retry eligibility") {
+            let defaults = EphemeralDefaults.make(Self.suite)
+            defer { EphemeralDefaults.clear(Self.suite) }
+            try await Self.walkThrough(defaults: defaults)
+        }
+        await AppCheck.run("the menu reads recorded usage independently of quota") {
+            let defaults = EphemeralDefaults.make(Self.suite)
+            defer { EphemeralDefaults.clear(Self.suite) }
+            if let failure = try await Self.verifyMenuReadsRecordedUsage(defaults: defaults) {
+                throw CheckFailure(description: failure)
+            }
+        }
     }
 
-    private static func verify() async -> Never {
-        let suite = "QuotaBarProviderStateVerifier"
-        let defaults = EphemeralDefaults.make(suite)
-        func finish(_ message: String? = nil) -> Never {
-            EphemeralDefaults.clear(suite)
-            if let message {
-                VerifierReport.report(message, label: "provider-state verification")
-                exit(1)
-            }
-            print("Provider states preserve reasons, cached readings, scan progress, and retry eligibility")
-            exit(0)
-        }
-
-        NSApplication.shared.setActivationPolicy(.accessory)
-        if let failure = Self.verifySignedOutCards() { finish(failure) }
+    private static func walkThrough(defaults: UserDefaults) async throws {
         var uptime: TimeInterval = 1_000
         let origin = Date(timeIntervalSince1970: 1_800_000_000)
         let settings = SettingsStore(defaults: defaults)
@@ -69,181 +71,117 @@ enum ProviderStateVerifier {
         )
 
         store.refresh()
-        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
-            finish("initial work did not start")
-        }
-        guard store.isRefreshing(.codex),
-              store.displays[.codex]?.localScanStatus == .scanning else {
-            finish("quota and local scan did not start independently")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "initial work did not start")
+        try AppCheck.require(store.isRefreshing(.codex) &&
+              store.displays[.codex]?.localScanStatus == .scanning, "quota and local scan did not start independently")
         store.refresh()
-        guard fetches.quotaCalls == 1, fetches.costCalls == 1 else {
-            finish("a second request was not coalesced")
-        }
+        try AppCheck.require(fetches.quotaCalls == 1 && fetches.costCalls == 1, "a second request was not coalesced")
 
         fetches.quota?.resume(returning: .signedOut("Run codex login to sign in."))
         fetches.quota = nil
-        guard await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
-            finish("signed-out state was not applied")
-        }
-        guard store.displays[.codex]?.signedOutReason == "Run codex login to sign in.",
-              store.displays[.codex]?.localScanStatus == .scanning else {
-            finish("signed-out reason or independent scan state was lost")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }), "signed-out state was not applied")
+        try AppCheck.require(store.displays[.codex]?.signedOutReason == "Run codex login to sign in." &&
+              store.displays[.codex]?.localScanStatus == .scanning, "signed-out reason or independent scan state was lost")
 
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }) else {
-            finish("local scan failure was not exposed")
-        }
-        guard store.displays[.codex]?.error == nil else {
-            finish("local scan failure was mislabeled a quota failure")
-        }
+        }), "local scan failure was not exposed")
+        try AppCheck.require(store.displays[.codex]?.error == nil, "local scan failure was mislabeled a quota failure")
 
         store.retryLocalUsage()
-        guard await AsyncWait.wait(until: { fetches.costCalls == 2 && fetches.cost != nil }) else {
-            finish("local usage retry did not start")
-        }
-        guard fetches.quotaCalls == 1,
-              store.displays[.codex]?.localScanStatus == .scanning else {
-            finish("local usage retry changed quota state or skipped progress")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.costCalls == 2 && fetches.cost != nil }), "local usage retry did not start")
+        try AppCheck.require(fetches.quotaCalls == 1 &&
+              store.displays[.codex]?.localScanStatus == .scanning, "local usage retry changed quota state or skipped progress")
         store.retryLocalUsage()
-        guard fetches.costCalls == 2 else {
-            finish("repeated local usage retry started a duplicate scan")
-        }
+        try AppCheck.require(fetches.costCalls == 2, "repeated local usage retry started a duplicate scan")
         fetches.cost?.resume(returning: Fetches.snapshot(at: origin))
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.completed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }) else {
-            finish("local usage retry did not report completion")
-        }
-        guard fetches.quotaCalls == 1,
-              store.displays[.codex]?.isSignedOut == true,
-              store.displays[.codex]?.snapshot == nil,
-              store.displays[.codex]?.cost == Fetches.snapshot(at: origin) else {
-            finish("local usage retry changed sign-in state or lost its result")
-        }
+        }), "local usage retry did not report completion")
+        try AppCheck.require(fetches.quotaCalls == 1 &&
+              store.displays[.codex]?.isSignedOut == true &&
+              store.displays[.codex]?.snapshot == nil &&
+              store.displays[.codex]?.cost == Fetches.snapshot(at: origin), "local usage retry changed sign-in state or lost its result")
 
         uptime = 1_059
-        guard store.canRefresh(.codex) else { finish("local cooldown did not expire") }
+        try AppCheck.require(store.canRefresh(.codex), "local cooldown did not expire")
         store.refresh()
-        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
-            finish("second refresh did not start")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "second refresh did not start")
         let snapshot = UsageSnapshot(
             provider: .codex, session: nil, weekly: nil, planLabel: nil,
             credits: nil, fetchedAt: origin.addingTimeInterval(59)
         )
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
-        guard await AsyncWait.wait(until: { store.displays[.codex]?.snapshot == snapshot }) else {
-            finish("quota success did not apply")
-        }
-        guard store.displays[.codex]?.failure == nil,
-              store.displays[.codex]?.signedOutReason == nil else {
-            finish("quota success left an old warning")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.snapshot == snapshot }), "quota success did not apply")
+        try AppCheck.require(store.displays[.codex]?.failure == nil &&
+              store.displays[.codex]?.signedOutReason == nil, "quota success left an old warning")
         fetches.cost?.resume(returning: Fetches.snapshot(at: origin.addingTimeInterval(59)))
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.completed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }) else {
-            finish("second local scan did not report completion")
-        }
-        guard store.displays[.codex]?.cost == Fetches.snapshot(at: origin.addingTimeInterval(59)) else {
-            finish("local scan completion did not apply usage")
-        }
+        }), "second local scan did not report completion")
+        try AppCheck.require(store.displays[.codex]?.cost == Fetches.snapshot(at: origin.addingTimeInterval(59)), "local scan completion did not apply usage")
 
         uptime = 1_118
         let deadline = origin.addingTimeInterval(118 + 300)
         store.refresh()
-        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
-            finish("rate-limit fixture did not start")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "rate-limit fixture did not start")
         fetches.quota?.resume(returning: .rateLimited(reason: "API limited", retryAfter: deadline))
         fetches.quota = nil
-        guard await AsyncWait.wait(until: { store.displays[.codex]?.retryDeadline == deadline }) else {
-            finish("server retry deadline was not kept")
-        }
-        guard store.displays[.codex]?.snapshot == snapshot,
-              store.displays[.codex]?.failure?.kind == .rateLimited,
-              abs(store.cooldownRemaining(for: .codex) - 300) < 0.01,
-              store.retryEligibleAt(for: .codex) == deadline,
-              !store.canRefresh(.codex) else {
-            finish("cached quota or effective server retry state is wrong")
-        }
-        store.refresh(force: true, interaction: .userInitiated)
-        guard fetches.quotaCalls == 3 else {
-            finish("a force request bypassed the server retry deadline")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.retryDeadline == deadline }), "server retry deadline was not kept")
+        try AppCheck.require(store.displays[.codex]?.snapshot == snapshot &&
+              store.displays[.codex]?.failure?.kind == .rateLimited &&
+              abs(store.cooldownRemaining(for: .codex) - 300) < 0.01 &&
+              store.retryEligibleAt(for: .codex) == deadline &&
+              !store.canRefresh(.codex), "cached quota or effective server retry state is wrong")
+        store.refresh(trigger: .user)
+        try AppCheck.require(fetches.quotaCalls == 3, "a force request bypassed the server retry deadline")
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }) else {
-            finish("rate-limit fixture's local scan did not finish")
-        }
+        }), "rate-limit fixture's local scan did not finish")
 
         uptime = 1_418
-        guard store.canRefresh(.codex) else { finish("server deadline did not expire") }
+        try AppCheck.require(store.canRefresh(.codex), "server deadline did not expire")
         store.refresh()
-        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
-            finish("post-limit refresh did not start")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "post-limit refresh did not start")
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
-        guard await AsyncWait.wait(until: { store.displays[.codex]?.failure == nil }) else {
-            finish("successful retry did not clear the warning")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.failure == nil }), "successful retry did not clear the warning")
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }) else {
-            finish("post-limit local scan did not finish")
-        }
+        }), "post-limit local scan did not finish")
 
         let savedCost = store.displays[.codex]?.cost
         uptime = 1_477
         store.refresh()
-        guard await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }) else {
-            finish("sign-out refresh did not start")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "sign-out refresh did not start")
         fetches.quota?.resume(returning: .signedOut("Run codex login to sign in."))
         fetches.quota = nil
-        guard await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }) else {
-            finish("sign-out after a successful login did not apply")
-        }
-        guard savedCost != nil,
-              store.displays[.codex]?.snapshot == nil,
-              store.displays[.codex]?.cost == savedCost,
-              store.displays[.codex]?.localScanStatus == .scanning else {
-            finish("sign-out did not clear quota independently of saved local usage")
-        }
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.isSignedOut == true }), "sign-out after a successful login did not apply")
+        try AppCheck.require(savedCost != nil &&
+              store.displays[.codex]?.snapshot == nil &&
+              store.displays[.codex]?.cost == savedCost &&
+              store.displays[.codex]?.localScanStatus == .scanning, "sign-out did not clear quota independently of saved local usage")
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
-        guard await AsyncWait.wait(until: {
+        try AppCheck.require(await AsyncWait.wait(until: {
             if case .some(.failed) = store.displays[.codex]?.localScanStatus { return true }
             return false
-        }), store.displays[.codex]?.cost == savedCost else {
-            finish("a failed signed-out scan discarded saved local usage")
-        }
+        }) && store.displays[.codex]?.cost == savedCost, "a failed signed-out scan discarded saved local usage")
         store.stop()
-        do {
-            if let failure = try await Self.verifyMenuReadsRecordedUsage(defaults: defaults) { finish(failure) }
-        } catch {
-            finish("recorded usage fixture threw: \(error)")
-        }
-        finish()
     }
 
     /// The only check that leaves the store on its default cost fetch, so it is what proves the
@@ -324,4 +262,3 @@ enum ProviderStateVerifier {
         return nil
     }
 }
-#endif

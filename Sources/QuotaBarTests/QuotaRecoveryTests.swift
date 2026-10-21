@@ -1,25 +1,12 @@
-#if DEBUG
+@testable import QuotaBarApp
 import QuotaBarCore
 import Foundation
 
 /// Checks reset detection, provider isolation, and persistence.
-enum QuotaRecoveryVerifier {
+enum QuotaRecoveryTests {
     @MainActor
-    static func run() -> Never {
-        let failures = Self.trackerFailures()
-        return VerifierReport.finish(
-            failures,
-            label: "quota recovery verification",
-            passed: "quota reset detection, five-hour/weekly hand-off, and persistence passed"
-        )
-    }
-
-    // MARK: - Tracker
-
-    @MainActor
-    private static func trackerFailures() -> [String] {
-        var failures: [String] = []
-        let suite = "QuotaBarQuotaRecoveryVerifier"
+    static func run() {
+        let suite = "QuotaBarQuotaRecoveryTests"
         let defaults = EphemeralDefaults.make(suite)
         defer { EphemeralDefaults.clear(suite) }
 
@@ -33,9 +20,7 @@ enum QuotaRecoveryVerifier {
             weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
         )
         tracker.observe(snapshot: first)
-        if !tracker.pendingRecoveries(for: .claude).isEmpty {
-            failures.append("the first reading was mistaken for a reset")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude).isEmpty, "the first reading was mistaken for a reset")
 
         let spent = Self.snapshot(
             provider: .claude,
@@ -45,9 +30,7 @@ enum QuotaRecoveryVerifier {
             weeklyReset: epoch.addingTimeInterval(7 * 24 * 3600)
         )
         tracker.observe(snapshot: spent)
-        if !tracker.pendingRecoveries(for: .claude).isEmpty {
-            failures.append("ordinary spending with the same reset identity queued an animation")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude).isEmpty, "ordinary spending with the same reset identity queued an animation")
 
         let reset = Self.snapshot(
             provider: .claude,
@@ -61,12 +44,8 @@ enum QuotaRecoveryVerifier {
             .session: QuotaRecoveryEvent(fromRemainingPercent: 23),
             .weekly: QuotaRecoveryEvent(fromRemainingPercent: 51),
         ]
-        if tracker.pendingRecoveries(for: .claude) != expected {
-            failures.append("five-hour and weekly resets did not independently preserve their starting values")
-        }
-        if !tracker.pendingRecoveries(for: .codex).isEmpty {
-            failures.append("one provider's reset leaked into the other")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude) == expected, "five-hour and weekly resets did not independently preserve their starting values")
+        Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty, "one provider's reset leaked into the other")
 
         // Later polls must update the baseline without discarding a reset the card has not shown.
         tracker.observe(
@@ -75,21 +54,13 @@ enum QuotaRecoveryVerifier {
             remainingPercent: 98,
             resetsAt: epoch.addingTimeInterval(10 * 3600)
         )
-        if tracker.pendingRecoveries(for: .claude) != expected {
-            failures.append("a later poll dropped a queued reset animation")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude) == expected, "a later poll dropped a queued reset animation")
 
         // Both the baseline and pending payload survive a process restart.
         let restarted = QuotaRecoveryTracker(defaults: defaults)
-        if restarted.pendingRecoveries(for: .claude) != expected {
-            failures.append("pending reset animations did not survive a restart")
-        }
-        if restarted.consumePending(for: .claude) != expected {
-            failures.append("the card was not handed both reset windows with their starting values")
-        }
-        if !restarted.consumePending(for: .claude).isEmpty {
-            failures.append("a reset animation was handed out twice")
-        }
+        Harness.expect(restarted.pendingRecoveries(for: .claude) == expected, "pending reset animations did not survive a restart")
+        Harness.expect(restarted.consumePending(for: .claude) == expected, "the card was not handed both reset windows with their starting values")
+        Harness.expect(restarted.consumePending(for: .claude).isEmpty, "a reset animation was handed out twice")
 
         // A large percentage jump alone is not a reset; the provider's reset identity is.
         tracker.observe(
@@ -104,9 +75,7 @@ enum QuotaRecoveryVerifier {
             remainingPercent: 100,
             resetsAt: epoch.addingTimeInterval(5 * 3600)
         )
-        if !tracker.pendingRecoveries(for: .codex).isEmpty {
-            failures.append("a percentage jump with an unchanged reset identity was treated as a reset")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty, "a percentage jump with an unchanged reset identity was treated as a reset")
 
         // A reset identity moving forward is not enough on its own. Codex can report a later
         // identity while the remaining quota has fallen, which must stay on the ordinary glide
@@ -123,10 +92,9 @@ enum QuotaRecoveryVerifier {
             remainingPercent: 62,
             resetsAt: epoch.addingTimeInterval(15 * 3600)
         )
-        if !tracker.pendingRecoveries(for: .codex).isEmpty {
-            failures.append("a forward reset identity with quota falling from 100 to 62 queued an animation")
-            _ = tracker.consumePending(for: .codex)
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty,
+                       "a forward reset identity with quota falling from 100 to 62 queued an animation")
+        _ = tracker.consumePending(for: .codex)
 
         // Claude reports the five-hour deadline it has already passed until real usage opens the
         // next window, so the quota returns to 100 several polls before the identity moves. The
@@ -149,9 +117,7 @@ enum QuotaRecoveryVerifier {
         let laggingExpected: [QuotaWindowKind: QuotaRecoveryEvent] = [
             .session: QuotaRecoveryEvent(fromRemainingPercent: 3),
         ]
-        if tracker.pendingRecoveries(for: .claude) != laggingExpected {
-            failures.append("a five-hour window recovering past its own deadline queued no animation")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude) == laggingExpected, "a five-hour window recovering past its own deadline queued no animation")
         tracker.observe(
             provider: .claude,
             kind: .session,
@@ -159,9 +125,7 @@ enum QuotaRecoveryVerifier {
             resetsAt: lagging.addingTimeInterval(5 * 3600),
             now: lagging.addingTimeInterval(900)
         )
-        if tracker.pendingRecoveries(for: .claude) != laggingExpected {
-            failures.append("the identity catching up to a recovery already seen dropped its animation")
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .claude) == laggingExpected, "the identity catching up to a recovery already seen dropped its animation")
         _ = tracker.consumePending(for: .claude)
 
         // Two rollovers with the first one never shown: the unobserved second window supersedes
@@ -190,10 +154,8 @@ enum QuotaRecoveryVerifier {
             remainingPercent: 71,
             resetsAt: epoch.addingTimeInterval(45 * 3600)
         )
-        if !tracker.pendingRecoveries(for: .codex).isEmpty {
-            failures.append("an event two rollovers old was still queued")
-            _ = tracker.consumePending(for: .codex)
-        }
+        Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty, "an event two rollovers old was still queued")
+        _ = tracker.consumePending(for: .codex)
 
         // An older response must not move the identity backwards and manufacture a future reset.
         tracker.observe(
@@ -214,11 +176,7 @@ enum QuotaRecoveryVerifier {
             remainingPercent: 43,
             resetsAt: epoch.addingTimeInterval(14 * 24 * 3600)
         )
-        if !tracker.pendingRecoveries(for: .codex).isEmpty {
-            failures.append("a stale response manufactured a weekly reset")
-        }
-
-        return failures
+        Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty, "a stale response manufactured a weekly reset")
     }
 
     private static func snapshot(
@@ -246,4 +204,3 @@ enum QuotaRecoveryVerifier {
         )
     }
 }
-#endif

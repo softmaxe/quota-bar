@@ -36,7 +36,7 @@ enum CardDump {
         )
         Self.capture(
             MenuCardView(provider: .claude, display: failed, isRefreshing: false, animatesFill: false)
-                .environment(\.menuRefreshState, RefreshRowPolicy.state(cooldownRemaining: 90, isRefreshing: false)),
+                .environment(\.menuRefreshState, RefreshEligibility.Row(title: "Refresh", trailingText: "90s", isEnabled: false)),
             named: "refresh-failed", into: root
         )
     }

@@ -7,6 +7,7 @@ import QuotaBarCore
 enum ModelNameResolutionTests {
     static func run() async {
         await Self.aliasInALaterPriceBookPricesRecordedUsage()
+        await Self.routedNamesGroupUnderOneThirdPartyModel()
     }
 
     private static func book(aliases: [String]) -> PriceBook? {
@@ -94,6 +95,43 @@ enum ModelNameResolutionTests {
             )
         } catch {
             Harness.expect(false, "reading known model usage threw: \(error)")
+        }
+    }
+
+    /// Claude Code pointed at a router logs `openrouter/z-ai/glm-5`, while a direct session logs
+    /// `glm-5`. models.dev prices both as `glm-5`, so the menu, the report, and the pricing
+    /// settings show one model, priced once.
+    private static func routedNamesGroupUnderOneThirdPartyModel() async {
+        let fixture = RecorderFixture(name: "routed-name")
+        defer { fixture.remove() }
+        let now = ISO8601DateFormatter().string(from: Date())
+        fixture.writeClaudeTranscript("app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "routed", model: "openrouter/z-ai/glm-5", input: 1_000_000, output: 0, timestamp: now),
+            ClaudeLine.assistant(id: "direct", model: "glm-5", input: 1_000_000, output: 0, timestamp: now),
+        ])
+        let card = RateCard(thirdParty: ThirdPartyRates(current: ["glm-5": ModelPricing(input: 1, output: 1)]))
+        let service = CostService(databaseURL: fixture.databaseURL, env: fixture.env, rateCard: card)
+        guard let menu = await service.refresh(.claude) else {
+            Harness.expect(false, "the routed-name refresh returned no snapshot")
+            return
+        }
+        Harness.expectEqual(
+            Set(menu.days.flatMap { $0.byModel.keys.map(\.model) }),
+            ["glm-5"],
+            "the menu groups a routed name with its model"
+        )
+        Harness.expectEqual(menu.windowCostUSD, 2, "both spellings are priced at the model's rates")
+        do {
+            let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: card)
+            Harness.expectEqual(report.models.map(\.name), ["glm-5"], "the report groups a routed name with its model")
+            let usage = card.modelUsage(
+                try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL),
+                provider: .claude
+            )
+            Harness.expectEqual(usage, [ModelUsageTotal(model: "glm-5", tokens: 2_000_000)],
+                                "the pricing settings show a routed name and its model as one row")
+        } catch {
+            Harness.expect(false, "reading routed-name usage threw: \(error)")
         }
     }
 }

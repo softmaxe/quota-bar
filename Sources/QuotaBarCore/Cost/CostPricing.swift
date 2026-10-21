@@ -157,12 +157,14 @@ enum ModelNames {
         return Self.strippingDateSuffix(name)
     }
 
-    /// `anthropic.claude-opus-5-v1:0` -> `claude-opus-5`, `claude-opus-5-20260101` -> `claude-opus-5`.
+    /// `anthropic.claude-opus-5-v1:0` -> `claude-opus-5`, `claude-opus-5-20260101` -> `claude-opus-5`,
+    /// `openrouter/z-ai/glm-5` -> `glm-5`.
     private static func strippedClaude(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        for prefix in ["anthropic.", "anthropic/"] where name.hasPrefix(prefix) {
-            name = String(name.dropFirst(prefix.count))
-        }
+        // Claude Code pointed at a router names models by path; the model is the last segment,
+        // which is also the key models.dev prices it under.
+        if let slash = name.lastIndex(of: "/") { name = String(name[name.index(after: slash)...]) }
+        if name.hasPrefix("anthropic.") { name = String(name.dropFirst("anthropic.".count)) }
         if let range = name.range(of: #"-v\d+:\d+$"#, options: .regularExpression) {
             name = String(name[..<range.lowerBound])
         }

@@ -94,7 +94,7 @@ public actor UsageHistoryStore {
     ) -> UsageHistoryDataset? {
         self.ensureLoaded()
         guard let rawResetsAt = window.resetsAt else { return self.dataset(for: provider) }
-        let minutes = window.windowSeconds.map { $0 / 60 } ?? UsagePace.Context.weekly.defaultWindowMinutes
+        let minutes = window.windowSeconds.map { $0 / 60 } ?? QuotaWindowKind.weekly.defaultWindowMinutes
         guard minutes > 0 else { return self.dataset(for: provider) }
 
         let sample = UsageHistoryRecord(

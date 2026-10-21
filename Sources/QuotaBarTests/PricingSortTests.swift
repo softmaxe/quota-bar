@@ -1,13 +1,11 @@
-#if DEBUG
+@testable import QuotaBarApp
 import QuotaBarCore
 import Foundation
 
 /// Checks column sorting, blank rates, and reset to configured model order.
 @MainActor
-enum PricingSortVerifier {
-    static func run() -> Never {
-        var failures: [String] = []
-
+enum PricingSortTests {
+    static func run() {
         let model = PricingTableModel(costService: CostService())
         model.debugSetRows([
             Self.row("claude-opus-4", usageTokens: 900, input: 15, output: 75, cacheRead: 1.5, settingsRank: 1),
@@ -20,62 +18,45 @@ enum PricingSortVerifier {
         ])
 
         func names() -> [String] { model.rows(in: .claude).map(\.model) }
+        func others() -> [String] { model.rows(in: .others).map(\.model) }
 
         // Configured ranks precede usage; unranked rows use token totals.
         let defaultOrder = ["claude-sonnet-4", "claude-opus-4", "claude-haiku-4", "claude-next"]
         let othersByUsage = ["other-z", "other-a"]
-        if names() != defaultOrder || model.rows(in: .others).map(\.model) != othersByUsage {
-            failures.append("the pane did not use configured ranks and usage order")
-        }
+        Harness.expectEqual(names(), defaultOrder, "the pane uses configured ranks, then usage")
+        Harness.expectEqual(others(), othersByUsage, "Others are ordered by usage")
 
         // A rate column opens on the expensive end: that is the number a price table is opened for.
         model.toggleSort(.input)
-        let expensiveFirst = ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-next"]
-        if !model.sort.ascending, names() != expensiveFirst {
-            failures.append("the first click on Input gave \(names()), expected \(expensiveFirst)")
-        } else if model.sort.ascending {
-            failures.append("the first click on Input pointed ascending")
-        }
+        Harness.expect(!model.sort.ascending, "the first click on Input points descending")
+        Harness.expectEqual(names(), ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-next"],
+                            "the first click on Input puts the expensive end first")
 
         // Flipped, the unpriced row still sinks: an empty rate is unknown, not zero.
         model.toggleSort(.input)
-        let cheapFirst = ["claude-haiku-4", "claude-sonnet-4", "claude-opus-4", "claude-next"]
-        if !model.sort.ascending || names() != cheapFirst {
-            failures.append("the second click on Input gave \(names()), expected \(cheapFirst)")
-        }
+        Harness.expect(model.sort.ascending, "the second click on Input points ascending")
+        Harness.expectEqual(names(), ["claude-haiku-4", "claude-sonnet-4", "claude-opus-4", "claude-next"],
+                            "the second click on Input still sinks the unpriced row")
 
         model.toggleSort(.cacheRead)
-        let byCacheRead = ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-next"]
-        if model.sort.field != .cacheRead || names() != byCacheRead {
-            failures.append("Cache r gave \(names()), expected \(byCacheRead)")
-        }
+        Harness.expectEqual(model.sort.field, .cacheRead, "Cache r sorts by cache reads")
+        Harness.expectEqual(names(), ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4", "claude-next"],
+                            "Cache r puts the expensive end first")
 
         // A name column opens A→Z instead, since that is what reading a list of names wants.
         model.toggleSort(.model)
         let alphabetical = ["claude-haiku-4", "claude-next", "claude-opus-4", "claude-sonnet-4"]
-        if !model.sort.ascending || names() != alphabetical
-            || model.rows(in: .others).map(\.model) != ["other-a", "other-z"] {
-            failures.append("the first click on Model gave \(names()), expected \(alphabetical)")
-        }
+        Harness.expect(model.sort.ascending, "the first click on Model points ascending")
+        Harness.expectEqual(names(), alphabetical, "the first click on Model sorts A→Z")
+        Harness.expectEqual(others(), ["other-a", "other-z"], "Others sort by name too")
         model.toggleSort(.model)
-        if names() != alphabetical.reversed() {
-            failures.append("the second click on Model gave \(names()), expected Z→A")
-        }
+        Harness.expectEqual(names(), Array(alphabetical.reversed()), "the second click on Model sorts Z→A")
 
-        if model.sort.isDefault {
-            failures.append("a sorted column still read as the default order")
-        }
+        Harness.expect(!model.sort.isDefault, "a sorted column is not the default order")
         model.resetSort()
-        if !model.sort.isDefault || names() != defaultOrder
-            || model.rows(in: .others).map(\.model) != othersByUsage {
-            failures.append("reset did not restore configured ranks and usage order")
-        }
-
-        VerifierReport.finish(
-            failures,
-            label: "pricing sort verification",
-            passed: "pricing columns sorted both ways, sank blank rates, and reset to the configured default order"
-        )
+        Harness.expect(model.sort.isDefault, "reset returns to the default order")
+        Harness.expectEqual(names(), defaultOrder, "reset restores configured ranks")
+        Harness.expectEqual(others(), othersByUsage, "reset restores usage order")
     }
 
     private static func row(
@@ -101,4 +82,3 @@ enum PricingSortVerifier {
         )
     }
 }
-#endif
