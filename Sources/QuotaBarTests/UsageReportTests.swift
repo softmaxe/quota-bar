@@ -86,6 +86,13 @@ enum UsageReportTests {
         Harness.expect(!report.models.contains(where: { $0.name == "excluded-model" }), "excluded OpenCode row stays out")
         Harness.expect(!report.models.contains(where: { $0.name == "excluded-pi" }), "excluded Pi row stays out")
         Harness.expectEqual(report.weekdays.map(\.total), [0, 59, 0, 0, 0, 0, 43], "weekday totals")
+        Harness.expectEqual(Array(report.history.suffix(3)), report.days, "history ends with the selected window")
+        Harness.expect(report.history.contains { $0.day == "2026-09-12" && $0.recorded },
+                       "history keeps saved days before the window")
+        Harness.expectEqual(report.days[2].sources.map(\.total).reduce(0, +), report.days[2].total,
+                            "a day's sources add up to its total")
+        Harness.expectEqual(report.days[2].models.map(\.total).reduce(0, +), report.days[2].total,
+                            "a day's models add up to its total")
 
         let data = try JSONEncoder().encode(report)
         let encoded = String(decoding: data, as: UTF8.self)
@@ -277,13 +284,13 @@ enum UsageReportTests {
         try fixture.database.exec("""
             INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES
                 ('safe', '\(fixture.day())', 'safe', 0, 0, 9007199254740991, 0, 0, 0, 0),
-                ('old-invalid', '\(fixture.day(-4))', 'bad', 0, 0, -1, 0, 0, 0, 0),
+                ('old-invalid', '\(fixture.day(-3_653))', 'bad', 0, 0, -1, 0, 0, 0, 0),
                 ('future-invalid', '\(fixture.day(1))', 'bad', 0, 0, -1, 0, 0, 0, 0);
             INSERT INTO opencode_part (\(RecordedUsageFixture.openCodeColumns)) VALUES
                 ('excluded-invalid', 0, 0, '\(fixture.day())', 'bad', 0, 0, -1, 0, 0, 0, 0);
             """)
         Harness.expectEqual(try self.read(fixture).totals.total, 9_007_199_254_740_991,
-                            "export validates only included rows in its bounded date window")
+                            "export validates only included rows in its bounded history")
         try fixture.database.exec("""
             INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES ('one-more', 1, '\(fixture.day())', 'other', 0, 1, 0, 0, 0, 0);
             """)

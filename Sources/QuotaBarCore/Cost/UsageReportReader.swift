@@ -42,10 +42,25 @@ public struct UsageReportDay: Codable, Sendable, Equatable {
     public let cost: Double
     public let unpricedTokens: Int
     public let total: Int
+    /// The day's usage split by usage source, in display order, listing only sources with records.
+    public let sources: [UsageReportNamedUsage]
+    /// The day's usage split by model and usage source, most expensive first.
+    public let models: [UsageReportNamedUsage]
+    public let costBreakdown: UsageReportCostBreakdown
 
-    public init(day: String, recorded: Bool, totals: UsageReportTotals = UsageReportTotals()) {
+    public init(
+        day: String,
+        recorded: Bool,
+        totals: UsageReportTotals = UsageReportTotals(),
+        sources: [UsageReportNamedUsage] = [],
+        models: [UsageReportNamedUsage] = [],
+        costBreakdown: UsageReportCostBreakdown = UsageReportCostBreakdown()
+    ) {
         self.day = day
         self.recorded = recorded
+        self.sources = sources
+        self.models = models
+        self.costBreakdown = costBreakdown
         self.input = totals.input
         self.output = totals.output
         self.cacheRead = totals.cacheRead
@@ -59,6 +74,9 @@ public struct UsageReportDay: Codable, Sendable, Equatable {
 
 public struct UsageReportNamedUsage: Codable, Sendable, Equatable {
     public let name: String
+    /// The usage source's stable identifier: the source itself for a source row, and the source
+    /// with the most tokens for a model row. Absent when the row has no single source.
+    public let source: String?
     public let input: Int
     public let output: Int
     public let cacheRead: Int
@@ -68,8 +86,9 @@ public struct UsageReportNamedUsage: Codable, Sendable, Equatable {
     public let unpricedTokens: Int
     public let total: Int
 
-    public init(name: String, totals: UsageReportTotals = UsageReportTotals()) {
+    public init(name: String, source: String? = nil, totals: UsageReportTotals = UsageReportTotals()) {
         self.name = name
+        self.source = source
         self.input = totals.input
         self.output = totals.output
         self.cacheRead = totals.cacheRead
@@ -78,6 +97,38 @@ public struct UsageReportNamedUsage: Codable, Sendable, Equatable {
         self.cost = totals.cost
         self.unpricedTokens = totals.unpricedTokens
         self.total = totals.total
+    }
+}
+
+/// Estimated cost split by token type and by speed. Each value is in USD and covers priced usage only.
+public struct UsageReportCostBreakdown: Codable, Sendable, Equatable {
+    public let input: Double
+    public let output: Double
+    public let cacheRead: Double
+    public let cacheWrite: Double
+    /// What cache-read tokens would have cost at the input rate, minus what they cost.
+    public let cacheSavings: Double
+    /// Cost of Fast usage, included in the token-type values above.
+    public let fast: Double
+    /// What Fast usage cost above the same tokens at Standard rates.
+    public let fastPremium: Double
+
+    public init(
+        input: Double = 0,
+        output: Double = 0,
+        cacheRead: Double = 0,
+        cacheWrite: Double = 0,
+        cacheSavings: Double = 0,
+        fast: Double = 0,
+        fastPremium: Double = 0
+    ) {
+        self.input = input
+        self.output = output
+        self.cacheRead = cacheRead
+        self.cacheWrite = cacheWrite
+        self.cacheSavings = cacheSavings
+        self.fast = fast
+        self.fastPremium = fastPremium
     }
 }
 
@@ -96,7 +147,11 @@ public struct UsageReportSnapshot: Codable, Sendable, Equatable {
     public let capturedAt: String
     public let timezone: String
     public let totals: UsageReportTotals
+    public let costBreakdown: UsageReportCostBreakdown
     public let days: [UsageReportDay]
+    /// Every calendar day from the first saved record, or the window's start if that is earlier,
+    /// through the capture day. The page computes any period the viewer picks from these days.
+    public let history: [UsageReportDay]
     public let models: [UsageReportNamedUsage]
     public let sources: [UsageReportNamedUsage]
     public let weekdays: [UsageReportWeekday]
@@ -106,23 +161,28 @@ public struct UsageReportSnapshot: Codable, Sendable, Equatable {
         capturedAt: String,
         timezone: String,
         totals: UsageReportTotals,
+        costBreakdown: UsageReportCostBreakdown = UsageReportCostBreakdown(),
         days: [UsageReportDay],
+        history: [UsageReportDay]? = nil,
         models: [UsageReportNamedUsage],
         sources: [UsageReportNamedUsage],
         weekdays: [UsageReportWeekday]
     ) {
+        self.history = history ?? days
         self.period = period
         self.capturedAt = capturedAt
         self.timezone = timezone
         self.totals = totals
+        self.costBreakdown = costBreakdown
         self.days = days
         self.models = models
         self.sources = sources
         self.weekdays = weekdays
     }
 
+    /// Whether any saved day exists, so the page has a period worth showing.
     public var hasRecordedUsage: Bool {
-        self.days.contains(where: \.recorded)
+        self.history.contains(where: \.recorded)
     }
 
     public var defaultFilename: String {
@@ -161,6 +221,8 @@ public enum UsageReportReaderError: LocalizedError, Equatable {
 /// prices it the same way the popover does: each day at the rate card's rates for that day.
 public enum UsageReportReader {
     fileprivate static let maximumSafeInteger = RecordedUsageReader.reportMaximumSafeInteger
+    /// How far back the embedded history reaches, about ten years. Older rows are left out.
+    static let historyLimitDays = 3_653
 
     public static func read(
         databaseURL: URL = CostService.defaultDatabaseURL,
@@ -189,13 +251,14 @@ public enum UsageReportReader {
             throw UsageReportReaderError.databaseMissing(databaseURL.path)
         }
 
-        let range = try self.dayRange(windowDays: windowDays, now: now, calendar: calendar)
+        let calendarDays = try self.dayRange(days: self.historyLimitDays, now: now, calendar: calendar)
+        let range = (dates: Array(calendarDays.dates.suffix(windowDays)), keys: Array(calendarDays.keys.suffix(windowDays)))
         let rows: [PricedUsage]
         do {
             let reader = try RecordedUsageReader(databaseURL: databaseURL)
             rows = PricedUsage.price(try reader.reportUsage(
-                fromDay: range.keys[0],
-                throughDay: range.keys[windowDays - 1],
+                fromDay: calendarDays.keys[0],
+                throughDay: calendarDays.keys[calendarDays.keys.count - 1],
                 afterSchemaDiscovery: afterSchemaDiscovery
             ), on: rateCard)
         } catch let error as RecordedUsageReaderError {
@@ -211,13 +274,20 @@ public enum UsageReportReader {
         var dayTotals: [String: CheckedUsage] = [:]
         var modelTotals: [String: CheckedUsage] = [:]
         var sourceTotals: [CostUsageSource: CheckedUsage] = [:]
+        var daySourceTotals: [String: [CostUsageSource: CheckedUsage]] = [:]
+        var modelSourceTokens: [String: [CostUsageSource: Int64]] = [:]
+        var dayModelTotals: [String: [ModelUsageKey: CheckedUsage]] = [:]
+        var breakdown = CostBreakdownSum()
+        var dayBreakdown: [String: CostBreakdownSum] = [:]
         var recordedDays: Set<String> = []
-        let validDays = Set(range.keys)
+        let validDays = Set(calendarDays.keys)
+        let windowKeys = Set(range.keys)
 
         for row in rows {
             guard validDays.contains(row.day) else {
                 throw UsageReportReaderError.invalidData("unexpected day \(row.day)")
             }
+            let inWindow = windowKeys.contains(row.day)
             var usage = CheckedUsage(
                 input: Int64(row.tokens.input),
                 output: Int64(row.tokens.output),
@@ -225,40 +295,72 @@ public enum UsageReportReader {
                 cacheWrite: Int64(row.tokens.cacheWrite),
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
+            let model = row.model
+            let provider = row.source.provider
             if let cost = row.cost {
                 usage.cost = cost
+                // The row's cost already came from these rates; they only split it by token type.
+                if let rates = rateCard.rates(for: model, provider: provider, day: row.day, fast: row.key.isFast) {
+                    let standard = row.key.isFast
+                        ? rateCard.rates(for: model, provider: provider, day: row.day)?
+                            .cost(for: row.tokens, longContext: row.key.longContext)
+                        : nil
+                    let part = try CostBreakdownSum(row.tokens, rates: rates, longContext: row.key.longContext,
+                                                    cost: cost, fast: row.key.isFast, standardCost: standard)
+                    dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
+                    if inWindow { breakdown.add(part) }
+                }
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
             }
-            _ = try usage.snapshot(label: "\(row.source.displayName) \(row.day) \(row.model)")
-            try total.add(usage)
+            _ = try usage.snapshot(label: "\(row.source.displayName) \(row.day) \(model)")
             try dayTotals[row.day, default: CheckedUsage()].add(usage)
-            try modelTotals[row.model, default: CheckedUsage()].add(usage)
-            try sourceTotals[row.source, default: CheckedUsage()].add(usage)
+            try daySourceTotals[row.day, default: [:]][row.source, default: CheckedUsage()].add(usage)
+            try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.source, model: model),
+                                                      default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
+            guard inWindow else { continue }
+            try total.add(usage)
+            try modelTotals[model, default: CheckedUsage()].add(usage)
+            try sourceTotals[row.source, default: CheckedUsage()].add(usage)
+            modelSourceTokens[model, default: [:]][row.source, default: 0] +=
+                Int64(try usage.snapshot(label: "model source").total)
         }
 
         let totals = try total.snapshot(label: "report total")
-        let days = try range.keys.map { key in
-            UsageReportDay(
+        let firstRecorded = calendarDays.keys.firstIndex(where: recordedDays.contains) ?? calendarDays.keys.count
+        let historyStart = min(firstRecorded, calendarDays.keys.count - windowDays)
+        let history = try calendarDays.keys[historyStart...].map { key in
+            let models = try dayModelTotals[key, default: [:]].map { key, usage in
+                UsageReportNamedUsage(name: key.model, source: key.source.rawValue,
+                                      totals: try usage.snapshot(label: "day model \(key.model)"))
+            }.sorted {
+                if $0.cost != $1.cost { return $0.cost > $1.cost }
+                if $0.total != $1.total { return $0.total > $1.total }
+                return ($0.name, $0.source ?? "") < ($1.name, $1.source ?? "")
+            }
+            return UsageReportDay(
                 day: key,
                 recorded: recordedDays.contains(key),
-                totals: try dayTotals[key, default: CheckedUsage()].snapshot(label: "day \(key)")
+                totals: try dayTotals[key, default: CheckedUsage()].snapshot(label: "day \(key)"),
+                sources: try Self.namedSources(daySourceTotals[key, default: [:]], label: "day \(key)"),
+                models: models,
+                costBreakdown: dayBreakdown[key, default: CostBreakdownSum()].snapshot()
             )
         }
+        let days = Array(history.suffix(windowDays))
         let models = try modelTotals.map { name, usage in
-            UsageReportNamedUsage(name: name, totals: try usage.snapshot(label: "model \(name)"))
+            let leading = modelSourceTokens[name, default: [:]].max {
+                $0.value != $1.value ? $0.value < $1.value : $0.key.displayOrder > $1.key.displayOrder
+            }?.key
+            return UsageReportNamedUsage(name: name, source: leading?.rawValue,
+                                         totals: try usage.snapshot(label: "model \(name)"))
         }.sorted {
             if $0.cost != $1.cost { return $0.cost > $1.cost }
             if $0.total != $1.total { return $0.total > $1.total }
             return $0.name < $1.name
         }
-        let sources = try sourceTotals.sorted {
-            $0.key.displayOrder < $1.key.displayOrder
-        }.map { source, usage in
-            UsageReportNamedUsage(name: source.displayName,
-                                  totals: try usage.snapshot(label: "source \(source.displayName)"))
-        }
+        let sources = try Self.namedSources(sourceTotals, label: "source")
 
         var weekdayTotals = Array(repeating: CheckedUsage(), count: 7)
         for index in range.keys.indices where recordedDays.contains(range.keys[index]) {
@@ -280,15 +382,27 @@ public enum UsageReportReader {
             capturedAt: self.timestamp(now),
             timezone: calendar.timeZone.identifier,
             totals: totals,
+            costBreakdown: breakdown.snapshot(),
             days: days,
+            history: history,
             models: models,
             sources: sources,
             weekdays: weekdays
         )
     }
 
+    private static func namedSources(
+        _ totals: [CostUsageSource: CheckedUsage],
+        label: String
+    ) throws -> [UsageReportNamedUsage] {
+        try totals.sorted { $0.key.displayOrder < $1.key.displayOrder }.map { source, usage in
+            UsageReportNamedUsage(name: source.displayName, source: source.rawValue,
+                                  totals: try usage.snapshot(label: "\(label) \(source.displayName)"))
+        }
+    }
+
     private static func dayRange(
-        windowDays: Int,
+        days windowDays: Int,
         now: Date,
         calendar: Calendar
     ) throws -> (dates: [Date], keys: [String]) {
@@ -325,6 +439,61 @@ public enum UsageReportReader {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+}
+
+/// Sums priced cost by token type, cache savings, and Fast spend. Each token type is priced alone,
+/// which matches the combined cost because a day's cost is linear in its token counts.
+private struct CostBreakdownSum {
+    var input: Double = 0
+    var output: Double = 0
+    var cacheRead: Double = 0
+    var cacheWrite: Double = 0
+    var cacheSavings: Double = 0
+    var fast: Double = 0
+    var fastPremium: Double = 0
+
+    init() {}
+
+    /// One priced row's breakdown.
+    init(
+        _ tokens: TokenTotals,
+        rates: ModelPricing,
+        longContext: Bool,
+        cost: Double,
+        fast: Bool,
+        standardCost: Double?
+    ) throws {
+        let price = { (part: TokenTotals) in rates.cost(for: part, longContext: longContext) }
+        self.input = price(TokenTotals(input: tokens.input))
+        self.output = price(TokenTotals(output: tokens.output))
+        self.cacheRead = price(TokenTotals(cacheRead: tokens.cacheRead))
+        self.cacheWrite = price(TokenTotals(cacheWrite: tokens.cacheWrite, cacheWrite1h: tokens.cacheWrite1h))
+        self.cacheSavings = price(TokenTotals(input: tokens.cacheRead)) - self.cacheRead
+        if fast {
+            self.fast = cost
+            self.fastPremium = max(0, cost - (standardCost ?? cost))
+        }
+        let values = [self.input, self.output, self.cacheRead, self.cacheWrite, self.cacheSavings, self.fast, self.fastPremium]
+        guard values.allSatisfy(\.isFinite) else {
+            throw UsageReportReaderError.invalidData("cost breakdown is not finite")
+        }
+    }
+
+    mutating func add(_ other: Self) {
+        self.input += other.input
+        self.output += other.output
+        self.cacheRead += other.cacheRead
+        self.cacheWrite += other.cacheWrite
+        self.cacheSavings += other.cacheSavings
+        self.fast += other.fast
+        self.fastPremium += other.fastPremium
+    }
+
+    func snapshot() -> UsageReportCostBreakdown {
+        UsageReportCostBreakdown(input: self.input, output: self.output, cacheRead: self.cacheRead,
+                                 cacheWrite: self.cacheWrite, cacheSavings: self.cacheSavings,
+                                 fast: self.fast, fastPremium: self.fastPremium)
     }
 }
 

@@ -20,7 +20,7 @@ Screenshots use sample data. The app is in English; exported reports support Chi
 - Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
 - View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
 - Estimate Standard, Fast, and long-context costs: Claude and OpenAI models from the bundled price book, other models such as DeepSeek or GLM from models.dev.
-- Export the last 7 or 30 days of saved usage as an offline HTML report with Chinese and English views.
+- Export saved usage as an offline HTML report that switches between 7 days, 30 days, or any custom period, in Chinese or English.
 
 ## Install
 
@@ -201,17 +201,17 @@ Provider billing rules, cache accounting, and price changes can make estimates d
 ## Exporting a usage report
 
 1. Open **Settings → Export**, or press ⌘3 while the settings window is active.
-2. Choose **Last 7 days** or **Last 30 days**.
+2. Under **Opens with**, choose **Last 7 days** or **Last 30 days** as the report's first view.
 3. Leave **Open after export** selected to open the result immediately.
-4. Choose **Export Report…** and select a destination. If the period has no saved usage, QuotaBar reports that before opening the Save panel.
+4. Choose **Export Report…** and select a destination. If nothing is saved yet, QuotaBar reports that before opening the Save panel.
 
 <p align="center">
   <img src="docs/images/report-export.png" width="760" alt="English view of the offline usage report, with a Chinese/English switch and sample data">
 </p>
 
-The report is a single offline HTML file with a Chinese/English switch. It includes saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage, for the selected period. Charts and expandable tables show daily usage, cost by model, and token and cache composition.
+The report is a single offline HTML file modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It embeds all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, a daily line per source, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
 
-Export reads saved data and cached rates without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage. Totals include cache costs; the report lists cache token counts without a separate cache cost.
+Export reads saved data and cached rates without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage.
 
 The file includes the period, capture time, timezone, sources, models, token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the full data format and checks.
 

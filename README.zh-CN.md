@@ -20,7 +20,7 @@
 - 查看会话与每周额度、重置时间、使用节奏和 Codex Credits 余额。刷新失败时保留上次有效读数。
 - 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode 和 Pi Agent OAuth 用量计入总计。
 - 估算 Standard、Fast 和长上下文成本：Claude 和 OpenAI 模型使用内置价格表，DeepSeek、GLM 等其他模型使用 models.dev 的价格。
-- 将最近 7 天或 30 天的已保存用量导出为离线 HTML 报告，支持中英文切换。
+- 将已保存用量导出为离线 HTML 报告，可在 7 天、30 天或任意自定义时段之间切换，支持中英文。
 
 ## 安装
 
@@ -201,17 +201,17 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 ## 导出用量报告
 
 1. 打开 **Settings → Export**，也可以在设置窗口中按 ⌘3。
-2. 选择 **Last 7 days** 或 **Last 30 days**。
+2. 在 **Opens with** 中选择 **Last 7 days** 或 **Last 30 days**，作为报告打开时显示的时段。
 3. 如需导出后立即查看，保留 **Open after export** 勾选。
-4. 点击 **Export Report…** 并选择保存位置。如果所选时段没有已保存的用量，QuotaBar 会先提示，不会打开保存对话框。
+4. 点击 **Export Report…** 并选择保存位置。如果还没有已保存的用量，QuotaBar 会先提示，不会打开保存对话框。
 
 <p align="center">
   <img src="docs/images/report-export.png" width="760" alt="离线用量报告的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-报告是一个可离线打开、切换中英文的 HTML 文件，包含所选时段已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。图表和可展开的数据表展示每日用量、按模型汇总的成本，以及 token 与缓存构成。
+报告是一个可离线打开的 HTML 文件，版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面。文件内含全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。报告展示各来源占比、每个来源的每日曲线、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
 
-导出只读取已保存的数据和缓存的费率，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。总额包含缓存成本，报告列出缓存 token 数量，不单独列出缓存成本。
+导出只读取已保存的数据和缓存的费率，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。
 
 文件包含时段、生成时间、时区、来源、模型、token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。完整的数据格式与验证方法见[用量报告导出](docs/usage-report-export.md)。
 
