@@ -26,113 +26,115 @@ const errors=[],results=[];
 const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
 const reportFile=join(output,'case.html');
 const safeJSON=data=>JSON.stringify(data).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
-async function load(data=snapshot){
+async function load(data=snapshot,query='lang=en'){
   writeFileSync(reportFile,source.replace(match[0],()=>`const REPORT=${safeJSON(data)};\n/* Report runtime */`));
-  await page.goto(pathToFileURL(reportFile).href+'?lang=en');
+  await page.evaluate(()=>{try{localStorage.clear();}catch{}}).catch(()=>{});
+  await page.goto(pathToFileURL(reportFile).href+'?'+query);
   await page.waitForFunction(()=>typeof window.setReportLanguage==='function');
 }
+const hero=()=>page.locator('.hero-value').textContent();
 async function layout(){
-  return page.evaluate(()=>{
-    const rect=n=>{const b=n.getBoundingClientRect();return {x:b.x,y:b.y,width:b.width,height:b.height,bottom:b.bottom,right:b.right};};
-    const columns=[...document.querySelectorAll('.compare>.b')];
-    const bounds=columns.map(n=>({column:rect(n),heading:rect(n.querySelector('.state')),chart:rect(n.querySelector('.fig')),source:rect(n.querySelector('.srcline'))}));
-    const labels=[...document.querySelectorAll('svg text')].map(n=>({text:n.textContent,...rect(n),svg:rect(n.ownerSVGElement)}));
-    return {bounds,line:rect(document.querySelector('#daily')),width:innerWidth,scrollWidth:document.documentElement.scrollWidth,
-      escapedLabels:labels.filter(n=>n.x<n.svg.x-2||n.right>n.svg.right+2||n.y<n.svg.y-2||n.bottom>n.svg.bottom+2)};
-  });
+  return page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,
+    escaped:[...document.querySelectorAll('.page *')].filter(n=>n.getBoundingClientRect().right>innerWidth+2&&!n.closest('.table-scroll')).length}));
 }
-async function checkLanguage(language,expectedDays){
+async function checkLanguage(language){
   await page.locator(`[data-language=${language}]`).click();
   assert.equal(await page.locator('html').getAttribute('lang'),language==='en'?'en':'zh-Hans');
-  assert.equal(await page.locator('#daily-table tr').count(),expectedDays);
-  assert.equal(await page.locator('#composition-table tr').count(),4);
   const untranslated=await page.locator('[data-i18n]').evaluateAll(nodes=>nodes.filter(n=>n.textContent===n.dataset.i18n).map(n=>n.dataset.i18n));
   assert.deepEqual(untranslated,[]);
-  if(language==='en')assert.deepEqual(await page.locator('[data-i18n],[data-bind],svg text,svg title').evaluateAll(nodes=>nodes.filter(n=>/[\u3400-\u9fff]/.test(n.textContent)).map(n=>n.textContent)),[]);
+  if(language==='en'){
+    const cjk=await page.evaluate(()=>[...document.querySelectorAll('.topbar :not([data-language]),.page *')]
+      .filter(n=>!n.children.length&&/[㐀-鿿]/.test(n.textContent)).map(n=>n.textContent));
+    assert.deepEqual(cjk,[],'English view shows no Chinese copy');
+  }
 }
-function totals(v,unpriced=0,cost=v/100){return {input:v/10,output:v/5,cacheRead:v*7/10,cacheWrite:0,cacheWrite1h:0,total:v,unpricedTokens:unpriced,cost};}
-function fixture(values,{unpriced=false,long=false}={}){
-  const days=values.map((v,i)=>({day:`2026-09-${String(i+1).padStart(2,'0')}`,recorded:v!==null,...totals(v??0,unpriced?(v??0):0,unpriced?0:(v??0)/100)}));
-  const t=Object.fromEntries(Object.keys(totals(0)).map(key=>[key,days.reduce((n,d)=>n+d[key],0)]));
-  const active=days.some(x=>x.recorded);
+
+// Synthetic history: one source per day so period sums are easy to check.
+const FIELDS=['input','output','cacheRead','cacheWrite','cacheWrite1h','cost','unpricedTokens','total'];
+function totals(v,{unpriced=false}={}){return {input:v/10,output:v/5,cacheRead:v*7/10,cacheWrite:0,cacheWrite1h:0,total:v,unpricedTokens:unpriced?v:0,cost:unpriced?0:v/100};}
+function fixture(values,{unpriced=false,long=false,window=values.length}={}){
   const name=long?'provider/'+('long-model-name-'.repeat(12)):'fixture-model';
-  return {period:'Fixture period',capturedAt:'2026-09-15T12:00:00Z',timezone:'Asia/Shanghai',totals:t,days,models:active?[{name,...t}]:[],sources:active?[{name:'Codex',...t}]:[],weekdays:[]};
+  const history=values.map((v,i)=>{
+    const day=new Date(Date.UTC(2026,7,1+i)).toISOString().slice(0,10),t=totals(v??0,{unpriced});
+    const row=v===null?[]:[{name:'Codex',source:'codex',...t}];
+    return {day,recorded:v!==null,...t,sources:row,models:v===null?[]:[{name,source:'codex',...t}],
+      costBreakdown:{input:t.cost*.1,output:t.cost*.4,cacheRead:t.cost*.5,cacheWrite:0,cacheSavings:t.cost,fast:0,fastPremium:0}};
+  });
+  const days=history.slice(-window);
+  const sum=rows=>Object.fromEntries(FIELDS.map(k=>[k,rows.reduce((n,d)=>n+d[k],0)]));
+  const t=sum(days),active=days.some(x=>x.recorded);
+  return {period:'Fixture period',capturedAt:'2026-09-15T12:00:00Z',timezone:'Asia/Shanghai',totals:t,
+    costBreakdown:{input:0,output:0,cacheRead:0,cacheWrite:0,cacheSavings:0,fast:0,fastPremium:0},days,history,
+    models:active?[{name,source:'codex',...t}]:[],sources:active?[{name:'Codex',source:'codex',...t}]:[],weekdays:[]};
 }
+const usd=v=>'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+
 try{
   await load();
   for(const language of ['zh','en']){
-    await checkLanguage(language,snapshot.days.length);
+    await checkLanguage(language);
     const metrics=await layout();
     assert(metrics.scrollWidth<=metrics.width+2,'Desktop overflow');
-    assert.deepEqual(metrics.escapedLabels,[],'SVG labels escape the chart');
-    assert.equal(Math.round(metrics.line.height),320,'Daily chart keeps its designed height');
-    for(const slot of ['heading','chart','source'])assert(Math.abs(metrics.bounds[0][slot].y-metrics.bounds[1][slot].y)<=1,slot+' columns are not aligned');
-    await page.locator('summary').focus();await page.keyboard.press('Enter');assert.equal(await page.locator('details').getAttribute('open'),'');
-    await page.keyboard.press('Enter');assert.equal(await page.locator('details').getAttribute('open'),null);
-    assert.equal(await page.locator('[data-chart][tabindex]').count(),0,'Decorative chart replay does not create unexplained keyboard stops');
-    assert((await page.locator('#composition').getAttribute('aria-label')).includes(language==='en'?'New input':'新增输入'));
-    await page.evaluate(()=>{document.activeElement?.blur();window.scrollTo(0,0);});
+    assert.equal(metrics.escaped,0,'Content escapes the page');
+    assert.equal(await page.locator('[data-chart=daily] svg path').count()>0||snapshot.totals.total===0,true,'Daily chart draws its series');
     await page.screenshot({path:join(output,'native-'+language+'.png'),fullPage:true});
     results.push({case:'native-'+language,...metrics});
   }
-  await page.goto(pathToFileURL(reportFile).href);await page.locator('[data-language=zh]').click();await page.reload();
+  await page.locator('[data-metric=tokens]').click();
+  assert.equal(await page.locator('[data-metric=tokens]').getAttribute('aria-pressed'),'true');
+  await page.locator('[data-breakdown=day]').click();
+  assert.equal(await page.locator('.days tbody tr').count(),snapshot.days.length,'Day breakdown lists every day in the default period');
+  await page.locator('[data-language=zh]').click();await page.goto(pathToFileURL(reportFile).href);
   assert.equal(await page.locator('html').getAttribute('lang'),'zh-Hans','Language choice persists for the exported file');
+  assert.equal(await page.locator('[data-metric=tokens]').getAttribute('aria-pressed'),'true','Metric choice persists for the exported file');
   for(const width of [640,390]){
     await page.setViewportSize({width,height:700});
-    assert(await page.locator('.sheet').evaluate(n=>n.getBoundingClientRect().left>=0),'Narrow report loses its left edge');
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'Narrow report body must reflow');
-    await page.locator('[data-language=zh]').click();await page.locator('[data-language=en]').click();
     await page.screenshot({path:join(output,'native-'+width+'.png'),fullPage:true});
   }
   await page.setViewportSize({width:1280,height:960});
-  const gap=fixture([0,100,null,50,0,200,150]);await load(gap);
-  for(const lang of ['zh','en'])await checkLanguage(lang,7);
-  const path=await page.locator('#daily path').getAttribute('d');
-  assert.equal((path.match(/M/g)||[]).length,2,'Missing dates split the line into separate runs');
-  assert.equal((path.match(/L/g)||[]).length,4,'Recorded zero days stay connected');
-  await page.screenshot({path:join(output,'missing-and-zero-days.png'),fullPage:true});
-  results.push({case:'seven-day-gap',path});
 
-  await load(fixture(Array(30).fill(null)));
-  assert.equal(await page.locator('[data-bind=cost]').first().textContent(),'No record');
-  assert.equal(await page.locator('#daily path').count(),0);
-  assert(await page.locator('[data-summary=daily-peak]').isHidden());
-  results.push({case:'missing',passed:true});
+  // Period switching sums the embedded history; values are dollars per day.
+  const series=Array.from({length:40},(_,i)=>i===35?null:(i+1)*100);
+  await load(fixture(series,{window:7}));
+  assert.equal(await page.locator('[data-period="7"]').getAttribute('aria-pressed'),'true','The export period is the default view');
+  const sumCost=(from,to)=>series.slice(from,to).reduce((n,v)=>n+(v??0)/100,0);
+  assert.equal(await hero(),usd(sumCost(33,40)));
+  await page.locator('[data-period="30"]').click();
+  assert.equal(await hero(),usd(sumCost(10,40)));
+  assert.equal(await page.locator('.crumb.current').textContent(),'30 days');
+  await page.locator('[data-period=custom]').click();
+  assert(await page.locator('[data-range-inputs]').isVisible(),'Custom period shows its date fields');
+  await page.locator('[data-range-from]').fill('2026-08-01');await page.locator('[data-range-from]').dispatchEvent('change');
+  assert.equal(await hero(),usd(sumCost(0,40)),'Custom period covers the whole history');
+  assert.equal(await page.locator('.crumb.current').textContent(),'40 days');
+  await page.locator('[data-breakdown=day]').click();
+  assert.equal(await page.locator('.days tbody tr.missing').count(),1,'A missing date stays distinct from recorded zero');
+  assert.equal(await page.locator('.days tbody tr.missing td').last().textContent(),'No record');
+  await page.reload();
+  assert.equal(await page.locator('.crumb.current').textContent(),'40 days','Custom period persists for the exported file');
+  await page.goto(pathToFileURL(reportFile).href+'?lang=en&from=2026-08-10&to=2026-08-01');
+  assert.equal(await hero(),usd(sumCost(0,10)),'A reversed custom period is read in date order');
+  await page.screenshot({path:join(output,'custom-period.png'),fullPage:true});
+  results.push({case:'periods',passed:true});
+
   await load(fixture(Array(7).fill(0)));
-  assert.equal(await page.locator('[data-bind=cost]').first().textContent(),'$0.00');
-  assert.equal(await page.locator('#daily path').count(),1);
-  assert(await page.locator('[data-summary=daily-peak]').isHidden());
-  assert.equal(await page.locator('#daily text').filter({hasText:/^1$/}).count(),0,'Zero data does not show fabricated unit ticks');
+  assert.equal(await hero(),'$0.00');
   assert(!(await page.locator('body').innerText()).includes('NaN'));
   results.push({case:'recorded-zero',passed:true});
-  const tiny=fixture([3,0,0,0,0,0,0]);
-  for(const row of [tiny.totals,...tiny.days,...tiny.models,...tiny.sources]){row.input=row.total;row.output=0;row.cacheRead=0;}
-  await load(tiny);
-  assert.equal(await page.locator('#daily text').filter({hasText:/^1\.5$/}).count(),1,'Halfway tick preserves fractional values');
-  results.push({case:'small-odd-peak',passed:true});
   await load(fixture(Array(7).fill(100),{unpriced:true}));
-  assert.equal(await page.locator('[data-bind=cost]').first().textContent(),'Unpriced');
-  assert(!(await page.locator('body').innerText()).includes('$0.00'));
-  assert(await page.locator('[data-summary=model-cost]').isHidden());
-  assert.equal(await page.evaluate(()=>Chart.getChart(document.querySelector('#models')).data.datasets[0].data.length),0);
+  assert.equal(await hero(),'Unpriced');
+  assert.equal(await page.locator('.models td.cost').first().textContent(),'Unpriced');
   results.push({case:'all-unpriced',passed:true});
   await load(fixture(Array(7).fill(100),{long:true}));
-  assert((await page.locator('#model-table th').first().textContent()).length>100);
-  assert.equal((await layout()).escapedLabels.length,0);
+  assert((await page.locator('.model-name').first().textContent()).length>100);
+  assert.equal((await layout()).escaped,0,'A long model name wraps inside the page');
   await page.screenshot({path:join(output,'long-model.png'),fullPage:true});
   results.push({case:'long-model',passed:true});
-  const high=fixture(Array(7).fill(1e12));high.totals.cost=3e13;
-  high.models=Array.from({length:3},(_,i)=>({name:'high-cost-'+i,...totals(high.totals.total/3,0,1e13)}));
-  await load(high);
-  assert((await page.locator('[data-bind=totalTokens]').first().textContent()).endsWith('T'));
-  assert.deepEqual((await layout()).escapedLabels,[]);
-  const labelWidths=await page.evaluate(()=>{
-    const c=Chart.getChart(document.querySelector('#models')),ctx=c.ctx;ctx.font='700 11px Inter, Arial';
-    return {label:ctx.measureText('$10.00T').width,gap:c.getDatasetMeta(0).data[1].x-c.getDatasetMeta(0).data[0].x};
-  });
-  assert(labelWidths.label+8<labelWidths.gap,'Large cost labels remain separated');
-  await page.screenshot({path:join(output,'large-costs.png'),fullPage:true});results.push({case:'large-costs',...labelWidths});
+  await load(fixture(Array(7).fill(1e12)));
+  assert((await page.locator('.metric .value').first().textContent()).endsWith('T'));
+  results.push({case:'large-values',passed:true});
   assert.deepEqual(errors,[]);assert.equal(external,0);
   writeFileSync(join(output,'verification.json'),JSON.stringify({results,errors,external},null,2)+'\n');
-  console.log('Passed native report: bilingual layout, column alignment, labels, 320px trend, missing/zero dates, pricing states, keyboard, offline, narrow windows, and long model IDs.');
+  console.log('Passed native report: bilingual copy, persistence, 7/30/custom periods, missing/zero dates, pricing states, offline, narrow windows, and long model IDs.');
 }finally{rmSync(reportFile,{force:true});await browser.close();}

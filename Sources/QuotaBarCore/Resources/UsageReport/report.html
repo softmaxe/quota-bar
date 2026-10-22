@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<title>QuotaBar · Usage</title>
+{{STYLE}}
+</head>
+<body>
+<header class="topbar">
+  <nav class="crumbs" aria-label="Usage breadcrumb">
+    <h1 data-i18n="usage">Usage</h1>
+    <span class="crumb-sep" aria-hidden="true">/</span>
+    <span class="crumb" data-i18n="localHistory">Local history</span>
+    <span class="crumb-sep" aria-hidden="true">/</span>
+    <span class="crumb current" data-bind="periodName"></span>
+  </nav>
+  <span class="window-label" data-bind="windowLabel"></span>
+  <div class="controls">
+    <div class="range-inputs" data-range-inputs hidden>
+      <input type="date" data-range-from />
+      <span class="range-dash" aria-hidden="true">–</span>
+      <input type="date" data-range-to />
+    </div>
+    <div class="segmented" role="group" data-period-group>
+      <button type="button" data-period="7" data-i18n="last7">7 days</button>
+      <button type="button" data-period="30" data-i18n="last30">30 days</button>
+      <button type="button" data-period="custom" data-i18n="custom">Custom</button>
+    </div>
+    <div class="segmented" role="group" data-metric-group>
+      <button type="button" data-metric="cost" data-i18n="cost">Cost</button>
+      <button type="button" data-metric="tokens" data-i18n="tokens">Tokens</button>
+    </div>
+    <div class="segmented" role="group" data-language-group>
+      <button type="button" data-language="zh">中文</button>
+      <button type="button" data-language="en">English</button>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <section class="overview">
+    <div class="summary" id="summary"></div>
+    <div class="trend">
+      <h2 class="heading" id="chart-title"></h2>
+      <div class="chart" id="chart" data-chart="daily"></div>
+    </div>
+  </section>
+
+  <section class="stack">
+    <h2 class="heading" data-i18n="totals">Totals</h2>
+    <div class="metrics" id="metrics"></div>
+  </section>
+
+  <section class="shares" id="shares"></section>
+
+  <section class="stack breakdown">
+    <div class="breakdown-head">
+      <h2 class="heading" data-i18n="breakdown">Breakdown</h2>
+      <div class="segmented" role="group" data-breakdown-group>
+        <button type="button" data-breakdown="model" data-i18n="model">Model</button>
+        <button type="button" data-breakdown="day" data-i18n="day">Day</button>
+      </div>
+    </div>
+    <div id="breakdown"></div>
+  </section>
+
+  <footer class="notes" id="notes"></footer>
+</main>
+<div class="tip" id="tip" role="tooltip" hidden></div>
+{{SCRIPT_BUNDLE}}
+</body>
+</html>

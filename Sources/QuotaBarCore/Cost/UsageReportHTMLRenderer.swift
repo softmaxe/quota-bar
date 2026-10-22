@@ -1,16 +1,11 @@
 import Foundation
 
-/// Renders the bilingual trend report with embedded data and charts. No process or network calls.
+/// Renders the bilingual usage report with its embedded data and runtime. No process or network calls.
 public enum UsageReportHTMLRenderer {
     public static func render(_ snapshot: UsageReportSnapshot) throws -> String {
-        let template = try Self.resource("trend", extension: "html")
-        let colors = try Self.resource("dark-tokens", extension: "js")
-        let helpers = try Self.resource("mono-tokens", extension: "js")
-        let charts = try Self.resource("render", extension: "js")
-        let stylesheet = try Self.resource("common", extension: "css")
-        let toolbar = try Self.resource("toolbar", extension: "html")
-        let details = try Self.resource("details", extension: "html")
-        let chartLibrary = try Self.resource("chart.umd.min", extension: "js")
+        let template = try Self.resource("report", extension: "html")
+        let stylesheet = try Self.resource("report", extension: "css")
+        let runtime = try Self.resource("report", extension: "js")
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let json = String(decoding: try encoder.encode(snapshot), as: UTF8.self)
@@ -19,13 +14,8 @@ public enum UsageReportHTMLRenderer {
             .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
 
         let replacements: [String: String] = [
-            "HEAD_BUNDLE": "<script>\(colors)\n"
-                + "const CHART_THEME=CHART.palette('palm');CHART.install(CHART_THEME);\n"
-                + "\(helpers)</script><script>\(chartLibrary)</script>",
-            "COMMON_STYLE": "<style>\(stylesheet)</style>",
-            "TOOLBAR": toolbar,
-            "DATA_DETAILS": details,
-            "SCRIPT_BUNDLE": "<script>const REPORT=\(json);\n/* Report runtime */\n\(charts)</script>",
+            "STYLE": "<style>\(stylesheet)</style>",
+            "SCRIPT_BUNDLE": "<script>const REPORT=\(json);\n/* Report runtime */\n\(runtime)</script>",
         ]
 
         // Replace only tokens in the trusted template. Inserted model names are never parsed as tokens.

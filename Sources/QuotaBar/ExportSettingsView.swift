@@ -10,10 +10,10 @@ struct ExportSettingsView: View {
         Form {
             Section("Report") {
                 LabeledContent("Layout") {
-                    Text("Usage trends")
+                    Text("Usage overview")
                 }
 
-                Picker("Period", selection: self.$model.period) {
+                Picker("Opens with", selection: self.$model.period) {
                     ForEach(ExportPeriod.allCases) { period in
                         Text(period.title).tag(period)
                     }
@@ -89,7 +89,7 @@ struct ExportSettingsView: View {
     private var statusView: some View {
         switch self.model.status {
         case .idle:
-            Text("Choose a period, then export an offline report.")
+            Text("The report holds all saved history. Switch periods inside it.")
                 .foregroundStyle(.secondary)
         case .exporting:
             HStack(spacing: 7) {
@@ -110,7 +110,7 @@ struct ExportSettingsView: View {
             Label("Export cancelled.", systemImage: "xmark.circle")
                 .foregroundStyle(.secondary)
         case .noRecordedUsage:
-            Label("No saved usage in this period", systemImage: "tray")
+            Label("No saved usage yet", systemImage: "tray")
                 .foregroundStyle(.secondary)
         case .failed:
             Label("Export failed.", systemImage: "exclamationmark.triangle.fill")

@@ -64,8 +64,8 @@ final class ExportSettingsModel: ObservableObject {
         self.operations = operations
     }
 
-    /// Runs the complete user flow. The data check comes first so an empty period does not ask for
-    /// a filename and then produce a misleading report.
+    /// Runs the complete user flow. The data check comes first so an empty history does not ask for
+    /// a filename and then produce a misleading report. The period only sets the report's first view.
     func export() async {
         guard self.beginExport() else { return }
         defer { self.isExporting = false }
