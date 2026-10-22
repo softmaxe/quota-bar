@@ -152,18 +152,6 @@ struct MenuCardView: View {
         self.display.snapshot?.planLabel
     }
 
-    private static func paceSummary(for pace: UsagePace, context: UsagePace.Context) -> String {
-        if let activeTimeLeft = pace.activeTimeLeftSeconds {
-            return "\(Formatters.compactDuration(activeTimeLeft)) of use left"
-        }
-        if pace.willLastToReset { return "Lasts until reset" }
-        guard let eta = pace.etaLabel(context: context, durationText: Formatters.compactDuration) else {
-            return pace.deltaLabel
-        }
-        return (eta.components(separatedBy: " (").first ?? eta)
-            .replacingOccurrences(of: "Projected empty in ", with: "Empty in about ")
-    }
-
     // MARK: - Body
 
     private func refreshWarning(_ error: String) -> some View {
@@ -353,7 +341,7 @@ struct MenuCardView: View {
                 // Held in the session slot rather than dropped, so a plan without the
                 // five-hour cap lines up with one that has it.
                 UnlimitedWindowRow(
-                    title: QuotaWindowKind.session.presentation.title,
+                    title: QuotaWindowKind.session.title,
                     tint: Theme.accent(for: self.provider)
                 )
             }
@@ -375,13 +363,12 @@ struct MenuCardView: View {
         window: UsageWindow,
         kind: QuotaWindowKind
     ) -> some View {
-        let presentation = kind.presentation
-        let pace = self.pace(for: window, kind: kind)
+        let pace = self.display.pace.pace(for: kind, window: window, now: self.now)
         return QuotaWindowRow(
             provider: self.provider,
-            title: presentation.title,
+            title: kind.title,
             window: window,
-            paceSummary: pace.map { Self.paceSummary(for: $0, context: presentation.paceContext) },
+            paceSummary: pace?.summary(kind: kind, durationText: Formatters.compactDuration),
             paceIsDeficit: pace?.stage.isAhead == true,
             animatesFill: self.animatesFill,
             celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
@@ -392,24 +379,10 @@ struct MenuCardView: View {
         )
     }
 
-    private func pace(for window: UsageWindow, kind: QuotaWindowKind) -> UsagePace? {
-        let context = kind.presentation.paceContext
-        return (kind == .weekly
-            ? HistoricalUsagePace.evaluate(window: window, dataset: self.display.history, now: self.now)
-            : nil)
-            ?? UsagePace.evaluate(
-                window: window,
-                context: context,
-                now: self.now,
-                trail: kind == .session ? self.display.sessionTrail : nil,
-                rhythm: kind == .weekly ? self.display.history?.rhythm : nil
-            )
-    }
-
     @ViewBuilder
     private func paceDetails(for snapshot: UsageSnapshot) -> some View {
-        let sessionPace = snapshot.session.flatMap { self.pace(for: $0, kind: .session) }
-        let weeklyPace = snapshot.weekly.flatMap { self.pace(for: $0, kind: .weekly) }
+        let sessionPace = snapshot.session.flatMap { self.display.pace.pace(for: .session, window: $0, now: self.now) }
+        let weeklyPace = snapshot.weekly.flatMap { self.display.pace.pace(for: .weekly, window: $0, now: self.now) }
         if sessionPace != nil || weeklyPace != nil {
             DisclosureGroup("Usage pace details", isExpanded: self.$showsPaceDetails) {
                 VStack(alignment: .leading, spacing: 9) {
@@ -429,12 +402,9 @@ struct MenuCardView: View {
 
     private func paceDetail(window: UsageWindow, pace: UsagePace, kind: QuotaWindowKind) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(kind.presentation.title) · \(pace.deltaLabel)")
+            Text("\(kind.title) · \(pace.deltaLabel)")
                 .fontWeight(.medium)
-            if let eta = pace.etaLabel(
-                context: kind.presentation.paceContext,
-                durationText: Formatters.compactDuration
-            ) {
+            if let eta = pace.etaLabel(context: kind, durationText: Formatters.compactDuration) {
                 Text(eta)
             }
             Text("Expected \(Formatters.percent(pace.expectedRemainingPercent)) left now")
@@ -448,7 +418,7 @@ struct MenuCardView: View {
                 paceIsDeficit: pace.stage.isAhead,
                 animatesFill: false
             )
-            .accessibilityLabel("\(kind.presentation.title) pace: \(pace.deltaLabel)")
+            .accessibilityLabel("\(kind.title) pace: \(pace.deltaLabel)")
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -457,10 +427,10 @@ struct MenuCardView: View {
 }
 
 private extension QuotaWindowKind {
-    var presentation: (title: String, paceContext: UsagePace.Context) {
+    var title: String {
         switch self {
-        case .session: ("Session", .session)
-        case .weekly: ("Weekly", .weekly)
+        case .session: "Session"
+        case .weekly: "Weekly"
         }
     }
 }

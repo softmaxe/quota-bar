@@ -29,7 +29,7 @@ enum PricingModelFilterPolicy {
         let settingsModels = rateCard.settingsModels(for: provider)
         let listed = Set(settingsModels)
         let seen = rateCard.modelUsage(usage, provider: provider).map(\.model)
-            .filter { !$0.isEmpty && $0 != CostPricing.unknownModel && !listed.contains($0) }
+            .filter { !listed.contains($0) }
         return settingsModels + seen.sorted()
     }
 }

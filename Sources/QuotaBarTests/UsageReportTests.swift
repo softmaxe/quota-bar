@@ -36,7 +36,8 @@ enum UsageReportTests {
     /// 09-15 every source, while 09-12, an old row, and a future row fall outside the window.
     private static func aggregatesSupportedSources() throws {
         let fixture = try RecordedUsageFixture()
-        let riskyModel = "x</script><script>alert('report')</script>"
+        // Recorded usage keeps names without a path, so the risk is markup rather than `</script>`.
+        let riskyModel = "x\"><img src=x onerror=alert('report')>"
         try fixture.database.exec("""
             INSERT INTO opencode_part (\(RecordedUsageFixture.openCodeColumns)) VALUES
               ('risky', 1, 0, '\(fixture.day())', '\(self.sql(riskyModel))', 0, 0, 0, 0, 0, 0, 0);

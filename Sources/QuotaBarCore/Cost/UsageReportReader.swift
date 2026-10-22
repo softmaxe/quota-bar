@@ -253,15 +253,14 @@ public enum UsageReportReader {
 
         let calendarDays = try self.dayRange(days: self.historyLimitDays, now: now, calendar: calendar)
         let range = (dates: Array(calendarDays.dates.suffix(windowDays)), keys: Array(calendarDays.keys.suffix(windowDays)))
-        let rows: [RecordedUsageReader.DayUsage]
+        let rows: [PricedUsage]
         do {
             let reader = try RecordedUsageReader(databaseURL: databaseURL)
-            rows = try reader.reportUsage(
+            rows = PricedUsage.price(try reader.reportUsage(
                 fromDay: calendarDays.keys[0],
                 throughDay: calendarDays.keys[calendarDays.keys.count - 1],
-                rateCard: rateCard,
                 afterSchemaDiscovery: afterSchemaDiscovery
-            )
+            ), on: rateCard)
         } catch let error as RecordedUsageReaderError {
             switch error {
             case let .openFailed(message): throw UsageReportReaderError.openFailed(message)
@@ -296,32 +295,35 @@ public enum UsageReportReader {
                 cacheWrite: Int64(row.tokens.cacheWrite),
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
-            let model = row.tier.model
-            let provider = row.tier.source.provider
-            if let rates = rateCard.rates(for: model, provider: provider, day: row.day, fast: row.tier.isFast) {
-                usage.cost = rates.cost(for: row.tokens, longContext: row.tier.longContext)
-                let standard = row.tier.isFast
-                    ? rateCard.rates(for: model, provider: provider, day: row.day)?
-                        .cost(for: row.tokens, longContext: row.tier.longContext)
-                    : nil
-                let part = try CostBreakdownSum(row.tokens, rates: rates, longContext: row.tier.longContext,
-                                                cost: usage.cost, fast: row.tier.isFast, standardCost: standard)
-                dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
-                if inWindow { breakdown.add(part) }
+            let model = row.model
+            let provider = row.source.provider
+            if let cost = row.cost {
+                usage.cost = cost
+                // The row's cost already came from these rates; they only split it by token type.
+                if let rates = rateCard.rates(for: model, provider: provider, day: row.day, fast: row.key.isFast) {
+                    let standard = row.key.isFast
+                        ? rateCard.rates(for: model, provider: provider, day: row.day)?
+                            .cost(for: row.tokens, longContext: row.key.longContext)
+                        : nil
+                    let part = try CostBreakdownSum(row.tokens, rates: rates, longContext: row.key.longContext,
+                                                    cost: cost, fast: row.key.isFast, standardCost: standard)
+                    dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
+                    if inWindow { breakdown.add(part) }
+                }
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
             }
-            _ = try usage.snapshot(label: "\(row.tier.source.displayName) \(row.day) \(model)")
+            _ = try usage.snapshot(label: "\(row.source.displayName) \(row.day) \(model)")
             try dayTotals[row.day, default: CheckedUsage()].add(usage)
-            try daySourceTotals[row.day, default: [:]][row.tier.source, default: CheckedUsage()].add(usage)
-            try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.tier.source, model: model),
+            try daySourceTotals[row.day, default: [:]][row.source, default: CheckedUsage()].add(usage)
+            try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.source, model: model),
                                                       default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
             guard inWindow else { continue }
             try total.add(usage)
             try modelTotals[model, default: CheckedUsage()].add(usage)
-            try sourceTotals[row.tier.source, default: CheckedUsage()].add(usage)
-            modelSourceTokens[model, default: [:]][row.tier.source, default: 0] +=
+            try sourceTotals[row.source, default: CheckedUsage()].add(usage)
+            modelSourceTokens[model, default: [:]][row.source, default: 0] +=
                 Int64(try usage.snapshot(label: "model source").total)
         }
 

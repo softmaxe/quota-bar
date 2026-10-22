@@ -17,10 +17,16 @@ let package = Package(
             resources: [.copy("Resources/UsageReport"), .copy("Resources/Pricing")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // Menu bar UI.
+        // Menu bar UI, as a library so the test runner can drive it.
+        .target(
+            name: "QuotaBarApp",
+            dependencies: ["QuotaBarCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // The app's entry point, and nothing else.
         .executableTarget(
             name: "QuotaBar",
-            dependencies: ["QuotaBarCore"],
+            dependencies: ["QuotaBarApp"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // Headless probe: prints what the providers return. Debugging aid, not shipped.
@@ -29,10 +35,10 @@ let package = Package(
             dependencies: ["QuotaBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // Core regression checks use a plain assertion executable.
+        // Core and app regression checks use a plain assertion executable.
         .executableTarget(
             name: "QuotaBarTests",
-            dependencies: ["QuotaBarCore"],
+            dependencies: ["QuotaBarCore", "QuotaBarApp"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

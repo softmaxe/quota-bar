@@ -24,7 +24,7 @@ public enum HistoricalUsagePace {
         now: Date = Date()
     ) -> UsagePace? {
         guard let dataset, let resetsAt = window.resetsAt else { return nil }
-        let minutes = window.windowSeconds.map { $0 / 60 } ?? UsagePace.Context.weekly.defaultWindowMinutes
+        let minutes = window.windowSeconds.map { $0 / 60 } ?? QuotaWindowKind.weekly.defaultWindowMinutes
         guard minutes > 0 else { return nil }
 
         let duration = TimeInterval(minutes) * 60

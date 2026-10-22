@@ -1,10 +1,10 @@
-#if DEBUG
+@testable import QuotaBarApp
 import Foundation
 import QuotaBarCore
 
-enum CostChartHighlightVerifier {
-    static func run() -> Never {
-        var failures: [String] = []
+/// Calendar slots, stale scan coverage, price availability, and date selection.
+enum CostChartHighlightTests {
+    static func run() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
 
@@ -19,12 +19,8 @@ enum CostChartHighlightVerifier {
         )
         let keys = days.map(\.dayKey)
         let expectedKeys = (5...14).map { String(format: "2026-09-%02d", $0) }
-        if keys != expectedKeys {
-            failures.append("ten calendar slots expected Sep 5–14, got \(keys)")
-        }
-        if days.count != 10 || days[1].tokens.total != 0 || days[1].costAvailability != .zero {
-            failures.append("an empty completed-scan date expected a known zero")
-        }
+        Harness.expectEqual(keys, expectedKeys, "ten calendar slots expected Sep 5–14, got \(keys)")
+        Harness.expect(!(days.count != 10 || days[1].tokens.total != 0 || days[1].costAvailability != .zero), "an empty completed-scan date expected a known zero")
         let staleScan = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10))!
         let staleKeys = CostChartHighlightPolicy.unobservedDayKeys(
             visibleDays: days,
@@ -32,20 +28,16 @@ enum CostChartHighlightVerifier {
             scannedAt: staleScan,
             calendar: calendar
         )
-        if staleKeys != Set(["2026-09-11", "2026-09-12", "2026-09-13", "2026-09-14"])
+        Harness.expect(!(staleKeys != Set(["2026-09-11", "2026-09-12", "2026-09-13", "2026-09-14"])
             || staleKeys.contains("2026-09-06")
-            || staleKeys.contains(partial.dayKey) {
-            failures.append("a stale scan expected future missing dates unknown and scanned history intact")
-        }
+            || staleKeys.contains(partial.dayKey)), "a stale scan expected future missing dates unknown and scanned history intact")
         let recordedAfterScan = CostChartHighlightPolicy.unobservedDayKeys(
             visibleDays: days,
             recordedDays: [priced, partial, unpriced],
             scannedAt: staleScan,
             calendar: calendar
         )
-        if recordedAfterScan.contains(unpriced.dayKey) || !recordedAfterScan.contains("2026-09-14") {
-            failures.append("recorded usage expected precedence over a stale scan timestamp")
-        }
+        Harness.expect(!(recordedAfterScan.contains(unpriced.dayKey) || !recordedAfterScan.contains("2026-09-14")), "recorded usage expected precedence over a stale scan timestamp")
         let completedScan = calendar.date(from: DateComponents(year: 2026, month: 9, day: 14))!
         let completedKeys = CostChartHighlightPolicy.unobservedDayKeys(
             visibleDays: days,
@@ -53,33 +45,25 @@ enum CostChartHighlightVerifier {
             scannedAt: completedScan,
             calendar: calendar
         )
-        if !completedKeys.isEmpty || days.last?.costAvailability != .zero {
-            failures.append("a completed same-day scan expected a known zero for missing today")
-        }
+        Harness.expect(!(!completedKeys.isEmpty || days.last?.costAvailability != .zero), "a completed same-day scan expected a known zero for missing today")
         let crossingMonth = CostChartHighlightPolicy.visibleDays(
             from: [],
             todayDayKey: "2026-10-03",
             maxBars: 10,
             calendar: calendar
         ).map(\.dayKey)
-        if crossingMonth.first != "2026-09-24" || crossingMonth.last != "2026-10-03" {
-            failures.append("calendar slots expected to cross the month boundary")
-        }
-        if CostChartHighlightPolicy.visibleDays(
+        Harness.expect(!(crossingMonth.first != "2026-09-24" || crossingMonth.last != "2026-10-03"), "calendar slots expected to cross the month boundary")
+        Harness.expect(!(CostChartHighlightPolicy.visibleDays(
             from: [], todayDayKey: "invalid", maxBars: 10, calendar: calendar
-        ).count != 0 {
-            failures.append("an invalid date key expected no invented slots")
-        }
+        ).count != 0), "an invalid date key expected no invented slots")
 
-        if priced.costAvailability.state != .priced
+        Harness.expect(!(priced.costAvailability.state != .priced
             || priced.costAvailability.knownUSD != 10
             || partial.costAvailability.state != .partial
             || partial.costAvailability.knownUSD != 3
             || partial.costAvailability.unpricedTokens != 20
             || unpriced.costAvailability.state != .unpriced
-            || unpriced.costAvailability.knownUSD != nil {
-            failures.append("pricing availability expected priced, partial, and unpriced states")
-        }
+            || unpriced.costAvailability.knownUSD != nil), "pricing availability expected priced, partial, and unpriced states")
         let snapshot = CostSnapshot(
             provider: .codex,
             days: [priced, partial, unpriced],
@@ -91,22 +75,16 @@ enum CostChartHighlightVerifier {
             hasUnpricedTokens: true,
             scannedAt: completedScan
         )
-        if snapshot.windowCostAvailability.state != .partial
+        Harness.expect(!(snapshot.windowCostAvailability.state != .partial
             || snapshot.windowCostAvailability.knownUSD != 13
             || snapshot.windowCostAvailability.unpricedTokens != 90
-            || snapshot.costAvailability(forDayKey: "2026-09-14") != .zero {
-            failures.append("window availability expected the known subtotal and unpriced count")
-        }
+            || snapshot.costAvailability(forDayKey: "2026-09-14") != .zero), "window availability expected the known subtotal and unpriced count")
         let allUnpriced = CostAvailability(knownUSD: 0, totalTokens: 40, unpricedTokens: 40)
-        if allUnpriced.state != .unpriced || allUnpriced.knownUSD != nil {
-            failures.append("fully unpriced usage expected no false $0.00 amount")
-        }
+        Harness.expect(!(allUnpriced.state != .unpriced || allUnpriced.knownUSD != nil), "fully unpriced usage expected no false $0.00 amount")
 
-        if CostChartHighlightPolicy.value(for: priced, mode: .tokens) != 200
+        Harness.expect(!(CostChartHighlightPolicy.value(for: priced, mode: .tokens) != 200
             || CostChartHighlightPolicy.value(for: priced, mode: .cost) != 10
-            || CostChartHighlightPolicy.maxValue(for: days, mode: .cost) != 10 {
-            failures.append("chart values expected to follow the selected unit")
-        }
+            || CostChartHighlightPolicy.maxValue(for: days, mode: .cost) != 10), "chart values expected to follow the selected unit")
         let available = Set(keys)
         let selected = CostChartHighlightPolicy.selectedDayKey(
             pinnedDayKey: "2026-09-09",
@@ -122,10 +100,8 @@ enum CostChartHighlightVerifier {
             availableDayKeys: available,
             defaultDayKey: "2026-09-14"
         )
-        if selected != "2026-09-09" || refreshed != "2026-09-14" {
-            failures.append("pinning expected precedence and stale-date fallback")
-        }
-        if CostChartHighlightPolicy.nextDayKey(
+        Harness.expect(!(selected != "2026-09-09" || refreshed != "2026-09-14"), "pinning expected precedence and stale-date fallback")
+        Harness.expect(!(CostChartHighlightPolicy.nextDayKey(
             from: "2026-09-09", direction: -1, days: days
         ) != "2026-09-08"
             || CostChartHighlightPolicy.nextDayKey(
@@ -133,22 +109,12 @@ enum CostChartHighlightVerifier {
             ) != "2026-09-10"
             || CostChartHighlightPolicy.nextDayKey(
                 from: "2026-09-05", direction: -1, days: days
-            ) != "2026-09-05" {
-            failures.append("arrow navigation expected adjacent dates and bounded ends")
-        }
-        if CostChartHighlightPolicy.opacity(
+            ) != "2026-09-05"), "arrow navigation expected adjacent dates and bounded ends")
+        Harness.expect(!(CostChartHighlightPolicy.opacity(
             dayKey: "2026-09-09", selectedDayKey: selected
         ) != 1 || CostChartHighlightPolicy.opacity(
             dayKey: "2026-09-08", selectedDayKey: selected
-        ) != CostChartHighlightPolicy.restingOpacity {
-            failures.append("selected-day marker tone expected one active column")
-        }
-
-        VerifierReport.finish(
-            failures,
-            label: "cost chart highlighting verification",
-            passed: "calendar slots, stale scan coverage, price availability, and date selection passed"
-        )
+        ) != CostChartHighlightPolicy.restingOpacity), "selected-day marker tone expected one active column")
     }
 
     private static func day(
@@ -168,4 +134,3 @@ enum CostChartHighlightVerifier {
         )
     }
 }
-#endif

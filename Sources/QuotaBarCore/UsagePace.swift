@@ -116,19 +116,6 @@ public struct UsagePace: Sendable, Equatable {
         100 - self.expectedUsedPercent
     }
 
-    /// Which window a pace line describes; only the ETA wording differs.
-    public enum Context: Sendable {
-        case session
-        case weekly
-
-        public var defaultWindowMinutes: Int {
-            switch self {
-            case .session: 300
-            case .weekly: 10_080
-            }
-        }
-    }
-
     /// Sessions blend the rate over this span with the average since the reset.
     static let recentSpan: TimeInterval = 30 * 60
     /// A recent reading older than this no longer describes the current burst.
@@ -146,7 +133,7 @@ public struct UsagePace: Sendable, Equatable {
     /// measures a weekly window in active hours rather than clock hours.
     public static func evaluate(
         window: UsageWindow,
-        context: Context,
+        context: QuotaWindowKind,
         now: Date = Date(),
         trail: UsageTrail? = nil,
         rhythm: DailyUsageRhythm? = nil
@@ -320,7 +307,7 @@ public struct UsagePace: Sendable, Equatable {
 
     /// Right half: whether the budget survives to the reset, or when it is projected to empty.
     /// `durationText` renders a seconds value the way the reset countdowns do.
-    public func etaLabel(context: Context, durationText: (TimeInterval) -> String) -> String? {
+    public func etaLabel(context: QuotaWindowKind, durationText: (TimeInterval) -> String) -> String? {
         if self.isWarmingUp { return "Estimating usage pace…" }
         let base: String?
         if let activeTimeLeftSeconds {

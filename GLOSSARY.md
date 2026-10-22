@@ -28,6 +28,10 @@ _Avoid_: price version, tier
 The price book with the third-party rates beside it: what every model costs on any given day, and the only place a rate is looked up. A model the price book lists is priced by the book alone. Every cost it gives is an estimate at API list prices.
 _Avoid_: pricing overlay, effective pricing
 
+**Priced usage**:
+Recorded usage grouped under the model ID the Rate card resolves each recorded name to, with each row's cost at the rates in force on its day, or none when it is Unpriced usage. The menu and the usage report both total the same Priced usage.
+_Avoid_: cost rows, aggregated cost
+
 **Unpriced usage**:
 Recorded tokens whose model has no rate on their day, including models that models.dev lists only for free and all third-party usage while models.dev pricing is off. They count toward token totals but not toward cost.
 _Avoid_: unknown cost, free usage
@@ -39,3 +43,21 @@ _Avoid_: above-threshold pricing
 **Fast**:
 Codex's priority service tier or Claude's Fast mode, billed as a multiple of the period's Standard rates. Only the price book has Fast multipliers, so Fast usage of a third-party model is unpriced.
 _Avoid_: priority tier
+
+## Quota
+
+**Refresh cooldown**:
+The minute each provider waits after any refresh of its quota before the next one, whichever path asked: polling, opening the menu, switching providers, or the Refresh row. A server 429 holds every path until the server's retry date.
+_Avoid_: throttle, debounce
+
+**Credential recovery**:
+One user-initiated repair of a provider credential the last refresh found expired or rejected. It may skip the Refresh cooldown, but never a server 429.
+_Avoid_: force refresh, bypass
+
+**Quota window**:
+One of a provider's two rolling limits: the session window (Codex's primary, Claude's five-hour) or the weekly one. Each resets on its own.
+_Avoid_: limit, bucket
+
+**Pace**:
+How a Quota window is being spent against what it should have used by now. A weekly window is read against completed past weeks once there are at least three, and otherwise against the clock in its user's usual active hours. A session window is read against the clock, sharpened by its recent readings and paused when they stop moving.
+_Avoid_: burn rate, velocity

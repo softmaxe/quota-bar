@@ -7,21 +7,6 @@ BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
 
-## App state checks use debug launch flags; core regressions run in QuotaBarTests.
-VERIFIERS := \
-	menu-command \
-	provider-state \
-	menu-lifecycle \
-	pricing-refresh \
-	cost-chart-highlighting \
-	quota-recovery \
-	relative-time \
-	quota-reset-label \
-	refresh-row \
-	pricing-sort \
-	pricing-model-filter \
-	report-export
-
 .PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
 
 build:
@@ -67,15 +52,11 @@ readme-assets:
 app:
 	Scripts/package_app.sh
 
-## Core regressions use a plain executable of assertions.
+## Core and app regressions use a plain executable of assertions. Always a debug build: the
+## suite imports the app with @testable, which needs a module compiled for testing.
 test:
-	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)Tests
-	$(BUILD_DIR)/$(CONFIG)/$(APP_NAME)Tests
-	$(SWIFT) build -c debug --product $(APP_NAME)
-	@for check in $(VERIFIERS); do \
-		echo "$(DEBUG_BIN) --verify-$$check"; \
-		$(DEBUG_BIN) --verify-$$check || exit 1; \
-	done
+	$(SWIFT) build -c debug --product $(APP_NAME)Tests
+	$(BUILD_DIR)/debug/$(APP_NAME)Tests
 
 clean:
 	$(SWIFT) package clean

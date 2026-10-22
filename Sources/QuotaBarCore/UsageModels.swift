@@ -14,6 +14,21 @@ public enum Provider: String, CaseIterable, Sendable, Codable {
 }
 
 /// One rate-limit window (Codex primary/secondary, Claude five-hour/seven-day).
+/// One quota window: the short rolling session or the weekly one. Pace, reset tracking, and the
+/// menu each treat the two independently.
+public enum QuotaWindowKind: String, Hashable, CaseIterable, Sendable {
+    case session
+    case weekly
+
+    /// The window's length when the provider does not report it.
+    public var defaultWindowMinutes: Int {
+        switch self {
+        case .session: 300
+        case .weekly: 10_080
+        }
+    }
+}
+
 public struct UsageWindow: Sendable, Equatable {
     /// Percentage of the window already consumed, 0...100.
     public let usedPercent: Double
