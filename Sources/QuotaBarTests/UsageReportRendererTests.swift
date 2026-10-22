@@ -34,12 +34,16 @@ private func rendererFixture(model: String, total: Int, unpriced: Int, cost: Dou
         "cacheWrite": 0, "cacheWrite1h": 0, "total": total,
         "unpricedTokens": unpriced, "cost": cost,
     ]
-    let day = totals.merging(["day": "2026-09-15", "recorded": true]) { _, new in new }
-    let named = totals.merging(["name": model]) { _, new in new }
-    let source = totals.merging(["name": "Codex"]) { _, new in new }
+    let source = totals.merging(["name": "Codex", "source": "codex"]) { _, new in new }
+    let named = totals.merging(["name": model, "source": "codex"]) { _, new in new }
+    let breakdown: [String: Any] = ["input": 1, "output": 2, "cacheRead": 6, "cacheWrite": 0,
+                                    "cacheSavings": 50, "fast": 0, "fastPremium": 0]
+    let day = totals.merging(["day": "2026-09-15", "recorded": true, "sources": [source],
+                              "models": [named], "costBreakdown": breakdown]) { _, new in new }
     let data: [String: Any] = [
         "period": "2026-09-15 至 2026-09-15", "capturedAt": "2026-09-15T12:00:00Z",
         "timezone": "Asia/Shanghai", "totals": totals, "days": [day],
+        "costBreakdown": breakdown, "history": [day],
         "models": [named], "sources": [source], "weekdays": [["name": "周二", "total": total]],
     ]
     return try JSONDecoder().decode(UsageReportSnapshot.self, from: JSONSerialization.data(withJSONObject: data))
