@@ -1,45 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// Popover disclosures resize once. The chevron acknowledges the click and the new content rises
-/// into place, while the text around it stays fixed.
-struct PopoverDisclosureStyle: DisclosureGroupStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withTransaction(Transaction(animation: nil)) {
-                    configuration.isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    DisclosureChevron(isOpen: configuration.isExpanded, reduceMotion: self.reduceMotion)
-                        .frame(width: 10, height: 12)
-                        .accessibilityHidden(true)
-                    configuration.label
-                }
-                .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
-            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint(configuration.isExpanded ? "Collapse details" : "Expand details")
-
-            if configuration.isExpanded {
-                configuration.content
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 16)
-                    // The height cuts open; only the content's own drawing moves.
-                    .cardReveal()
-                    .transition(.identity)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 /// Brief disclosure motion keeps the change of state visible without delaying the next action.
 enum DisclosureMotion {
     static let openDuration: TimeInterval = 0.16

@@ -6,7 +6,6 @@ import SwiftUI
 struct MenuCardView: View {
     @Environment(\.menuRefreshState) private var refreshState
     @State private var copiedCommand = false
-    @State private var showsPaceDetails = false
     /// What this card last drew. Read while the next state is being drawn, so the content that
     /// arrives knows whether it replaced something in an open card or opened with the card.
     @State private var shownProvider: Provider?
@@ -72,7 +71,6 @@ struct MenuCardView: View {
             self.shownProvider = provider
             self.shownSignedOut = self.display.isSignedOut
             self.copiedCommand = false
-            self.showsPaceDetails = false
             self.confirmsSignIn = false
         }
         .onChange(of: self.display.isSignedOut) { wasSignedOut, isSignedOut in
@@ -353,9 +351,6 @@ struct MenuCardView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
-            if snapshot.session != nil || snapshot.weekly != nil {
-                self.paceDetails(for: snapshot)
-            }
         }
     }
 
@@ -369,6 +364,7 @@ struct MenuCardView: View {
             title: kind.title,
             window: window,
             paceSummary: pace?.summary(kind: kind, durationText: Formatters.compactDuration),
+            pacePercent: pace?.expectedRemainingPercent,
             paceIsDeficit: pace?.stage.isAhead == true,
             animatesFill: self.animatesFill,
             celebrationToken: self.recoveries[kind] == nil ? 0 : self.celebrationTokens[kind] ?? 0,
@@ -377,52 +373,6 @@ struct MenuCardView: View {
             resetDisplayMode: self.quotaResetDisplayMode,
             onResetDisplayModeChanged: self.onQuotaResetDisplayModeChanged
         )
-    }
-
-    @ViewBuilder
-    private func paceDetails(for snapshot: UsageSnapshot) -> some View {
-        let sessionPace = snapshot.session.flatMap { self.display.pace.pace(for: .session, window: $0, now: self.now) }
-        let weeklyPace = snapshot.weekly.flatMap { self.display.pace.pace(for: .weekly, window: $0, now: self.now) }
-        if sessionPace != nil || weeklyPace != nil {
-            DisclosureGroup("Usage pace details", isExpanded: self.$showsPaceDetails) {
-                VStack(alignment: .leading, spacing: 9) {
-                    if let session = snapshot.session, let sessionPace {
-                        self.paceDetail(window: session, pace: sessionPace, kind: .session)
-                    }
-                    if let weekly = snapshot.weekly, let weeklyPace {
-                        self.paceDetail(window: weekly, pace: weeklyPace, kind: .weekly)
-                    }
-                }
-                .padding(.top, 5)
-            }
-            .font(.system(size: 11))
-            .disclosureGroupStyle(PopoverDisclosureStyle())
-        }
-    }
-
-    private func paceDetail(window: UsageWindow, pace: UsagePace, kind: QuotaWindowKind) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(kind.title) · \(pace.deltaLabel)")
-                .fontWeight(.medium)
-            if let eta = pace.etaLabel(context: kind, durationText: Formatters.compactDuration) {
-                Text(eta)
-            }
-            Text("Expected \(Formatters.percent(pace.expectedRemainingPercent)) left now")
-            if let headroom = pace.headroomLabel {
-                Text(headroom)
-            }
-            UsageProgressBar(
-                percent: window.remainingPercent,
-                tint: Theme.accent(for: self.provider),
-                pacePercent: pace.expectedRemainingPercent,
-                paceIsDeficit: pace.stage.isAhead,
-                animatesFill: false
-            )
-            .accessibilityLabel("\(kind.title) pace: \(pace.deltaLabel)")
-        }
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -441,6 +391,8 @@ private struct QuotaWindowRow: View {
     let title: String
     let window: UsageWindow
     let paceSummary: String?
+    /// Where the fill would sit at an even pace, drawn as a marker on the bar.
+    let pacePercent: Double?
     let paceIsDeficit: Bool
     let animatesFill: Bool
     let celebrationToken: Int
@@ -464,6 +416,8 @@ private struct QuotaWindowRow: View {
             UsageProgressBar(
                 percent: self.window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
+                pacePercent: self.pacePercent,
+                paceIsDeficit: self.paceIsDeficit,
                 animatesFill: self.animatesFill,
                 celebrationToken: self.celebrationToken,
                 celebrationStartPercent: self.celebrationStartPercent,
