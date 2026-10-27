@@ -28,7 +28,6 @@ struct CostSectionView: View {
     private let barDayKeys: Set<String>
     private let unobservedDayKeys: Set<String>
     private let onLabelModeChanged: (CostChartLabelMode) -> Void
-    private let onOpenPricing: (() -> Void)?
     private let isBreakdownExpanded: Bool
     private let breakdownOpenness: Double
     private let expandedBreakdownDayKey: String?
@@ -42,8 +41,7 @@ struct CostSectionView: View {
         onLabelModeChanged: @escaping (CostChartLabelMode) -> Void = { _ in },
         isBreakdownExpanded: Bool = false,
         expandedBreakdownDayKey: String? = nil,
-        onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in },
-        onOpenPricing: (() -> Void)? = nil
+        onBreakdownExpandedChanged: @escaping (Bool, String?) -> Void = { _, _ in }
     ) {
         let todayKey = previewTodayDayKey ?? DayKey.make(from: Date())
         let bars = CostChartHighlightPolicy.visibleDays(
@@ -65,7 +63,6 @@ struct CostSectionView: View {
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
         self._detailDayKey = State(initialValue: previewHoveredDayKey ?? bars.last?.dayKey)
         self.onLabelModeChanged = onLabelModeChanged
-        self.onOpenPricing = onOpenPricing
         self.isBreakdownExpanded = isBreakdownExpanded
         self.breakdownOpenness = isBreakdownExpanded ? 1 : 0
         self.expandedBreakdownDayKey = expandedBreakdownDayKey
@@ -95,7 +92,6 @@ struct CostSectionView: View {
             self.chart
             self.dayDetail
             self.modelDisclosure
-            self.estimateNote
         }
         .onChange(of: self.snapshot) { previous, current in
             self.reconcileSelection(providerChanged: previous.provider != current.provider)
@@ -541,29 +537,6 @@ struct CostSectionView: View {
     private func breakdownLabel(_ key: ModelUsageKey) -> String {
         let base = "\(key.source.displayName) · \(key.model)"
         return key.isFast ? "\(base) · Fast" : base
-    }
-
-    private var estimateNote: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("API-rate estimate · Not a bill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 0)
-                if self.snapshot.windowCostAvailability.unpricedTokens > 0,
-                   let onOpenPricing = self.onOpenPricing {
-                    Button("Pricing", action: onOpenPricing)
-                        .buttonStyle(.link)
-                        .font(.system(size: 10))
-                        .accessibilityHint("Open model rates for unpriced usage")
-                }
-            }
-            if let status = self.status(self.snapshot.windowCostAvailability) {
-                Text(self.availabilityDetail(status, self.snapshot.windowCostAvailability))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 
     private func costValue(_ availability: CostAvailability) -> String {

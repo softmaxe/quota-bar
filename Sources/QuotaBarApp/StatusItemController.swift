@@ -401,10 +401,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             },
             onProviderSelected: { [weak self] provider in self?.settings.menuBarProvider = provider },
             onRefresh: { [weak self] in self?.refreshClicked() },
-            onOpenPricing: { [weak self] in
-                self?.closePopover()
-                self?.settingsWindow.showPricing()
-            },
             onRefreshLocalUsage: { [weak self] in self?.store.retryLocalUsage() }
         )
     }
