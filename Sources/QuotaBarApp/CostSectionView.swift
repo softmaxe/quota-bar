@@ -11,10 +11,11 @@ struct CostSectionView: View {
     /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
     private static let emptyStubHeight: CGFloat = 3
     private static let minimumBarHeight: CGFloat = 4
+    /// A row is a line of text over its share bar.
     static let breakdownLayout = CostBreakdownLayout(
-        rowHeight: 17,
+        rowHeight: 21,
         toggleHeight: 22,
-        spacing: 5
+        spacing: 7
     )
 
     @State private var selectedLabelMode: CostChartLabelMode
@@ -156,24 +157,20 @@ struct CostSectionView: View {
                 value: self.isUnobserved(self.todayDayKey) ? "—" : self.selectedLabelMode == .tokens
                     ? Formatters.tokens(self.todayDay.tokens.total)
                     : self.costValue(self.todayDay.costAvailability),
-                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : self.selectedLabelMode == .cost
-                    ? self.status(self.todayDay.costAvailability) : nil
+                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : nil
             )
             self.kpi(
                 label: "Last 30 days",
                 value: self.selectedLabelMode == .tokens
                     ? Formatters.tokens(self.snapshot.windowTokens)
                     : self.costValue(self.snapshot.windowCostAvailability),
-                status: self.selectedLabelMode == .cost
-                    ? self.status(self.snapshot.windowCostAvailability) : nil
+                status: nil
             )
         }
     }
 
     private var needsKPIStatusRow: Bool {
         self.isUnobserved(self.todayDayKey)
-            || self.status(self.todayDay.costAvailability) != nil
-            || self.status(self.snapshot.windowCostAvailability) != nil
     }
 
     private func kpi(label: String, value: String, status: String?) -> some View {
@@ -197,14 +194,6 @@ struct CostSectionView: View {
 
     private var chart: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Last 10 calendar days")
-                Spacer(minLength: 4)
-                Text(self.selectedLabelMode == .tokens ? "Tokens" : "Cost")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
                 HStack(alignment: .bottom, spacing: 0) {
@@ -408,12 +397,6 @@ struct CostSectionView: View {
         self.bars.first { $0.dayKey == self.selectedDayKey }
     }
 
-    private var needsDayStatusRow: Bool {
-        self.bars.contains { day in
-            !self.isUnobserved(day.dayKey) && self.status(day.costAvailability) != nil
-        }
-    }
-
     private var dayDetail: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -457,17 +440,6 @@ struct CostSectionView: View {
                     .monospacedDigit()
                     .frame(height: 22, alignment: .top)
                 }
-                if self.needsDayStatusRow {
-                    let status = self.isUnobserved(day.dayKey)
-                        ? nil : self.status(day.costAvailability)
-                    Text(status.map { self.availabilityDetail($0, day.costAvailability) } ?? " ")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .frame(height: 24, alignment: .top)
-                        .opacity(status == nil ? 0 : 1)
-                        .accessibilityHidden(status == nil)
-                }
             }
             Divider()
         }
@@ -497,13 +469,17 @@ struct CostSectionView: View {
             .accessibilityHint(self.isBreakdownExpanded ? "Collapse model list" : "Expand model list")
 
             let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
+            let dayTotal = ranked.reduce(0) { $0 + self.breakdownValue($1.usage) }
             VStack(alignment: .leading, spacing: 0) {
                 if self.isBreakdownExpanded {
                     // The height cuts open; the rows rise into place together, like every other
                     // disclosure in the card.
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
-                            self.breakdownRow(entry, index: index)
+                        ForEach(ranked, id: \.key) { entry in
+                            self.breakdownRow(
+                                entry,
+                                share: dayTotal > 0 ? self.breakdownValue(entry.usage) / dayTotal : 0
+                            )
                                 .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
                                 .padding(.top, CGFloat(Self.breakdownLayout.spacing))
                         }
@@ -522,33 +498,65 @@ struct CostSectionView: View {
         }
     }
 
+    /// The tool's mark and the model's name over a bar of its share of the day, in the chosen unit.
     private func breakdownRow(
         _ entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage),
-        index: Int
+        share: Double
     ) -> some View {
-        let name = self.breakdownLabel(entry.key)
+        let name = Formatters.modelName(entry.model)
         let amount = entry.usage.costUSD.map(Formatters.cost) ?? "No price"
-        return HStack(spacing: 6) {
-            Rectangle()
-                .fill(Theme.accent(for: self.snapshot.provider).opacity(max(0.3, 0.75 - Double(index) * 0.08)))
-                .frame(width: 2, height: 10)
-            Text(name)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            Text("\(Formatters.tokens(entry.usage.tokens.total)) · \(amount)")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .layoutPriority(1)
+        let tokens = Formatters.tokens(entry.usage.tokens.total)
+        let showsCost = self.selectedLabelMode == .cost
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                SourceMark(source: entry.key.source, size: 12)
+                Text(name)
+                    .truncationMode(.middle)
+                if entry.key.isFast {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Text(showsCost ? amount : tokens)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(showsCost && entry.usage.costUSD == nil ? .secondary : .primary)
+                    .layoutPriority(1)
+                Text(showsCost ? tokens : amount)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .frame(minWidth: 34, alignment: .trailing)
+                    .layoutPriority(1)
+            }
+            .font(.system(size: 11))
+            .monospacedDigit()
+            .lineLimit(1)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.progressTrack)
+                    if share > 0 {
+                        Capsule()
+                            .fill(Theme.accent(for: self.snapshot.provider))
+                            .frame(width: max(3, geometry.size.width * share))
+                    }
+                }
+            }
+            .frame(height: 3)
+            // Under the name, clear of the mark.
+            .padding(.leading, 18)
         }
-        .font(.system(size: 10))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(name), \(entry.usage.tokens.total) tokens, \(amount)")
+        .accessibilityLabel(self.breakdownLabel(entry.key, name: name))
+        .accessibilityValue("\(entry.usage.tokens.total) tokens, \(amount), \(Int((share * 100).rounded()))% of the day")
     }
 
-    private func breakdownLabel(_ key: ModelUsageKey) -> String {
-        let base = "\(key.source.displayName) · \(key.model)"
-        return key.isFast ? "\(base) · Fast" : base
+    private func breakdownValue(_ usage: ModelDayUsage) -> Double {
+        self.selectedLabelMode == .tokens ? Double(usage.tokens.total) : usage.costUSD ?? 0
+    }
+
+    private func breakdownLabel(_ key: ModelUsageKey, name: String) -> String {
+        let base = "\(key.source.displayName), \(name)"
+        return key.isFast ? "\(base), Fast" : base
     }
 
     private func costValue(_ availability: CostAvailability) -> String {
@@ -561,10 +569,6 @@ struct CostSectionView: View {
         case .partial: "Partial estimate"
         case .unpriced: "Unpriced"
         }
-    }
-
-    private func availabilityDetail(_ status: String, _ availability: CostAvailability) -> String {
-        "\(status) · \(Formatters.tokens(availability.unpricedTokens)) tokens have no price"
     }
 }
 

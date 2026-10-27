@@ -294,9 +294,6 @@ struct LocalUsageSkeleton: View {
                         self.kpi("Today", time: time)
                         self.kpi("Last 30 days", time: time)
                     }
-                    Text("Last 10 calendar days")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
                     HStack(alignment: .bottom, spacing: 4) {
                         ForEach(Array(Self.barHeights.enumerated()), id: \.offset) { index, height in
                             self.block(height: height, time: time - Double(index) * CardMotion.breatheWave)

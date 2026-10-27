@@ -84,6 +84,23 @@ enum Formatters {
         return "\(names[month - 1]) \(day)"
     }
 
+    /// The name people say for a model ID: "claude-opus-5-5" reads "Opus 5.5" and "gpt-5.6-sol"
+    /// reads "GPT-5.6 Sol". An ID in any other shape is shown as it is.
+    static func modelName(_ model: String) -> String {
+        let parts = model.split(separator: "-").map(String.init)
+        if parts.count >= 2, parts[0] == "claude", parts[1].allSatisfy(\.isLetter) {
+            let version = parts.dropFirst(2)
+            guard version.allSatisfy({ $0.allSatisfy(\.isNumber) }) else { return model }
+            let family = parts[1].capitalized
+            return version.isEmpty ? family : "\(family) \(version.joined(separator: "."))"
+        }
+        if parts.count >= 2, parts[0] == "gpt" {
+            let variant = parts.dropFirst(2).map(\.capitalized)
+            return (["GPT-\(parts[1])"] + variant).joined(separator: " ")
+        }
+        return model
+    }
+
     /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
     static func tokens(_ count: Int) -> String {
         let value = Double(count)
