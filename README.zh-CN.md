@@ -156,7 +156,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 在图表上方选择 **Tokens** 或 **Cost**。图表显示最近 10 个日历日，摘要显示当天和最近 30 天的总计。
 
-悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可查看当天的模型明细，并固定日期。每个模型前显示所用工具的图标，下方的条表示它在当天所选单位中的占比。重新打开卡片可恢复悬停预览，切换单位会保留选中日期。
+悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。展开 **Model breakdown** 可查看当天的模型明细，并固定日期。每个模型前显示所用工具的图标，下方的条表示它在当天所选单位中的占比。再次点击已固定的日期或重新打开卡片，可恢复悬停预览；切换单位会保留选中日期。
 
 图表区分零用量和缺失数据：
 
@@ -241,6 +241,7 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Preferences/com.quotabar.app.plist
+~/Library/WebKit/com.quotabar.app        # 用量报告的视图设置
 ```
 
 </details>
@@ -300,7 +301,7 @@ make build
 
 将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态；换成 `motion` 可用放慢的示例数据观察卡片动效。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
 
-`make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
+`make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括深浅色卡片、登录和刷新失败状态。修改界面后应同步生成图片。
 
 生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report.md#verification)和[渲染说明](docs/design-implementation.md)。
 
@@ -324,7 +325,7 @@ make build
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型和第三方模型的 Fast 用量保持未计价。其他模型请确认 **Settings → General** 中已开启 models.dev 计价，且 models.dev 收录了该模型。 |
+| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型，以及第三方模型的 Fast 用量，都保持未计价。其他模型请确认 **Settings → General** 中已开启 models.dev 计价，且 models.dev 收录了该模型。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
 | 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |

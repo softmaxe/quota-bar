@@ -156,7 +156,7 @@ QuotaBar counts tokens in local session logs and estimates what that usage would
 
 Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows today and the last 30 days.
 
-Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Each model shows the mark of the tool that used it and a bar of its share of the day in the chosen unit. Reopen the card to resume hover previews. Switching units keeps the selected date.
+Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Each model shows the mark of the tool that used it and a bar of its share of the day in the chosen unit. Click the pinned day again, or reopen the card, to resume hover previews. Switching units keeps the selected date.
 
 The chart distinguishes zero usage from missing data:
 
@@ -241,6 +241,7 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Preferences/com.quotabar.app.plist
+~/Library/WebKit/com.quotabar.app        # usage report view settings
 ```
 
 </details>
@@ -300,7 +301,7 @@ make build
 
 Use `signed-out` or `stale` instead of `loaded` to inspect those states, or `motion` to watch the card's animations with slowed sample data. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
 
-`make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
+`make readme-assets` renders both READMEs' shared images from the current views with sample data, including the light and dark card, sign-in, and refresh-failure states. Regenerate them after changing the UI.
 
 Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report.md#verification) and [rendering notes](docs/design-implementation.md).
 
