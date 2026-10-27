@@ -32,7 +32,7 @@ struct ProviderTabBar: View {
     private static let dotLift = NSFont.systemFont(ofSize: Self.nameSize).capHeight / 2
 
     /// A raised white chip on a light menu, a lighter wash on a dark one.
-    private static let pillColor = Color(nsColor: NSColor(name: nil) { appearance in
+    static let pillColor = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(white: 1, alpha: 0.16)
             : NSColor(white: 1, alpha: 0.96)
