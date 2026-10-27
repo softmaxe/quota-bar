@@ -498,11 +498,18 @@ struct CostSectionView: View {
 
             let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
-                    self.breakdownRow(entry, index: index)
-                        .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
-                        .staggeredEntrance(index: index, trigger: self.isBreakdownExpanded)
-                        .padding(.top, CGFloat(Self.breakdownLayout.spacing))
+                if self.isBreakdownExpanded {
+                    // The height cuts open; the rows rise into place together, like every other
+                    // disclosure in the card.
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
+                            self.breakdownRow(entry, index: index)
+                                .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
+                                .padding(.top, CGFloat(Self.breakdownLayout.spacing))
+                        }
+                    }
+                    .cardReveal()
+                    .transition(.identity)
                 }
             }
             .frame(height: CGFloat(Self.breakdownLayout.rowsHeight(
