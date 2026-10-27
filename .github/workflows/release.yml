@@ -329,6 +329,13 @@ jobs:
           fi
           git -C "$TAP_DIR" commit -m "chore: bump quota-bar to ${version}"
 
+          # The push lands straight on the tap's main, so run the tap CI's checks first. brew tap
+          # clones the local checkout, so this runs after the commit.
+          brew tap softmaxe/tap "$TAP_DIR"
+          brew trust softmaxe/tap
+          brew style --cask softmaxe/tap/quota-bar
+          brew audit --strict --cask softmaxe/tap/quota-bar
+
       - name: Push tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
