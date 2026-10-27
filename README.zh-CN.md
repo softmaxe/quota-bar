@@ -307,7 +307,7 @@ make build
 
 发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
 
-工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
+`main` 上的每个提交都已通过 PR 检查，因此工作流不再重复运行测试，直接打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 

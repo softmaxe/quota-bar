@@ -118,9 +118,8 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run tests
-        run: make test
-
+      # No test step: preflight admits only tags on main, and every main commit is a squash of a PR
+      # whose up-to-date tree already passed CI on this runner.
       - name: Package app
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
