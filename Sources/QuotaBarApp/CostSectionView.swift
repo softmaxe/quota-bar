@@ -156,24 +156,20 @@ struct CostSectionView: View {
                 value: self.isUnobserved(self.todayDayKey) ? "—" : self.selectedLabelMode == .tokens
                     ? Formatters.tokens(self.todayDay.tokens.total)
                     : self.costValue(self.todayDay.costAvailability),
-                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : self.selectedLabelMode == .cost
-                    ? self.status(self.todayDay.costAvailability) : nil
+                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : nil
             )
             self.kpi(
                 label: "Last 30 days",
                 value: self.selectedLabelMode == .tokens
                     ? Formatters.tokens(self.snapshot.windowTokens)
                     : self.costValue(self.snapshot.windowCostAvailability),
-                status: self.selectedLabelMode == .cost
-                    ? self.status(self.snapshot.windowCostAvailability) : nil
+                status: nil
             )
         }
     }
 
     private var needsKPIStatusRow: Bool {
         self.isUnobserved(self.todayDayKey)
-            || self.status(self.todayDay.costAvailability) != nil
-            || self.status(self.snapshot.windowCostAvailability) != nil
     }
 
     private func kpi(label: String, value: String, status: String?) -> some View {
@@ -197,14 +193,6 @@ struct CostSectionView: View {
 
     private var chart: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Last 10 calendar days")
-                Spacer(minLength: 4)
-                Text(self.selectedLabelMode == .tokens ? "Tokens" : "Cost")
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
                 HStack(alignment: .bottom, spacing: 0) {
@@ -408,12 +396,6 @@ struct CostSectionView: View {
         self.bars.first { $0.dayKey == self.selectedDayKey }
     }
 
-    private var needsDayStatusRow: Bool {
-        self.bars.contains { day in
-            !self.isUnobserved(day.dayKey) && self.status(day.costAvailability) != nil
-        }
-    }
-
     private var dayDetail: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
@@ -456,17 +438,6 @@ struct CostSectionView: View {
                     }
                     .monospacedDigit()
                     .frame(height: 22, alignment: .top)
-                }
-                if self.needsDayStatusRow {
-                    let status = self.isUnobserved(day.dayKey)
-                        ? nil : self.status(day.costAvailability)
-                    Text(status.map { self.availabilityDetail($0, day.costAvailability) } ?? " ")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .frame(height: 24, alignment: .top)
-                        .opacity(status == nil ? 0 : 1)
-                        .accessibilityHidden(status == nil)
                 }
             }
             Divider()
@@ -561,10 +532,6 @@ struct CostSectionView: View {
         case .partial: "Partial estimate"
         case .unpriced: "Unpriced"
         }
-    }
-
-    private func availabilityDetail(_ status: String, _ availability: CostAvailability) -> String {
-        "\(status) · \(Formatters.tokens(availability.unpricedTokens)) tokens have no price"
     }
 }
 

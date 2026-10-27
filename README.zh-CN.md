@@ -164,8 +164,8 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 | --- | --- |
 | **0** 或 **$0.00** | 数值在当前显示精度下为零，图表显示实心灰色短条。缺失费率会另行标注。 |
 | **—**、**Not scanned yet** | 该日期晚于最后一次完成扫描的日期，且没有记录到用量。图表显示虚线短条。 |
-| **—**、**Unpriced** | 已记录用量，但没有适用的费率。Cost 视图显示虚线短条。 |
-| **Partial estimate** | 金额只包含有费率的用量，没有费率的部分未计入。 |
+| Cost 视图中的 **—** | 已记录用量，但没有适用的费率。图表显示虚线短条。 |
+| Model breakdown 中的 **No price** | 该模型在当天没有费率。成本合计只包含有费率的用量，不计入它的 token。 |
 
 **Settings → Pricing** 列出每个模型的费率及其来源。未计价的通常是本地或免费模型、价格表尚未收录的新 Claude 或 OpenAI 模型，以及没有 Fast 倍率的 Fast 用量。
 
@@ -324,7 +324,7 @@ make build
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 Unpriced 或 Partial estimate | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型和第三方模型的 Fast 用量保持未计价。其他模型请确认 **Settings → General** 中已开启 models.dev 计价，且 models.dev 收录了该模型。 |
+| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型和第三方模型的 Fast 用量保持未计价。其他模型请确认 **Settings → General** 中已开启 models.dev 计价，且 models.dev 收录了该模型。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
 | 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |

@@ -164,8 +164,8 @@ The chart distinguishes zero usage from missing data:
 | --- | --- |
 | **0** or **$0.00** | The value rounds to zero. The chart shows a solid gray stub. Missing prices are marked separately. |
 | **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage. The chart shows a dashed stub. |
-| **—**, **Unpriced** | Usage is recorded, but no rate applies. Cost view shows a dashed stub. |
-| **Partial estimate** | The amount includes priced usage only; unpriced usage is excluded. |
+| **—** in Cost view | Usage is recorded, but no rate applies. The chart shows a dashed stub. |
+| **No price** in Model breakdown | The model has no rate on that day. Cost totals include priced usage only, so they leave its tokens out. |
 
 **Settings → Pricing** lists every model with its rates and where they come from. Unpriced models are local or free models, new Claude or OpenAI models the price book does not list yet, and Fast usage of models without a Fast multiplier.
 
@@ -324,7 +324,7 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows Unpriced or Partial estimate | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev pricing is on in **Settings → General** and that models.dev lists the model. |
+| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev pricing is on in **Settings → General** and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
 | Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |
