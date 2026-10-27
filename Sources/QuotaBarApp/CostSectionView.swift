@@ -183,8 +183,9 @@ struct CostSectionView: View {
     private func kpi(label: String, value: String, status: String?) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+            // Keyed to the data rather than the text: a rescan rolls the value, a unit change swaps it.
             Text(value).font(.system(size: 16, weight: .semibold)).monospacedDigit()
-                .rollingValue(value)
+                .rollingValue(self.snapshot)
             if self.needsKPIStatusRow {
                 Text(status ?? " ")
                     .font(.system(size: 10))
@@ -204,7 +205,6 @@ struct CostSectionView: View {
                 Text("Last 10 calendar days")
                 Spacer(minLength: 4)
                 Text(self.selectedLabelMode == .tokens ? "Tokens" : "Cost")
-                    .rollingValue(self.selectedLabelMode, direction: self.selectedLabelMode == .tokens ? 0 : 1)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
@@ -400,11 +400,6 @@ struct CostSectionView: View {
         self.bars.first { $0.dayKey == self.selectedDayKey }
     }
 
-    /// The selected day's place in the chart, which sets the direction its values roll.
-    private var selectedDayPosition: Double {
-        Double(self.bars.firstIndex { $0.dayKey == self.selectedDayKey } ?? 0)
-    }
-
     private var needsDayStatusRow: Bool {
         self.bars.contains { day in
             !self.isUnobserved(day.dayKey) && self.status(day.costAvailability) != nil
@@ -416,13 +411,11 @@ struct CostSectionView: View {
             HStack {
                 Text(self.selectedDay.map { Formatters.dayLabel($0.dayKey) } ?? "Day")
                     .font(.system(size: 11, weight: .medium))
-                    .rollingValue(self.selectedDayKey, direction: self.selectedDayPosition)
                 Spacer(minLength: 4)
                 if let day = self.selectedDay, !day.byModel.isEmpty {
                     Text("\(day.byModel.count) models")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
-                        .rollingValue(day.byModel.count, direction: Double(day.byModel.count))
                 }
             }
             if let day = self.selectedDay {
@@ -439,20 +432,19 @@ struct CostSectionView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 9) {
                         let cost = self.costValue(day.costAvailability)
                         let tokens = "\(Formatters.tokens(day.tokens.total)) tokens"
-                        // Moving to a later day rolls the values up, an earlier one rolls them down.
+                        // Hovering or selecting another day swaps the values; the bar highlight
+                        // already shows where the selection moved.
                         let primary = self.selectedLabelMode == .tokens ? tokens : cost
                         let secondary = self.selectedLabelMode == .tokens ? cost : tokens
                         Text(primary)
                             .font(.system(size: 17, weight: .medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                            .rollingValue(primary, direction: self.selectedDayPosition)
                         Text(secondary)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
-                            .rollingValue(secondary, direction: self.selectedDayPosition)
                     }
                     .monospacedDigit()
                     .frame(height: 22, alignment: .top)
@@ -498,11 +490,18 @@ struct CostSectionView: View {
 
             let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
-                    self.breakdownRow(entry, index: index)
-                        .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
-                        .staggeredEntrance(index: index, trigger: self.isBreakdownExpanded)
-                        .padding(.top, CGFloat(Self.breakdownLayout.spacing))
+                if self.isBreakdownExpanded {
+                    // The height cuts open; the rows rise into place together, like every other
+                    // disclosure in the card.
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(ranked.enumerated()), id: \.element.key) { index, entry in
+                            self.breakdownRow(entry, index: index)
+                                .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
+                                .padding(.top, CGFloat(Self.breakdownLayout.spacing))
+                        }
+                    }
+                    .cardReveal()
+                    .transition(.identity)
                 }
             }
             .frame(height: CGFloat(Self.breakdownLayout.rowsHeight(

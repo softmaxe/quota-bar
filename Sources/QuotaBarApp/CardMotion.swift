@@ -39,16 +39,6 @@ enum CardMotion {
     /// Release overshoots slightly, close to the CDS button spring's 9% peak.
     static var releaseSpring: Animation { .spring(duration: 0.45, bounce: 0.4) }
 
-    // MARK: - Stagger
-
-    static let staggerDuration: TimeInterval = 0.2
-    static let staggerScale: CGFloat = 0.8
-    static let staggerBlur: CGFloat = 2
-
-    static func staggerDelay(index: Int) -> TimeInterval {
-        0.05 + Double(min(index, 8)) * 0.03
-    }
-
     // MARK: - Working dots
 
     static let dotPeriod: TimeInterval = 1.8
@@ -186,62 +176,6 @@ extension AnyTransition {
                 .animation(CardMotion.slideCurve),
             removal: .identity
         )
-    }
-}
-
-// MARK: - Stagger
-
-private struct StaggerFrame {
-    var opacity: Double = 1
-    var scale: CGFloat = 1
-    var blur: CGFloat = 0
-}
-
-/// Rows of a list opening in sequence. The list's height has already cut open, so the rows only
-/// change how they are drawn.
-private struct StaggeredEntrance: ViewModifier {
-    let index: Int
-    let trigger: Bool
-    private let gate = CardMotionGate()
-
-    func body(content: Content) -> some View {
-        if self.gate.animates {
-            content.keyframeAnimator(initialValue: StaggerFrame(), trigger: self.trigger) { view, frame in
-                view
-                    .opacity(frame.opacity)
-                    .scaleEffect(frame.scale)
-                    .blur(radius: frame.blur)
-            } keyframes: { _ in
-                let delay = CardMotion.staggerDelay(index: self.index)
-                let duration = CardMotion.staggerDuration
-                let curve = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0, y: 0), endControlPoint: UnitPoint(x: 0.2, y: 1))
-                KeyframeTrack(\.opacity) {
-                    MoveKeyframe(0)
-                    LinearKeyframe(0, duration: delay)
-                    LinearKeyframe(1, duration: duration, timingCurve: curve)
-                }
-                KeyframeTrack(\.scale) {
-                    MoveKeyframe(CardMotion.staggerScale)
-                    LinearKeyframe(CardMotion.staggerScale, duration: delay)
-                    LinearKeyframe(1, duration: duration, timingCurve: curve)
-                }
-                KeyframeTrack(\.blur) {
-                    MoveKeyframe(CardMotion.staggerBlur)
-                    LinearKeyframe(CardMotion.staggerBlur, duration: delay)
-                    LinearKeyframe(0, duration: duration, timingCurve: curve)
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
-
-extension View {
-    /// Replays the row's entrance whenever `trigger` changes. Callers keep the rows hidden while
-    /// closed, so the replay on closing is never seen.
-    func staggeredEntrance(index: Int, trigger: Bool) -> some View {
-        self.modifier(StaggeredEntrance(index: index, trigger: trigger))
     }
 }
 
