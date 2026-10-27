@@ -76,17 +76,9 @@ struct CostSectionView: View {
                 Text("Local usage")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 8)
-                Picker("Usage unit", selection: Binding(
-                    get: { self.selectedLabelMode },
-                    set: { self.changeMode(to: $0) }
-                )) {
-                    Text("Tokens").tag(CostChartLabelMode.tokens)
-                    Text("Cost").tag(CostChartLabelMode.cost)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 130)
-                .accessibilityLabel("Usage unit")
+                UsageUnitSwitch(selection: self.selectedLabelMode) { self.changeMode(to: $0) }
+                    .frame(width: 130)
+                    .accessibilityLabel("Usage unit")
             }
 
             self.kpiRow
@@ -108,7 +100,7 @@ struct CostSectionView: View {
         }
     }
 
-    /// The parent supplies the saved preference; the Picker updates that same preference.
+    /// The parent supplies the saved preference; the switch updates that same preference.
     private let parentLabelMode: CostChartLabelMode
 
     private func reconcileSelection(providerChanged: Bool) {
@@ -143,7 +135,7 @@ struct CostSectionView: View {
 
     private func changeMode(to mode: CostChartLabelMode) {
         guard mode != self.selectedLabelMode else { return }
-        // The Picker can supply its own animation transaction. Keep it out of the card layout.
+        // Only the switch's pill animates. Keep the change out of the card layout.
         withTransaction(Transaction(animation: nil)) {
             self.selectedLabelMode = mode
             self.onLabelModeChanged(mode)
