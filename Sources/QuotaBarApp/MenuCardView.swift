@@ -39,7 +39,6 @@ struct MenuCardView: View {
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
     var onProviderSelected: (Provider) -> Void = { _ in }
     var onRefresh: () -> Void = {}
-    var onOpenPricing: () -> Void = {}
     var onRefreshLocalUsage: () -> Void = {}
 
     var body: some View {
@@ -271,8 +270,7 @@ struct MenuCardView: View {
                 onLabelModeChanged: self.onCostChartLabelModeChanged,
                 isBreakdownExpanded: self.isCostBreakdownExpanded,
                 expandedBreakdownDayKey: self.expandedCostBreakdownDayKey,
-                onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged,
-                onOpenPricing: self.onOpenPricing
+                onBreakdownExpandedChanged: self.onCostBreakdownExpandedChanged
             )
             // Fades in only when it replaces the placeholder, not when the card opens with it.
             .placeholderReveal(active: self.shownSkeleton)
