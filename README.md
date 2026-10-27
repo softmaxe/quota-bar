@@ -61,6 +61,12 @@ Download the matching `.sha256` file into the same directory as the ZIP. Run thi
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
+Release ZIPs also carry a build provenance attestation. To confirm that this repository's release workflow built the ZIP, run this with the GitHub CLI:
+
+```bash
+gh attestation verify QuotaBar-*-macos-arm64.zip --repo softmaxe/quota-bar
+```
+
 Releases are ad hoc signed, not notarized with an Apple Developer ID. If macOS blocks the first launch, try opening the app once, then go to **System Settings → Privacy & Security** and choose **Open Anyway**. As a fallback, after confirming the app is in `/Applications`, remove quarantine from this app only:
 
 ```bash
@@ -307,7 +313,7 @@ To create a test package, run **Build and Release** from the repository's **Acti
 
 To publish a release, push a tag matching `vMAJOR.MINOR.PATCH`. The tag supplies the app's version. Local `make app` builds use the nearest reachable release tag, or `0.0.0` if none exists. Set `VERSION` to override it.
 
-The workflow runs tests, packages an `arm64` ZIP, and verifies its signature, version, architecture, and checksum. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs must point at a commit on `main` and require the `HOMEBREW_TAP_TOKEN` secret in the `homebrew-tap` environment, which only `v*.*.*` tags can use. Both **Release** and **Update Homebrew tap** must succeed.
+The workflow packages an `arm64` ZIP and verifies its signature, version, architecture, and checksum. It does not rerun tests, because every commit on `main` already passed PR checks. It then publishes a GitHub Release and updates `softmaxe/homebrew-tap`. Tagged runs must point at a commit on `main` and require the `HOMEBREW_TAP_TOKEN` secret in the `homebrew-tap` environment, which only `v*.*.*` tags can use. Both **Release** and **Update Homebrew tap** must succeed.
 
 </details>
 

@@ -7,6 +7,7 @@ enum ThirdPartyRatesTests {
     static func run() async {
         Self.catalog()
         Self.merging()
+        Self.regionSuffixes()
         Self.cacheRoundTrip()
         await Self.downloads()
     }
@@ -118,6 +119,37 @@ enum ThirdPartyRatesTests {
             dropped.rates(for: "glm-5.3", day: "2026-10-10")?.input,
             3,
             "a model models.dev stopped listing keeps its last rates"
+        )
+    }
+
+    private static func regionSuffixes() {
+        let rates = ThirdPartyRates(current: [
+            "deepseek-v4.1-flash": ModelPricing(input: 0.15, output: 0.6),
+            "glm-5.3": ModelPricing(input: 1, output: 4),
+            "glm-5.3-eu": ModelPricing(input: 1.5, output: 5),
+        ])
+        Harness.expectEqual(
+            rates.rates(for: "deepseek-v4.1-flash-sg", day: "2026-10-27")?.input,
+            0.15,
+            "a region suffix is priced as the model it decorates"
+        )
+        Harness.expect(
+            rates.prices("openrouter/DeepSeek-V4.1-Flash@US") && rates.prices("glm-5.3_cn"),
+            "region tags are recognised after a path, in any case, and after any separator"
+        )
+        Harness.expectEqual(
+            rates.rates(for: "glm-5.3-eu", day: "2026-10-27")?.input,
+            1.5,
+            "a listing under the regional name keeps its own price"
+        )
+        Harness.expect(
+            !rates.prices("deepseek-v4.1-flash-fast") && !rates.prices("deepseek-v4.1-flash-sg-fast"),
+            "only a trailing region tag falls back"
+        )
+        Harness.expect(!rates.prices("sg"), "a bare region tag is not a model")
+        Harness.expect(
+            !ThirdPartyRates(current: ["gpt-5.5": ModelPricing(input: 1, output: 2)]).prices("gpt-5.5-us"),
+            "a regional OpenAI name is still left to the price book"
         )
     }
 
