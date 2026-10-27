@@ -29,11 +29,6 @@ final class SettingsWindowController {
         if self.selection.tab == .pricing { self.selection.pricingReloads += 1 }
     }
 
-    func showPricing() {
-        self.selection.tab = .pricing
-        self.show()
-    }
-
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing,
