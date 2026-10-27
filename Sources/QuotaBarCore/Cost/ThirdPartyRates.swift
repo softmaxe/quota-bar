@@ -45,15 +45,36 @@ public struct ThirdPartyRates: Sendable, Equatable {
     /// Rates in force for a model on `day`, or nil when models.dev never priced it or the model
     /// is one the price book is kept for.
     public func rates(for name: String, day: String) -> ModelPricing? {
-        guard Self.isThirdParty(name),
-              let period = self.models[Self.key(for: name)]?.last(where: { ($0.from ?? "") <= day })
-        else { return nil }
-        return period.rates
+        self.periods(for: name)?.last(where: { ($0.from ?? "") <= day })?.rates
     }
 
     /// Whether models.dev has priced this model at all.
     public func prices(_ name: String) -> Bool {
-        Self.isThirdParty(name) && self.models[Self.key(for: name)] != nil
+        self.periods(for: name) != nil
+    }
+
+    /// The periods a model is priced by. A name models.dev does not list under its own spelling
+    /// falls back to the model a region suffix decorates, so `deepseek-v4.1-flash-sg` is priced as
+    /// `deepseek-v4.1-flash`. A listing under the full name wins, since it may be a regional price.
+    private func periods(for name: String) -> [Period]? {
+        guard Self.isThirdParty(name) else { return nil }
+        let key = Self.key(for: name)
+        if let periods = self.models[key] { return periods }
+        return Self.strippingRegion(key).flatMap { self.models[$0] }
+    }
+
+    /// Region and deployment tags that endpoints append to a model's name without making it a
+    /// different model. Tags such as `-fast`, `-flex`, or `:thinking` name different offers at
+    /// different prices, so they are not on this list.
+    private static let regionSuffix =
+        #"[-_@](sg|us|eu|cn|jp|kr|uk|in|au|ca|de|fr|br|hk|tw|global|intl|apac|emea)$"#
+
+    /// The name without a trailing region tag, or nil when it has none.
+    private static func strippingRegion(_ key: String) -> String? {
+        guard let range = key.range(of: Self.regionSuffix, options: .regularExpression),
+              range.lowerBound > key.startIndex
+        else { return nil }
+        return String(key[..<range.lowerBound])
     }
 
     /// This fetch folded into the rates already kept. A model whose rates changed opens a period

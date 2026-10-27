@@ -138,6 +138,11 @@ enum RateCardTests {
             "a routed name finds its third-party rates"
         )
         Harness.expect(
+            card.source(for: "glm-dated-sg", provider: .codex) == .modelsDev
+                && card.cost(of: Self.million, model: "glm-dated-sg", provider: .codex, day: "2026-11-22", longContext: false) == 3,
+            "a regional endpoint's name is priced as the model it serves"
+        )
+        Harness.expect(
             card.rates(for: "claude-reseller", provider: .claude, day: "2026-11-22") == nil
                 && card.source(for: "claude-reseller", provider: .claude) == nil,
             "models.dev never prices a Claude or OpenAI model"
