@@ -43,13 +43,27 @@ jobs:
             exit 1
           fi
 
+      # An expired or revoked token would otherwise fail only after the immutable release is out.
       - name: Validate tap publishing credentials
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GIT_TERMINAL_PROMPT: "0"
         run: |
+          set -euo pipefail
+          hint="Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as HOMEBREW_TAP_TOKEN in the homebrew-tap environment of softmaxe/quota-bar."
           if [[ -z "${HOMEBREW_TAP_TOKEN:-}" ]]; then
             echo "::error::HOMEBREW_TAP_TOKEN is required to publish the Homebrew cask."
-            echo "Create a fine-grained PAT limited to softmaxe/homebrew-tap with Contents: read and write, and add it as HOMEBREW_TAP_TOKEN in the homebrew-tap environment of softmaxe/quota-bar."
+            echo "${hint}"
+            exit 1
+          fi
+
+          # A dry-run push still opens git-receive-pack, which GitHub admits only with write access.
+          tap_dir="$(mktemp -d)"
+          git clone --quiet --depth 1 https://github.com/softmaxe/homebrew-tap.git "${tap_dir}"
+          remote="https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/softmaxe/homebrew-tap.git"
+          if ! git -C "${tap_dir}" -c credential.helper= push --dry-run "${remote}" HEAD:main; then
+            echo "::error::HOMEBREW_TAP_TOKEN cannot push to softmaxe/homebrew-tap; it may be expired or revoked."
+            echo "${hint}"
             exit 1
           fi
 
@@ -104,9 +118,8 @@ jobs:
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "archive_base=${archive_base}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run tests
-        run: make test
-
+      # No test step: preflight admits only tags on main, and every main commit is a squash of a PR
+      # whose up-to-date tree already passed CI on this runner.
       - name: Package app
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
@@ -314,6 +327,13 @@ jobs:
             exit 0
           fi
           git -C "$TAP_DIR" commit -m "chore: bump quota-bar to ${version}"
+
+          # The push lands straight on the tap's main, so run the tap CI's checks first. brew tap
+          # clones the local checkout, so this runs after the commit.
+          brew tap softmaxe/tap "$TAP_DIR"
+          brew trust softmaxe/tap
+          brew style --cask softmaxe/tap/quota-bar
+          brew audit --strict --cask softmaxe/tap/quota-bar
 
       - name: Push tap
         env:
