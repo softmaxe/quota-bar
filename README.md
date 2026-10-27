@@ -11,16 +11,16 @@
 
 Check Codex and Claude quota, reset times, local token usage, and estimated API cost from the macOS menu bar.
 
-[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Reports](#exporting-a-usage-report) · [Pricing](#model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
+[Install](#install) · [First launch](#first-launch) · [Quota](#how-quota-tracking-works) · [Cost](#how-cost-tracking-works) · [Usage](#viewing-usage) · [Pricing](#model-prices) · [Development](#build-and-develop) · [Troubleshooting](#troubleshooting)
 
-Screenshots use sample data. The app is in English; exported reports support Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
+Screenshots use sample data. The app is in English; the usage window supports Chinese and English. View the card in [dark](docs/images/interactions/main-dark.png) or [light](docs/images/interactions/main-light.png) appearance.
 
 ## Features
 
 - Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
 - View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
 - Estimate Standard, Fast, and long-context costs: Claude and OpenAI models from the bundled price book, other models such as DeepSeek or GLM from models.dev.
-- Export saved usage as an offline HTML report that switches between 7 days, 30 days, or any custom period, in Chinese or English.
+- View saved usage in a live window that switches between 7 days, 30 days, or any custom period, in Chinese or English.
 
 ## Install
 
@@ -137,6 +137,7 @@ The icon is Material Design Icons' `robot-excited`. The card scrolls when needed
 | --- | --- |
 | ⌘1 / ⌘2 | Show Claude / Codex |
 | ⌘R | Refresh or check sign-in, when available |
+| ⌘U | Open the usage window |
 | ⌘, | Open settings |
 | ⌘Q | Quit |
 | Esc | Close the card |
@@ -175,7 +176,7 @@ For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBa
 
 ### Saved history
 
-The first scan of a large history may take time. QuotaBar saves token counts, dates, models, sources, and pricing tiers in SQLite, along with record IDs and scan positions. It calculates costs when reading or exporting that usage.
+The first scan of a large history may take time. QuotaBar saves token counts, dates, models, sources, and pricing tiers in SQLite, along with record IDs and scan positions. It calculates costs when reading that usage.
 
 Saved usage survives source-session deletion and app restarts, including records older than 30 days. Sessions deleted before scanning cannot be recovered.
 
@@ -198,22 +199,17 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates and for how models.dev rates are chosen.
 
-## Exporting a usage report
+## Viewing usage
 
-1. Open **Settings → Export**, or press ⌘3 while the settings window is active.
-2. Under **Opens with**, choose **Last 7 days** or **Last 30 days** as the report's first view.
-3. Leave **Open after export** selected to open the result immediately.
-4. Choose **Export Report…** and select a destination. If nothing is saved yet, QuotaBar reports that before opening the Save panel.
+Choose **Usage…** in the card, or press ⌘U, to open the usage window. If nothing is saved yet, it says so.
 
 <p align="center">
-  <img src="docs/images/report-export.png" width="760" alt="English view of the offline usage report, with a Chinese/English switch and sample data">
+  <img src="docs/images/usage-report.png" width="760" alt="English view of the usage window, with a Chinese/English switch and sample data">
 </p>
 
-The report is a single offline HTML file modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It embeds all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, a daily line per source, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
+The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, a daily line per source, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
 
-Export reads saved data and cached rates without refreshing quota, rescanning logs, or making network requests. It uses the same pricing rules as the card and marks unpriced usage.
-
-The file includes the period, capture time, timezone, sources, models, token counts, and estimated costs. It excludes prompts, responses, reasoning text, credentials, and account IDs. See [Usage report export](docs/usage-report-export.md) for the full data format and checks.
+While the window is open, QuotaBar scans every source's local logs once a minute and updates the figures in place, keeping the period, metric, breakdown, and language you chose. It uses the same pricing rules as the card and marks unpriced usage. See [Usage window](docs/usage-report.md) for how it reads and refreshes data.
 
 ## Model prices
 
@@ -300,7 +296,7 @@ Use `signed-out` or `stale` instead of `loaded` to inspect those states, or `mot
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the sign-in, refresh-failure, and invalid-price states. Regenerate them after changing the UI.
 
-Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report-export.md#verification) and [rendering notes](docs/design-implementation.md).
+Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report.md#verification) and [rendering notes](docs/design-implementation.md).
 
 </details>
 

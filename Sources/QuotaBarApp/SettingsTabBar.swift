@@ -5,7 +5,6 @@ import SwiftUI
 enum SettingsTab: Int, CaseIterable, Identifiable {
     case general
     case pricing
-    case export
 
     var id: Int { self.rawValue }
 
@@ -13,7 +12,6 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .pricing: "Pricing"
-        case .export: "Export"
         }
     }
 
@@ -21,11 +19,10 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .pricing: "dollarsign.circle"
-        case .export: "square.and.arrow.up"
         }
     }
 
-    /// ⌘1 through ⌘3, the shortcuts the system tab bar would have given these panes.
+    /// ⌘1 and ⌘2, the shortcuts the system tab bar would have given these panes.
     var shortcut: KeyEquivalent {
         KeyEquivalent(Character("\(self.rawValue + 1)"))
     }

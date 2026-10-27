@@ -1,4 +1,4 @@
-// Browser regression checks for the actual single-file native export.
+// Browser regression checks for the native usage report page.
 import assert from 'node:assert/strict';
 import {readFileSync,realpathSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {join,resolve} from 'node:path';

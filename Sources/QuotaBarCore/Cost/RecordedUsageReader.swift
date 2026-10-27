@@ -83,7 +83,7 @@ package final class RecordedUsageReader {
         )
     }
 
-    /// Export tolerates absent source tables, validates safe integers, and bounds both ends.
+    /// The usage report tolerates absent source tables, validates safe integers, and bounds both ends.
     /// Schema discovery pins the same committed snapshot used by every source query.
     package func reportUsage(
         fromDay: String,

@@ -150,10 +150,10 @@ enum RecordedUsageTests {
         let rows = Self.byDay(try RecordedUsageReader(databaseURL: fixture.databaseURL)
             .dailyUsage(provider: .codex, fromDay: fixture.day()))
         Harness.expectEqual(rows[fixture.day()]?.values.first?.input, large,
-                            "menu reads do not inherit export's JavaScript safe-integer limit")
+                            "menu reads do not inherit the report's JavaScript safe-integer limit")
         Harness.expectEqual(try CostUsageReader.knownModelUsage(provider: .codex, databaseURL: fixture.databaseURL),
                             [ModelUsageTotal(model: "large", tokens: large)],
-                            "Pricing does not inherit export's JavaScript safe-integer limit")
+                            "Pricing does not inherit the report's JavaScript safe-integer limit")
     }
 
     private static func menuProjectionAndRecovery() async throws {
@@ -178,21 +178,21 @@ enum RecordedUsageTests {
                                                rateCard: try RecordedUsageFixture.rateCard())
         let codexSources = report.sources.filter { $0.name != CostUsageSource.claude.displayName }
         Harness.expectEqual(codexSources.reduce(0) { $0 + $1.total }, 82,
-                            "export's matching Codex sources exclude the menu's 1,000 future tokens")
+                            "the report's matching Codex sources exclude the menu's 1,000 future tokens")
         Harness.expectClose(codexSources.reduce(0) { $0 + $1.cost }, first?.windowCostUSD ?? -1,
-                            "matching priced records use the same Rate card in menu and export")
+                            "matching priced records use the same Rate card in menu and report")
         Harness.expectEqual(report.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"],
-                            "shared source identities preserve export display order")
+                            "shared source identities preserve report display order")
         for day in report.days {
             let matchingDays = [first, claude].compactMap { $0?.days.first { $0.dayKey == day.day } }
             Harness.expectEqual(day.total, matchingDays.reduce(0) { $0 + $1.tokens.total },
-                                "menu and export agree on all-source tokens for overlapping day \(day.day)")
+                                "menu and report agree on all-source tokens for overlapping day \(day.day)")
             Harness.expectEqual(day.unpricedTokens, matchingDays.reduce(0) { $0 + $1.unpricedTokens },
-                                "menu and export agree on Unpriced usage for overlapping day \(day.day)")
+                                "menu and report agree on Unpriced usage for overlapping day \(day.day)")
             Harness.expectClose(day.cost, matchingDays.reduce(0) { $0 + ($1.costUSD ?? 0) },
-                                "menu and export agree on cost for overlapping day \(day.day)")
+                                "menu and report agree on cost for overlapping day \(day.day)")
             Harness.expectEqual(day.recorded, !matchingDays.isEmpty,
-                                "export distinguishes missing and recorded zero days from shared records")
+                                "the report distinguishes missing and recorded zero days from shared records")
         }
 
         try fixture.addOverflow(source: .piAgent)

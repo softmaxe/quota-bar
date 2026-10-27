@@ -3,12 +3,25 @@ import AppKit
 import Foundation
 import QuotaBarCore
 
-/// Writes the usage report without the export pane: a sample for the README, or the saved usage.
+/// Renders the usage report on sample data, for the README image and for checking the usage window.
 @MainActor
 enum UsageReportDumps {
     /// Builds documentation data without reading credentials, logs, or the usage database.
     static func dumpSampleReport(directory: String) {
         let root = URL(fileURLWithPath: directory, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let html = try UsageReportHTMLRenderer.render(Self.sampleSnapshot())
+            try Data(html.utf8).write(to: root.appendingPathComponent("usage-report.html"), options: .atomic)
+        } catch {
+            fputs("Sample report generation failed: \(error)\n", stderr)
+            exit(1)
+        }
+    }
+
+    /// Thirty days of synthetic Codex and Claude usage, ending on 2026-09-30, or on an earlier
+    /// day when `days` is shorter.
+    static func sampleSnapshot(days dayCount: Int = 30) -> UsageReportSnapshot {
         let series = [24, 31, 18, 27, 49, 38, 32, 14, 42, 55, 47, 36, 58, 70, 52,
                       43, 61, 79, 50, 36, 64, 82, 74, 59, 87, 66, 80, 93, 72, 68]
         func usage(_ value: Int, cost: Double) -> UsageReportTotals {
@@ -33,7 +46,7 @@ enum UsageReportDumps {
         var modelTotals: [String: [UsageReportTotals]] = [:]
         var sourceTotals: [String: [UsageReportTotals]] = [:]
         var fastTotal = 0.0
-        let days = series.enumerated().map { index, value in
+        let days = series.prefix(dayCount).enumerated().map { index, value in
             let codexShare = 0.55 + 0.25 * sin(Double(index) / 4)
             let codex = Int(Double(value) * codexShare), claude = value - codex
             let astra = codex * 7 / 10
@@ -67,32 +80,102 @@ enum UsageReportDumps {
             UsageReportNamedUsage(name: "Claude", source: "claude", totals: claudeTotals),
         ]
         let totals = sum([codexTotals, claudeTotals])
-        let snapshot = UsageReportSnapshot(period: "2026-09-01 至 2026-09-30", capturedAt: "2026-09-30T18:00:00Z",
-                                           timezone: "UTC", totals: totals,
-                                           costBreakdown: breakdown(totals.cost, fast: fastTotal), days: days,
-                                           models: models, sources: sources, weekdays: [])
+        let lastDay = days.last?.day ?? "2026-09-01"
+        return UsageReportSnapshot(period: "2026-09-01 至 \(lastDay)", capturedAt: "\(lastDay)T18:00:00Z",
+                                   timezone: "UTC", totals: totals,
+                                   costBreakdown: breakdown(totals.cost, fast: fastTotal), days: days,
+                                   models: models, sources: sources, weekdays: [])
+    }
+
+    /// Opens the usage window on 29 sample days, then hands it the thirtieth as a live update
+    /// and writes what the page shows to `<directory>/usage-window.png`.
+    static func dumpUsageWindow(directory: String) {
+        let root = URL(fileURLWithPath: directory, isDirectory: true)
+        let snapshots = UsageSnapshots(first: Self.sampleSnapshot(days: 29), second: Self.sampleSnapshot())
+        let controller = UsageReportWindowController(store: nil, operations: .init(
+            read: { snapshots.next() },
+            render: { try UsageReportHTMLRenderer.render($0) }
+        ))
+        NSApplication.shared.setActivationPolicy(.accessory)
+        controller.show()
+        func spin(until condition: () -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(10)
+            while !condition(), Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            return condition()
+        }
+        guard spin(until: { controller.debugWebView != nil }), let webView = controller.debugWebView else {
+            fputs("Usage window never loaded\n", stderr)
+            exit(1)
+        }
+        controller.reload()
+        var lastDay: String?
+        _ = spin(until: {
+            webView.evaluateJavaScript("document.querySelector('[data-range-to]').max") { value, _ in
+                lastDay = value as? String
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            return lastDay == "2026-09-30"
+        })
+        guard lastDay == "2026-09-30" else {
+            fputs("Usage window kept \(lastDay ?? "nothing") after the live update\n", stderr)
+            exit(1)
+        }
+        var image: NSImage?
+        webView.takeSnapshot(with: nil) { snapshot, _ in image = snapshot }
+        guard spin(until: { image != nil }), let tiff = image?.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            fputs("Usage window snapshot failed\n", stderr)
+            exit(1)
+        }
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            let html = try UsageReportHTMLRenderer.render(snapshot)
-            try Data(html.utf8).write(to: root.appendingPathComponent("usage-report.html"), options: .atomic)
+            let url = root.appendingPathComponent("usage-window.png")
+            try png.write(to: url)
+            print("Wrote \(url.path)")
         } catch {
-            fputs("Sample report generation failed: \(error)\n", stderr)
+            fputs("Usage window snapshot failed: \(error)\n", stderr)
             exit(1)
         }
     }
 
-    static func exportLive(to path: String) -> Never {
-        VerifierReport.runAsync {
-            let destination = URL(fileURLWithPath: path)
-            let model = ExportSettingsModel()
-            model.openAfterExport = false
-            if await model.export(to: destination) {
-                print("Exported saved usage to \(destination.path)")
-                exit(0)
-            }
-            fputs("Report export failed: \(model.status)\n", stderr)
-            exit(1)
+    /// Opens only the usage window, on the saved usage, beside an installed QuotaBar that keeps
+    /// scanning. Without a store the window rereads the database every minute instead.
+    static func previewLiveWindow() -> Never {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        let controller = UsageReportWindowController(store: nil)
+        controller.show()
+        Self.previewWindow = controller
+        // Closing the window ends the preview, which has no menu bar item to quit from.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { _ in
+            exit(0)
         }
+        app.run()
+        exit(0)
+    }
+
+    private static var previewWindow: UsageReportWindowController?
+}
+
+/// Hands out the first snapshot once, then the second: one load and one live update.
+private final class UsageSnapshots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reads = 0
+    private let first: UsageReportSnapshot
+    private let second: UsageReportSnapshot
+
+    init(first: UsageReportSnapshot, second: UsageReportSnapshot) {
+        self.first = first
+        self.second = second
+    }
+
+    func next() -> UsageReportSnapshot {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.reads += 1
+        return self.reads == 1 ? self.first : self.second
     }
 }
 #endif

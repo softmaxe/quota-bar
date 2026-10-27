@@ -62,8 +62,8 @@ public enum QuotaBarLaunch {
             entry.run()
         }
 
-        if let destination = values(after: "--export-usage-report", count: 1)?.first {
-            UsageReportDumps.exportLive(to: destination)
+        if arguments.contains("--preview-usage-window") {
+            UsageReportDumps.previewLiveWindow()
         }
 
         if let state = values(after: "--preview-interface", count: 1)?.first {
@@ -77,6 +77,7 @@ public enum QuotaBarLaunch {
             ("--dump-card", CardDump.run),
             ("--dump-settings", CardDump.dumpSettings),
             ("--dump-usage-report", UsageReportDumps.dumpSampleReport),
+            ("--dump-usage-window", UsageReportDumps.dumpUsageWindow),
         ]
         for dump in dumps {
             if let directory = values(after: dump.flag, count: 1)?[0] {

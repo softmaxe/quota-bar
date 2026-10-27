@@ -12,7 +12,6 @@ final class SettingsSelection: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var pricing: PricingTableModel
-    @ObservedObject var export: ExportSettingsModel = ExportSettingsModel()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -58,9 +57,6 @@ struct SettingsView: View {
                     isLoadEnabled: self.pricingWasOpened,
                     reload: self.selection.pricingReloads
                 )
-            }
-            self.pane(.export) {
-                ExportSettingsView(model: self.export)
             }
         }
         .frame(width: Self.paneWidth, height: Self.paneHeight, alignment: .topLeading)
