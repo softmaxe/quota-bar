@@ -240,7 +240,7 @@ struct CostSectionView: View {
         let height = maxValue > 0 ? Self.chartHeight * CGFloat(value / maxValue) : 0
 
         return Button {
-            self.selectDay(day.dayKey)
+            self.toggleDay(day.dayKey)
         } label: {
             VStack(spacing: 0) {
                 ZStack(alignment: .bottom) {
@@ -359,6 +359,18 @@ struct CostSectionView: View {
         if self.isBreakdownExpanded {
             self.onBreakdownExpandedChanged(true, key)
         }
+    }
+
+    /// A second click on the pinned day releases it so hovering drives the chart again.
+    private func toggleDay(_ key: String) {
+        guard self.pinnedDayKey == key, !self.isBreakdownExpanded else {
+            self.selectDay(key)
+            return
+        }
+        self.pinnedDayKey = nil
+        // The pointer still rests on this bar, and no new hover event fires until it moves.
+        self.hoveredDayKey = key
+        self.detailDayKey = key
     }
 
     private func moveSelection(by direction: Int) {
