@@ -334,6 +334,28 @@ enum CardDump {
             }
         }
 
+        // The breakdown open on a busy day, in both units, since the share bars follow the unit.
+        for provider in [Provider.codex, .claude] {
+            let busy = Self.busyCost(provider)
+            guard let today = busy.days.last else { continue }
+            for mode in [CostChartLabelMode.tokens, .cost] {
+                let suffix = mode == .tokens ? "" : "-cost"
+                Self.capture(
+                    CostSectionView(
+                        snapshot: busy,
+                        previewTodayDayKey: today.dayKey,
+                        labelMode: mode,
+                        isBreakdownExpanded: true,
+                        expandedBreakdownDayKey: today.dayKey
+                    )
+                    .environment(\.cardMotionEnabled, false)
+                    .padding(14).frame(width: 280),
+                    named: "\(provider.rawValue)-breakdown\(suffix)",
+                    into: root
+                )
+            }
+        }
+
         // Both faces of the reset label: the clock one is the longer string, and it is the one
         // that would crowd the headline out of a 280pt card if it ever got too long.
         let resetModes: [(String, QuotaResetDisplayMode)] = [("", .countdown), ("-reset-clock", .clock)]

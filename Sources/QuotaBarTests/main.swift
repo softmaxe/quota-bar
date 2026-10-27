@@ -230,6 +230,7 @@ runUsageReportRendererTests()
 // App: stores, controllers, and views driven through the QuotaBarApp library.
 QuotaResetLabelTests.run()
 CostChartHighlightTests.run()
+ModelNameFormatTests.run()
 await QuotaRecoveryTests.run()
 await PricingSortTests.run()
 await PricingModelFilterTests.run()

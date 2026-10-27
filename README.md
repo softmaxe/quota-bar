@@ -156,7 +156,7 @@ QuotaBar counts tokens in local session logs and estimates what that usage would
 
 Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows today and the last 30 days.
 
-Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Reopen the card to resume hover previews. Switching units keeps the selected date.
+Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Each model shows the mark of the tool that used it and a bar of its share of the day in the chosen unit. Reopen the card to resume hover previews. Switching units keeps the selected date.
 
 The chart distinguishes zero usage from missing data:
 
