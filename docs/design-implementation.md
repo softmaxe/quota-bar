@@ -10,7 +10,7 @@ This implementation follows the approved interaction proposal. The original befo
 - Refresh failures retain quota readings and show the last successful update near a warning. Server and local cooldowns jointly determine when retry is available. A local usage scan exposes its own progress, failure, and retry.
 - Pricing is a read-only table of the rates every estimate uses, grouped into Claude, Codex, and Others, with each row naming its source: the price book or models.dev ([ADR 0002](adr/0002-price-third-party-models-from-models-dev.md)). It replaced an override editor with validation, drafts, and a quit-time save prompt.
 - Local usage has a visible Tokens / Cost selector and ten calendar date columns. Dates support whole-column pointer targets and keyboard selection. Model details are collapsed as a group; complete labels remain available to accessibility. Unit changes and refreshes preserve a still-valid date selection. Unpriced and partially priced usage have distinct labels; dates not covered by the last completed scan do not claim zero usage.
-- Quota headlines display authoritative values; a changed reading rolls in over 120 ms. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Pace calculations are available through Usage pace details; duplicate Top model text is removed. Credits follow local usage.
+- Quota headlines display authoritative values; a changed reading rolls in over 120 ms. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Each quota bar carries its pace marker inline, with the outcome line below it; duplicate Top model text is removed. Credits follow local usage.
 
 ## Interaction timing
 
