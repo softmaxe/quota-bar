@@ -7,18 +7,12 @@ import SwiftUI
 final class SettingsWindowController {
     private let settings: SettingsStore
     private let pricing: PricingTableModel
-    private let export: ExportSettingsModel
     private let selection = SettingsSelection()
     private var window: NSWindow?
 
-    init(
-        settings: SettingsStore,
-        pricing: PricingTableModel,
-        export: ExportSettingsModel? = nil
-    ) {
+    init(settings: SettingsStore, pricing: PricingTableModel) {
         self.settings = settings
         self.pricing = pricing
-        self.export = export ?? ExportSettingsModel()
     }
 
     func show() {
@@ -42,7 +36,7 @@ final class SettingsWindowController {
 
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
-            rootView: SettingsView(settings: self.settings, pricing: self.pricing, export: self.export,
+            rootView: SettingsView(settings: self.settings, pricing: self.pricing,
                                    selection: self.selection)
         )
         let window = NSWindow(contentViewController: hosting)

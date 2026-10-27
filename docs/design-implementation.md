@@ -32,7 +32,7 @@ make test
 
 The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to another full Xcode installation's `Contents/Developer` directory if needed. The project does not change global developer settings.
 
-Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, export failures, draft preservation, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
+Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, usage window updates, draft preservation, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
 
 Repeated disclosure clicks, popover open/close sweeps, pixel and layout snapshots, and animation-curve sampling are not part of the test suite. Do not add routine checks that pin button labels, enum counts, template structure, or animation constants. Test a specific failure when a behavior changes or a bug is reported; stable visual controls do not need repeated manual or automated clicking.
 

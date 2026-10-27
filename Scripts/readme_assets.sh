@@ -23,7 +23,7 @@ echo "==> rendering frames"
 "$BIN" --dump-icons "$WORK/icons" >/dev/null
 "$BIN" --dump-settings "$WORK/settings" >/dev/null
 "$BIN" --dump-usage-report "$WORK/report" >/dev/null
-node Scripts/report_image.mjs "$WORK/report/usage-report.html" "$OUT/report-export.png"
+node Scripts/report_image.mjs "$WORK/report/usage-report.html" "$OUT/usage-report.png"
 
 # AppKit captures can carry wide-gamut profiles. Convert their pixels before ffmpeg, which does
 # not preserve those PNG profiles through overlays.

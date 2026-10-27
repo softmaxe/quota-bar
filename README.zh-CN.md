@@ -11,16 +11,16 @@
 
 在 macOS 菜单栏查看 Codex 和 Claude 的剩余额度、重置时间、本地 token 用量与预估 API 成本。
 
-[安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [报告](#导出用量报告) · [费率](#模型费率) · [开发](#构建与开发) · [排查](#排查)
+[安装](#安装) · [首次使用](#首次使用) · [额度](#额度统计方式) · [成本](#成本统计方式) · [用量](#查看用量) · [费率](#模型费率) · [开发](#构建与开发) · [排查](#排查)
 
-截图使用示例数据。应用界面为英文，导出的报告支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
+截图使用示例数据。应用界面为英文，用量窗口支持中英文切换。也可以查看卡片的[深色](docs/images/interactions/main-dark.png)与[浅色](docs/images/interactions/main-light.png)外观。
 
 ## 功能
 
 - 查看会话与每周额度、重置时间、使用节奏和 Codex Credits 余额。刷新失败时保留上次有效读数。
 - 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode 和 Pi Agent OAuth 用量计入总计。
 - 估算 Standard、Fast 和长上下文成本：Claude 和 OpenAI 模型使用内置价格表，DeepSeek、GLM 等其他模型使用 models.dev 的价格。
-- 将已保存用量导出为离线 HTML 报告，可在 7 天、30 天或任意自定义时段之间切换，支持中英文。
+- 在实时更新的窗口中查看已保存用量，可在 7 天、30 天或任意自定义时段之间切换，支持中英文。
 
 ## 安装
 
@@ -137,6 +137,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 | --- | --- |
 | ⌘1 / ⌘2 | 查看 Claude / Codex |
 | ⌘R | 可用时刷新或检查登录状态 |
+| ⌘U | 打开用量窗口 |
 | ⌘, | 打开设置 |
 | ⌘Q | 退出 |
 | Esc | 关闭卡片 |
@@ -175,7 +176,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 ### 历史记录
 
-首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存 token 数量、日期、模型、来源和计价档位，以及记录 ID 和扫描位置。成本在读取或导出用量时计算。
+首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存 token 数量、日期、模型、来源和计价档位，以及记录 ID 和扫描位置。成本在读取用量时计算。
 
 删除源会话或重启应用不会丢失已保存用量，超过 30 天的记录也会保留。扫描前就被删除的会话无法恢复。
 
@@ -198,22 +199,17 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法以及 models.dev 费率的选取方式见[维护价格表](docs/pricing.md)。
 
-## 导出用量报告
+## 查看用量
 
-1. 打开 **Settings → Export**，也可以在设置窗口中按 ⌘3。
-2. 在 **Opens with** 中选择 **Last 7 days** 或 **Last 30 days**，作为报告打开时显示的时段。
-3. 如需导出后立即查看，保留 **Open after export** 勾选。
-4. 点击 **Export Report…** 并选择保存位置。如果还没有已保存的用量，QuotaBar 会先提示，不会打开保存对话框。
+在卡片中选择 **Usage…**，或按 ⌘U，打开用量窗口。如果还没有已保存的用量，窗口会提示。
 
 <p align="center">
-  <img src="docs/images/report-export.png" width="760" alt="离线用量报告的英文视图，含中英文切换控件，使用示例数据">
+  <img src="docs/images/usage-report.png" width="760" alt="用量窗口的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-报告是一个可离线打开的 HTML 文件，版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面。文件内含全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。报告展示各来源占比、每个来源的每日曲线、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
+页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。页面展示各来源占比、每个来源的每日曲线、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
 
-导出只读取已保存的数据和缓存的费率，不刷新额度、重扫日志或请求网络。报告使用与卡片相同的计价规则，并标注未计价用量。
-
-文件包含时段、生成时间、时区、来源、模型、token 数量和估算成本，不含提示词、回复、推理文本、凭据和账号 ID。完整的数据格式与验证方法见[用量报告导出](docs/usage-report-export.md)。
+窗口打开期间，QuotaBar 每分钟扫描一次各来源的本地日志，原地更新数字，保留你选择的时段、指标、明细和语言。计价规则与卡片相同，并标注未计价用量。数据的读取与刷新方式见[用量窗口](docs/usage-report.md)。
 
 ## 模型费率
 
@@ -300,7 +296,7 @@ make build
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括登录、刷新失败和无效费率状态。修改界面后应同步生成图片。
 
-生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report-export.md#verification)和[渲染说明](docs/design-implementation.md)。
+生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report.md#verification)和[渲染说明](docs/design-implementation.md)。
 
 </details>
 

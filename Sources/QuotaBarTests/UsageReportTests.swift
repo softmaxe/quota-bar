@@ -230,11 +230,11 @@ enum UsageReportTests {
             INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES ('uncommitted', '\(fixture.day())', 'pending', 0, 0, 700, 0, 0, 0, 0);
             """)
         let report = try self.read(fixture)
-        Harness.expectEqual(report.totals.total, 102, "export sees committed usage from the open writer's WAL")
+        Harness.expectEqual(report.totals.total, 102, "the report sees committed usage from the open writer's WAL")
         Harness.expect(!report.models.contains { $0.name == "pending" }, "uncommitted writes remain invisible")
         try fixture.database.exec("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
         Harness.expectEqual(try self.read(fixture).totals.total, 103,
-                            "the writer remains usable after the read-only export")
+                            "the writer remains usable after the read-only report read")
     }
 
     private static func keepsSchemaAndRowsInOneSnapshot() throws {
@@ -256,8 +256,8 @@ enum UsageReportTests {
         Harness.expectEqual(report.sources.first { $0.name == "Pi Agent" }?.total, 6,
                             "schema discovery and token queries see the same version of a dropped source")
         let next = try self.read(fixture)
-        Harness.expectEqual(next.totals.total, 196, "a later export sees the complete new committed state")
-        Harness.expect(!next.sources.contains { $0.name == "Pi Agent" }, "a later export sees the dropped source")
+        Harness.expectEqual(next.totals.total, 196, "a later report read sees the complete new committed state")
+        Harness.expect(!next.sources.contains { $0.name == "Pi Agent" }, "a later report read sees the dropped source")
     }
 
     private static func validatesRawAndAggregatedTokens() throws {
@@ -290,7 +290,7 @@ enum UsageReportTests {
                 ('excluded-invalid', 0, 0, '\(fixture.day())', 'bad', 0, 0, -1, 0, 0, 0, 0);
             """)
         Harness.expectEqual(try self.read(fixture).totals.total, 9_007_199_254_740_991,
-                            "export validates only included rows in its bounded history")
+                            "the report validates only included rows in its bounded history")
         try fixture.database.exec("""
             INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES ('one-more', 1, '\(fixture.day())', 'other', 0, 1, 0, 0, 0, 0);
             """)
@@ -308,10 +308,10 @@ enum UsageReportTests {
             _ = try self.read(fixture)
             Harness.expect(false, "SQLite execution failure must not return earlier source results")
         } catch UsageReportReaderError.queryFailed(let message) {
-            Harness.expect(message.contains("integer overflow"), "export propagates the SQLite stepping error")
+            Harness.expect(message.contains("integer overflow"), "the report propagates the SQLite stepping error")
         }
         try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
-        Harness.expectEqual(try self.read(fixture).totals.total, 102, "export recovers after the failed source is repaired")
+        Harness.expectEqual(try self.read(fixture).totals.total, 102, "the report recovers after the failed source is repaired")
     }
 
     private static func read(_ fixture: RecordedUsageFixture) throws -> UsageReportSnapshot {

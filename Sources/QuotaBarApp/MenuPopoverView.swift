@@ -24,6 +24,7 @@ final class MenuPopoverModel: ObservableObject {
     @Published var maximumHeight: CGFloat = 700
     var measuredProvider: Provider?
     var onRefresh: () -> Void = {}
+    var onUsage: () -> Void = {}
     var onSettings: () -> Void = {}
     var onQuit: () -> Void = {}
     var onClose: () -> Void = {}
@@ -33,7 +34,7 @@ final class MenuPopoverModel: ObservableObject {
         self.card = card
         self.provider = provider
     }
-    var footerHeight: CGFloat { self.showsRefresh ? 85 : 61 }
+    var footerHeight: CGFloat { self.showsRefresh ? 109 : 85 }
     var viewportHeight: CGFloat { max(1, min(self.contentHeight, self.maximumHeight - self.footerHeight)) }
 }
 
@@ -103,6 +104,8 @@ struct MenuPopoverView: View {
                     .disabled(!self.model.refreshState.isEnabled)
                     .keyboardShortcut("r", modifiers: .command)
                 }
+                MenuPopoverAction(title: "Usage…", symbol: "chart.bar.xaxis", trailing: "⌘U", action: self.model.onUsage)
+                    .keyboardShortcut("u", modifiers: .command)
                 MenuPopoverAction(title: "Settings…", symbol: "gearshape", trailing: "⌘,", action: self.model.onSettings)
                     .keyboardShortcut(",", modifiers: .command)
                 MenuPopoverAction(title: "Quit", symbol: "xmark.rectangle", trailing: "⌘Q", action: self.model.onQuit)

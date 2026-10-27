@@ -3,7 +3,7 @@ import Foundation
 /// Where QuotaBar keeps what it writes for itself.
 public enum AppSupport {
     /// `~/Library/Application Support/QuotaBar`.
-    static var directory: URL {
+    public static var directory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return support.appendingPathComponent("QuotaBar", isDirectory: true)

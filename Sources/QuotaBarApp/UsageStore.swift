@@ -243,6 +243,12 @@ final class UsageStore: ObservableObject {
         self.refreshCosts(for: self.settings.menuBarProvider)
     }
 
+    /// Scans every provider's local usage, for the usage window, which reports all sources at
+    /// once. Each scan shares its provider's task with every other path, so calls coalesce.
+    func refreshAllLocalUsage() {
+        for provider in Provider.allCases { self.refreshCosts(for: provider) }
+    }
+
     func cooldownRemaining(for provider: Provider) -> TimeInterval {
         self.eligibility.remaining(provider, given: self.conditions(for: provider),
                                    uptime: self.clock(), now: self.dateClock())

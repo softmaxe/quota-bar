@@ -9,15 +9,6 @@ enum VerifierReport {
     static func report(_ message: String, label: String) {
         fputs("\(label) failed: \(message)\n", stderr)
     }
-
-    /// Runs an async check on the main run loop. `body` owns the process: it must end it with
-    /// `exit`.
-    @MainActor
-    static func runAsync(_ body: @escaping @MainActor () async -> Void) -> Never {
-        Task { await body() }
-        RunLoop.main.run()
-        fatalError("verification run loop stopped")
-    }
 }
 
 /// Polls from async code until `ready` holds. The deadline only turns a state that never arrives

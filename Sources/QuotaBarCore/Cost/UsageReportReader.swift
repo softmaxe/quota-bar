@@ -184,11 +184,6 @@ public struct UsageReportSnapshot: Codable, Sendable, Equatable {
     public var hasRecordedUsage: Bool {
         self.history.contains(where: \.recorded)
     }
-
-    public var defaultFilename: String {
-        let endDay = self.days.last?.day ?? "usage"
-        return "QuotaBar-Usage-\(endDay).html"
-    }
 }
 
 public enum UsageReportReaderError: LocalizedError, Equatable {

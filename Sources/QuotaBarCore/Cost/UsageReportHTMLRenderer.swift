@@ -6,12 +6,7 @@ public enum UsageReportHTMLRenderer {
         let template = try Self.resource("report", extension: "html")
         let stylesheet = try Self.resource("report", extension: "css")
         let runtime = try Self.resource("report", extension: "js")
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let json = String(decoding: try encoder.encode(snapshot), as: UTF8.self)
-            .replacingOccurrences(of: "<", with: "\\u003c")
-            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
-            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+        let json = try Self.scriptLiteral(snapshot)
 
         let replacements: [String: String] = [
             "STYLE": "<style>\(stylesheet)</style>",
@@ -33,6 +28,18 @@ public enum UsageReportHTMLRenderer {
         }
         result += source.substring(from: cursor)
         return result
+    }
+
+    /// The snapshot as a JavaScript literal that is safe inside a `<script>` element or passed to
+    /// a web view's `evaluateJavaScript`: markup and the two line separators JavaScript rejects
+    /// in strings are escaped.
+    public static func scriptLiteral(_ snapshot: UsageReportSnapshot) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: try encoder.encode(snapshot), as: UTF8.self)
+            .replacingOccurrences(of: "<", with: "\\u003c")
+            .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
+            .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
     }
 
     private static func resource(_ name: String, extension suffix: String) throws -> String {

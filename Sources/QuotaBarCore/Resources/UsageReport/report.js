@@ -88,13 +88,19 @@
   };
 
   // Saved history, one entry per calendar day. Every figure on the page is summed from the days
-  // inside the selected period, so changing the period needs no new export.
+  // inside the selected period, so changing the period needs no new snapshot.
   const FIELDS=['input','output','cacheRead','cacheWrite','cacheWrite1h','cost','unpricedTokens','total'];
   const COST_FIELDS=['input','output','cacheRead','cacheWrite','cacheSavings','fast','fastPremium'];
-  const HISTORY=REPORT.history??REPORT.days;
-  const BY_DAY=new Map(HISTORY.map(d=>[d.day,d]));
-  const FIRST_DAY=HISTORY[0]?.day??'',LAST_DAY=HISTORY.at(-1)?.day??'';
-  const DEFAULT_PERIOD=String(REPORT.days.length)==='7'?'7':'30';
+  // The app's live view replaces the snapshot in place, so everything read from it is reassignable.
+  let report,BY_DAY,FIRST_DAY,LAST_DAY,DEFAULT_PERIOD;
+  function load(next){
+    report=next;
+    const history=report.history??report.days;
+    BY_DAY=new Map(history.map(d=>[d.day,d]));
+    FIRST_DAY=history[0]?.day??'';LAST_DAY=history.at(-1)?.day??'';
+    DEFAULT_PERIOD=String(report.days.length)==='7'?'7':'30';
+  }
+  load(REPORT);
   const toTime=day=>Date.parse(day+'T00:00:00Z');
   const fromTime=time=>new Date(time).toISOString().slice(0,10);
   const shiftDay=(day,offset)=>fromTime(toTime(day)+offset*86400000);
@@ -114,7 +120,7 @@
       days.push(BY_DAY.get(key)??{day:key,recorded:false,...zero(FIELDS),sources:[],models:[]});
     }
     daySources=days.map(day=>new Map((day.sources??[]).map(row=>[sourceId(row),row])));
-    if(REPORT.sources.length===1)days.forEach((day,i)=>{if(day.recorded&&!daySources[i].size)daySources[i].set(sourceId(REPORT.sources[0]),day);});
+    if(report.sources.length===1)days.forEach((day,i)=>{if(day.recorded&&!daySources[i].size)daySources[i].set(sourceId(report.sources[0]),day);});
     totals=days.reduce((sum,day)=>addInto(sum,day,FIELDS),zero(FIELDS));
     breakdownCost=days.reduce((sum,day)=>addInto(sum,day.costBreakdown,COST_FIELDS),zero(COST_FIELDS));
     recordedDays=days.filter(d=>d.recorded).length;
@@ -325,10 +331,10 @@
   }
 
   function notes(){
-    let snapshot=REPORT.capturedAt;
-    try{snapshot=new Intl.DateTimeFormat('sv-SE',{timeZone:REPORT.timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(REPORT.capturedAt));}catch{}
+    let snapshot=report.capturedAt;
+    try{snapshot=new Intl.DateTimeFormat('sv-SE',{timeZone:report.timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(report.capturedAt));}catch{}
     const lines=[t('estimateNote'),totals.unpricedTokens>0?t('partialNote'):null,t('missingNote'),
-      t('sourcesLine')(providers.map(id=>presentation(id).label).join(' · ')||t('noRecord')),t('snapshotLine')(snapshot,REPORT.timezone)];
+      t('sourcesLine')(providers.map(id=>presentation(id).label).join(' · ')||t('noRecord')),t('snapshotLine')(snapshot,report.timezone)];
     document.getElementById('notes').replaceChildren(...lines.filter(Boolean).map(x=>h('p',{},x)));
   }
 
@@ -360,6 +366,13 @@
   const save=()=>{try{localStorage.setItem(STORE,JSON.stringify({language,metric,breakdown,period,range}));}catch{}};
   function setLanguage(next){language=next==='en'?'en':'zh';save();render();}
   window.setReportLanguage=setLanguage;
+  // Called by the app with a newer snapshot. The chosen view stays; a custom end past the new
+  // last day is clamped like a stored one.
+  window.updateReport=next=>{
+    load(next);
+    if(period==='custom'&&range.to>LAST_DAY)range={...range,to:LAST_DAY};
+    render();
+  };
   document.querySelectorAll('[data-language]').forEach(b=>b.addEventListener('click',()=>setLanguage(b.dataset.language)));
   document.querySelectorAll('[data-metric]').forEach(b=>b.addEventListener('click',()=>{metric=b.dataset.metric;save();render();}));
   document.querySelectorAll('[data-breakdown]').forEach(b=>b.addEventListener('click',()=>{breakdown=b.dataset.breakdown;save();render();}));

@@ -10,6 +10,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private let store: UsageStore
     private let settings: SettingsStore
     private let settingsWindow: SettingsWindowController
+    private let usageWindow: UsageReportWindowController
     private let now: () -> Date
     private let openMenuClockInterval: TimeInterval
     private let refreshRowClockInterval: TimeInterval
@@ -49,6 +50,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
+        self.usageWindow = UsageReportWindowController(store: store)
         self.now = now
         self.openMenuClockInterval = openMenuClockInterval
         self.refreshRowClockInterval = refreshRowClockInterval
@@ -82,6 +84,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let commands = NSMenu(title: "QuotaBar")
         for (title, action, key) in [
             ("Refresh", #selector(self.refreshClicked), "r"),
+            ("Usage…", #selector(self.usageClicked), "u"),
             ("Settings…", #selector(self.settingsClicked), ","),
             ("Quit QuotaBar", #selector(self.quitClicked), "q")
         ] {
@@ -356,6 +359,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
             provider: provider
         )
         model.onRefresh = { [weak self] in self?.refreshClicked() }
+        model.onUsage = { [weak self] in self?.usageClicked() }
         model.onSettings = { [weak self] in self?.settingsClicked() }
         model.onQuit = { [weak self] in self?.quitClicked() }
         model.onClose = { [weak self] in self?.closePopover() }
@@ -465,6 +469,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         // Any assignment, even of an equal value, re-renders the whole menu, and this runs every
         // second while it is open.
         if presentation.refreshState != state { presentation.refreshState = state }
+    }
+
+    @objc private func usageClicked() {
+        self.closePopover()
+        self.usageWindow.show()
     }
 
     @objc private func settingsClicked() {
