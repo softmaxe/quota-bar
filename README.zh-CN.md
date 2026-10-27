@@ -61,6 +61,12 @@ brew uninstall --zap --cask quota-bar
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
+Release ZIP 还附带构建来源证明（build provenance attestation）。如需确认 ZIP 由本仓库的发布工作流构建，可用 GitHub CLI 运行：
+
+```bash
+gh attestation verify QuotaBar-*-macos-arm64.zip --repo softmaxe/quota-bar
+```
+
 发布包使用 ad hoc 签名，未通过 Apple Developer ID 公证。若 macOS 首次启动时阻止打开，请先尝试打开一次，再前往 **系统设置 → 隐私与安全性**，选择 **仍要打开**。如果仍无法打开，确认应用位于 `/Applications` 后，可以只移除这个应用的隔离属性：
 
 ```bash

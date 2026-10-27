@@ -61,6 +61,12 @@ Download the matching `.sha256` file into the same directory as the ZIP. Run thi
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
+Release ZIPs also carry a build provenance attestation. To confirm that this repository's release workflow built the ZIP, run this with the GitHub CLI:
+
+```bash
+gh attestation verify QuotaBar-*-macos-arm64.zip --repo softmaxe/quota-bar
+```
+
 Releases are ad hoc signed, not notarized with an Apple Developer ID. If macOS blocks the first launch, try opening the app once, then go to **System Settings → Privacy & Security** and choose **Open Anyway**. As a fallback, after confirming the app is in `/Applications`, remove quarantine from this app only:
 
 ```bash
