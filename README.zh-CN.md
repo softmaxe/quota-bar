@@ -61,6 +61,12 @@ brew uninstall --zap --cask quota-bar
 shasum -a 256 -c QuotaBar-*-macos-arm64.zip.sha256
 ```
 
+Release ZIP 还附带构建来源证明（build provenance attestation）。如需确认 ZIP 由本仓库的发布工作流构建，可用 GitHub CLI 运行：
+
+```bash
+gh attestation verify QuotaBar-*-macos-arm64.zip --repo softmaxe/quota-bar
+```
+
 发布包使用 ad hoc 签名，未通过 Apple Developer ID 公证。若 macOS 首次启动时阻止打开，请先尝试打开一次，再前往 **系统设置 → 隐私与安全性**，选择 **仍要打开**。如果仍无法打开，确认应用位于 `/Applications` 后，可以只移除这个应用的隔离属性：
 
 ```bash
@@ -307,7 +313,7 @@ make build
 
 发布正式版本时，推送符合 `vMAJOR.MINOR.PATCH` 格式的 Git 标签，由标签决定应用版本号。本地 `make app` 使用当前提交历史中最近的发布标签，没有时使用 `0.0.0`。设置 `VERSION` 可覆盖版本号。
 
-工作流会运行测试、打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
+`main` 上的每个提交都已通过 PR 检查，因此工作流不再重复运行测试，直接打包 `arm64` ZIP，并校验签名、版本、架构和校验和。随后发布 GitHub Release，再更新 `softmaxe/homebrew-tap`。标签必须指向 `main` 上的提交，并需要 `homebrew-tap` 环境中的 `HOMEBREW_TAP_TOKEN` secret，该环境只允许 `v*.*.*` 标签使用。**Release** 和 **Update Homebrew tap** 都必须成功。
 
 </details>
 
