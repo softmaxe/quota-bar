@@ -59,10 +59,32 @@ struct PricingRow: Identifiable, Equatable {
     var output: Double? { self.rates?.output }
     var cacheWrite: Double? { self.rates?.cacheWrite }
     var cacheRead: Double? { self.rates?.cacheRead }
+}
 
-    /// Whether the model has a second price tier, which the row labels so it is clear there is
-    /// more behind the disclosure than the four visible columns.
-    var hasLongContextTier: Bool { self.rates?.thresholdTokens != nil }
+/// The order of the pricing list: the models the local logs spend tokens on, busiest first,
+/// whichever source prices them; then the rest in their provider's configured order.
+enum PricingListPolicy {
+    static func precedes(_ lhs: PricingRow, _ rhs: PricingRow) -> Bool {
+        if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
+        if lhs.seenInLogs != rhs.seenInLogs { return lhs.seenInLogs }
+
+        let lhsGroup = PricingGroup.allCases.firstIndex(of: lhs.group) ?? .max
+        let rhsGroup = PricingGroup.allCases.firstIndex(of: rhs.group) ?? .max
+        if lhsGroup != rhsGroup { return lhsGroup < rhsGroup }
+
+        let lhsRank = lhs.settingsRank ?? .max
+        let rhsRank = rhs.settingsRank ?? .max
+        if lhsRank != rhsRank { return lhsRank < rhsRank }
+        return lhs.model < rhs.model
+    }
+
+    /// The rows a search keeps, in list order. Matching ignores case, so "GLM" finds "glm-5.3".
+    static func filtered(_ rows: [PricingRow], matching query: String) -> [PricingRow] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ordered = rows.sorted(by: Self.precedes)
+        guard !query.isEmpty else { return ordered }
+        return ordered.filter { $0.model.localizedCaseInsensitiveContains(query) }
+    }
 }
 
 /// Backs the pricing pane: the rates the rate card prices each model at today, beside how much
@@ -78,12 +100,15 @@ final class PricingTableModel: ObservableObject {
     /// When models.dev was last read, and whether pricing from it is on, for the footer.
     @Published private(set) var modelsDevFetchedAt: Date?
     @Published private(set) var modelsDevEnabled = true
-    /// Rows whose one-hour and long-context rates are unfolded. Kept here rather than in the
-    /// view so a headless dump can capture an expanded row.
-    @Published var expandedRowIDs: Set<String> = []
-    /// Which column the table is ordered by. Held here so the header arrows and the row order
-    /// cannot disagree, and so the order survives a reload of the rates.
-    @Published private(set) var sort: PricingSort = .default
+    /// How many models each source prices, for the source list in General. The models.dev count
+    /// is the cached catalog's, so it still reads while that source is switched off.
+    @Published private(set) var priceBookModelCount = 0
+    @Published private(set) var modelsDevModelCount = 0
+    /// The row whose rates fill the detail side. Kept here rather than in the view so it
+    /// survives a reload of the rates and a headless dump can pick one.
+    @Published var selectedRowID: String?
+    /// Narrows the list by model name.
+    @Published var searchText = ""
 
     private let costService: CostService
     private var rateCard = RateCard()
@@ -118,20 +143,31 @@ final class PricingTableModel: ObservableObject {
 
     /// Fills the table from the price book, the third-party rates, and the local scan cache.
     func load() async {
-        if let fixtures = self.fixtures {
-            self.rateCard = fixtures.rateCard
-            self.modelsDevFetchedAt = fixtures.rateCard.thirdParty.fetchedAt
-            await self.readUsage()
-            return
-        }
-
-        let modelsDev = ModelsDevPricing.live
-        self.rateCard = RateCard.onDisk(modelsDev: modelsDev)
-        self.modelsDevEnabled = modelsDev.enabled
-        self.modelsDevFetchedAt = modelsDev.cached().fetchedAt
+        self.loadSources()
         await self.readUsage()
+        guard self.fixtures == nil else { return }
         self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
             $0.status.message(agent: $0.source.displayName)
+        }
+    }
+
+    /// Rereads the rates and what each source covers, without touching the usage database, so
+    /// General can describe the sources without paying for the pricing list.
+    func loadSources() {
+        let cached: ThirdPartyRates
+        if let fixtures = self.fixtures {
+            self.rateCard = fixtures.rateCard
+            cached = fixtures.rateCard.thirdParty
+        } else {
+            let modelsDev = ModelsDevPricing.live
+            cached = modelsDev.cached()
+            self.rateCard = RateCard(thirdParty: modelsDev.enabled ? cached : .empty)
+            self.modelsDevEnabled = modelsDev.enabled
+        }
+        self.modelsDevFetchedAt = cached.fetchedAt
+        self.modelsDevModelCount = cached.models.count
+        self.priceBookModelCount = Provider.allCases.reduce(0) {
+            $0 + self.rateCard.settingsModels(for: $1).count
         }
     }
 
@@ -209,44 +245,29 @@ final class PricingTableModel: ObservableObject {
                 }
             }
         }
-        // Provider sections stay stable; active models rise within their section by actual usage.
-        return rows.values.sorted(by: PricingSortPolicy.defaultOrder)
+        return rows.values.sorted(by: PricingListPolicy.precedes)
     }
 
-    func rows(in group: PricingGroup) -> [PricingRow] {
-        PricingSortPolicy.sorted(self.rows.filter { $0.group == group }, by: self.sort)
+    /// The list as the search leaves it.
+    var listRows: [PricingRow] {
+        PricingListPolicy.filtered(self.rows, matching: self.searchText)
     }
 
-    /// Header click: flips the column that is already sorted, otherwise switches to the tapped one.
-    func toggleSort(_ field: PricingSortField) {
-        self.sort = PricingSortPolicy.next(after: self.sort, tapping: field)
-    }
-
-    /// Back to the order the pane loads in, most-used first.
-    func resetSort() {
-        self.sort = .default
+    /// The row the detail side shows: the one picked, or the top of the list until one is, or
+    /// when the search hides the one picked.
+    var selectedRow: PricingRow? {
+        let rows = self.listRows
+        return rows.first { $0.id == self.selectedRowID } ?? rows.first
     }
 
 #if DEBUG
     /// Lets a headless run drive the table without reading the pricing files on disk.
     func debugSetRows(_ rows: [PricingRow]) {
-        self.rows = rows.sorted(by: PricingSortPolicy.defaultOrder)
+        self.rows = rows.sorted(by: PricingListPolicy.precedes)
         self.isLoading = false
         self.hasLoadedUsage = true
     }
 #endif
-
-    func isExpanded(_ id: String) -> Bool {
-        self.expandedRowIDs.contains(id)
-    }
-
-    func toggleExpanded(_ id: String) {
-        if self.expandedRowIDs.contains(id) {
-            self.expandedRowIDs.remove(id)
-        } else {
-            self.expandedRowIDs.insert(id)
-        }
-    }
 
     static func text(_ value: Double?) -> String {
         guard let value else { return "—" }

@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to choose a refresh interval, the provider the menu bar shows, and whether models.dev prices other models, or to [see model prices](#model-prices).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, drag the refresh interval along a track that marks the rate-limit-prone stops in orange, and turn models.dev pricing on or off under **Price sources**, or to [see model prices](#model-prices).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -199,7 +199,7 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 - Every cost is an estimate at API list prices.
 - Claude and OpenAI models use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
-- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off in **Settings → General**.
+- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off under **Settings → General → Price sources**.
 - Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. Without a Fast multiplier, and for models priced from models.dev, Fast usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
 - Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
@@ -219,10 +219,10 @@ While the window is open, QuotaBar scans every source's local logs once a minute
 
 ## Model prices
 
-Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. Rows are grouped into **Claude**, **Codex**, and **Others**; the first two come from the price book, and **Others** lists every other model found locally, priced from models.dev or unpriced. Expand a row for the one-hour cache write rate, the long-context threshold, and the rates above it. Click a column heading to sort; reset the order to restore the API model list and sort **Others** by usage.
+Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. The list on the left holds the current Claude and OpenAI API models from the price book and every other model found locally, priced from models.dev or unpriced. Models used on this Mac come first, busiest at the top, with a bar of their recorded tokens; search narrows the list by name. Select a model to see its four main rates, the one-hour cache write rate, the long-context threshold and the rates above it, its source, and a link to the source's own price page. Use the Up and Down Arrow keys to move through the list.
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing table grouped by Claude, Codex, and Others, with one row expanded to show its long-context rates">
+  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing pane with a model list ordered by local usage on the left and the selected model's rates, including its long-context tier, on the right">
 </p>
 
 Rates cannot be edited. To change a Claude or OpenAI rate, update the price book (see [Maintaining the price book](docs/pricing.md)). Earlier versions saved custom rates in `pricing-overrides.json`; this version deletes that file on launch.
@@ -246,7 +246,7 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 
 </details>
 
-Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Claude and OpenAI prices ship with the app. While **Price other models with models.dev** is on, QuotaBar downloads `https://models.dev/api.json` at most once a day; the request carries no usage or account data. It does not send local session records to these services.
+Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Claude and OpenAI prices ship with the app. While **models.dev** is on under **Price sources**, QuotaBar downloads `https://models.dev/api.json` at most once a day; the request carries no usage or account data. It does not send local session records to these services.
 
 ## Build and develop
 
@@ -325,7 +325,7 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev pricing is on in **Settings → General** and that models.dev lists the model. |
+| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev is on under **Settings → General → Price sources** and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
 | Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |

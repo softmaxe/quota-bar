@@ -78,6 +78,6 @@ Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex
 - `context_over_200k` becomes a 200K long-context tier. Third-party requests are classified against 200K at scan time even before their rates are downloaded. There is no Fast tier.
 - A model whose rates changed since the last fetch gets a new period starting that day, so earlier days keep their rates.
 - Names containing `claude` or `gpt-`, starting with `chatgpt-`, `codex-`, `o<digit>`, or a vendor prefix such as `openai-` or `us.anthropic.`, and models whose maker is OpenAI or Anthropic, are never priced from models.dev. A new Claude or OpenAI model stays unpriced until the book lists it.
-- **Settings → General → Price other models with models.dev** turns this off. Third-party usage is then unpriced and nothing is downloaded.
+- The **models.dev** switch under **Settings → General → Price sources** turns this off. Third-party usage is then unpriced and nothing is downloaded.
 
 `ThirdPartyRatesTests` covers the parsing, the choice between listings, and the dated cache.

@@ -50,32 +50,38 @@ enum CardDump {
         // fixtures keep the machine's own logs and cached rates out of the render.
         let defaults = EphemeralDefaults.make("QuotaBarSettingsDump")
         let settings = SettingsStore(defaults: defaults)
-        let pricing = PricingTableModel(
-            costService: CostService(databaseURL: root.appendingPathComponent("unused.sqlite")),
-            fixtures: Self.pricingFixtures
+        let costService = CostService(databaseURL: root.appendingPathComponent("unused.sqlite"))
+        let pricing = PricingTableModel(costService: costService, fixtures: Self.pricingFixtures)
+        // General draws each provider's live quota, so the store carries the sample snapshots.
+        let store = UsageStore(
+            settings: settings,
+            costService: costService,
+            historyStore: UsageHistoryStore(fileURL: root.appendingPathComponent("unused-history.json")),
+            recoveryDefaults: defaults
         )
+        for provider in Provider.allCases {
+            store.debugSetDisplay(ProviderDisplay(snapshot: Self.loadedSnapshot(provider)), for: provider)
+        }
 
         Self.captureSettings(
-            AnyView(SettingsView(settings: settings, pricing: pricing)),
+            AnyView(SettingsView(settings: settings, pricing: pricing, store: store)),
             named: "settings",
             into: root
         )
-        // The pricing pane again on its own, with the top row unfolded, so the one-hour and
-        // long-context fields are in the dump rather than a click away. The rows only load when
-        // the pane appears, and the first capture never selects that tab, so load them here.
+        // The pricing pane again on its own. The rows only load when the pane appears, and the
+        // first capture never selects that tab, so load them here. A model with a long-context
+        // tier is picked when there is one, so the dump shows every line the detail side has.
         let loading = Task {
             await pricing.load()
-            // The first row the table draws is the first API model, not the busiest one, so pick
-            // the busiest explicitly: an unfolded row with real numbers above it reads better
-            // than one captioned "Not used locally".
-            let row = pricing.rows.max { $0.usageTokens < $1.usageTokens } ?? pricing.rows.first
-            if let row { pricing.expandedRowIDs = [row.id] }
+            let row = pricing.listRows.first { $0.rates?.thresholdTokens != nil && $0.usageTokens > 0 }
+                ?? pricing.listRows.first
+            pricing.selectedRowID = row?.id
         }
         RunLoop.current.run(until: Date().addingTimeInterval(3))
         _ = loading
         Self.captureSettings(
             AnyView(PricingSettingsView(model: pricing)),
-            named: "settings-pricing-expanded",
+            named: "settings-pricing",
             into: root
         )
     }
@@ -124,7 +130,7 @@ enum CardDump {
 
     /// Made-up token totals, the built-in rate table, and two made-up models.dev rates, so the pricing pane renders the same
     /// on any machine and carries nobody's account in it.
-    private static let pricingFixtures = PricingTableModel.PreviewFixtures(
+    static let pricingFixtures = PricingTableModel.PreviewFixtures(
         usage: [
             .claude: [
                 ModelUsageTotal(model: "claude-opus-5", tokens: 412_000_000),

@@ -71,10 +71,9 @@ enum InterfacePreview {
                 historyStore: UsageHistoryStore(fileURL: scratch.appendingPathComponent("history.json")),
                 recoveryDefaults: defaults
             )
-            let pricing = PricingTableModel(
-                costService: service,
-                fixtures: .init(usage: [:])
-            )
+            // The same sample usage and models.dev rates the settings dump uses, so the pricing
+            // list has busy, unused, and unpriced rows to show.
+            let pricing = PricingTableModel(costService: service, fixtures: CardDump.pricingFixtures)
 
             for provider in Provider.allCases where motion == nil {
                 store.debugSetDisplay(ProviderDisplay(
