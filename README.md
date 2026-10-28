@@ -154,9 +154,9 @@ QuotaBar counts tokens in local session logs and estimates what that usage would
 
 ### Reading the chart
 
-Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows today and the last 30 days.
+Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows the selected day and the last 30 days, each with its value in the other unit underneath.
 
-Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. Expand **Model breakdown** to see that day's models and keep the date fixed. Each model shows the mark of the tool that used it and a bar of its share of the day in the chosen unit. Click the pinned day again, or reopen the card, to resume hover previews. Switching units keeps the selected date.
+Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. The summary's first figure follows the selection and reads **Today** until another day is chosen. Click the row under the chart to list that day's models and keep the date fixed. Each model shows the mark of the tool that used it, a bolt for Fast usage, and a bar of its share of the day in the chosen unit. Click the pinned day again, or reopen the card, to resume hover previews. Switching units keeps the selected date.
 
 The chart distinguishes zero usage from missing data:
 
@@ -165,7 +165,7 @@ The chart distinguishes zero usage from missing data:
 | **0** or **$0.00** | The value rounds to zero. The chart shows a solid gray stub. Missing prices are marked separately. |
 | **—**, **Not scanned yet** | The date is later than the last completed scan and has no recorded usage. The chart shows a dashed stub. |
 | **—** in Cost view | Usage is recorded, but no rate applies. The chart shows a dashed stub. |
-| **No price** in Model breakdown | The model has no rate on that day. Cost totals include priced usage only, so they leave its tokens out. |
+| **No price** in a day's model list | The model has no rate on that day. Cost totals include priced usage only, so they leave its tokens out. |
 
 **Settings → Pricing** lists every model with its rates and where they come from. Unpriced models are local or free models, new Claude or OpenAI models the price book does not list yet, and Fast usage of models without a Fast multiplier.
 
