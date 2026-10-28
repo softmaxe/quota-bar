@@ -11,10 +11,11 @@ struct CostSectionView: View {
     /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
     private static let emptyStubHeight: CGFloat = 3
     private static let minimumBarHeight: CGFloat = 4
+    /// How far the day summary's hover highlight reaches past its text.
+    private static let summaryInset: CGFloat = 6
     /// A row is a line of text over its share bar.
     static let breakdownLayout = CostBreakdownLayout(
         rowHeight: 21,
-        toggleHeight: 22,
         spacing: 7
     )
 
@@ -22,6 +23,7 @@ struct CostSectionView: View {
     @State private var hoveredDayKey: String?
     @State private var detailDayKey: String?
     @State private var pinnedDayKey: String?
+    @State private var summaryHovered = false
     @FocusState private var focusedDayKey: String?
 
     private let todayDayKey: String
@@ -84,7 +86,6 @@ struct CostSectionView: View {
             self.kpiRow
             self.chart
             self.dayDetail
-            self.modelDisclosure
         }
         .onChange(of: self.snapshot) { previous, current in
             self.reconcileSelection(providerChanged: previous.provider != current.provider)
@@ -142,43 +143,42 @@ struct CostSectionView: View {
         }
     }
 
+    /// The left figure reads out the selected day, as a stock chart's header follows the pointer;
+    /// it says Today until another day is hovered or pinned.
     private var kpiRow: some View {
-        HStack(alignment: .top, spacing: 16) {
+        let day = self.shownDay
+        let unobserved = self.isUnobserved(day.dayKey)
+        let dayTokens = Formatters.tokens(day.tokens.total)
+        let dayCost = self.costValue(day.costAvailability)
+        let windowTokens = Formatters.tokens(self.snapshot.windowTokens)
+        let windowCost = self.costValue(self.snapshot.windowCostAvailability)
+        let showsTokens = self.selectedLabelMode == .tokens
+        return HStack(alignment: .top, spacing: 16) {
             self.kpi(
-                label: "Today",
-                value: self.isUnobserved(self.todayDayKey) ? "—" : self.selectedLabelMode == .tokens
-                    ? Formatters.tokens(self.todayDay.tokens.total)
-                    : self.costValue(self.todayDay.costAvailability),
-                status: self.isUnobserved(self.todayDayKey) ? "Not scanned yet" : nil
+                label: day.dayKey == self.todayDayKey ? "Today" : Formatters.dayLabel(day.dayKey),
+                value: unobserved ? "—" : showsTokens ? dayTokens : dayCost,
+                detail: unobserved ? "Not scanned yet" : showsTokens ? dayCost : "\(dayTokens) tokens"
             )
             self.kpi(
                 label: "Last 30 days",
-                value: self.selectedLabelMode == .tokens
-                    ? Formatters.tokens(self.snapshot.windowTokens)
-                    : self.costValue(self.snapshot.windowCostAvailability),
-                status: nil
+                value: showsTokens ? windowTokens : windowCost,
+                detail: showsTokens ? windowCost : "\(windowTokens) tokens"
             )
         }
     }
 
-    private var needsKPIStatusRow: Bool {
-        self.isUnobserved(self.todayDayKey)
-    }
-
-    private func kpi(label: String, value: String, status: String?) -> some View {
+    private func kpi(label: String, value: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
-            // Keyed to the data rather than the text: a rescan rolls the value, a unit change swaps it.
+            // Keyed to the data rather than the text: a rescan rolls the value, a unit change or
+            // another day swaps it.
             Text(value).font(.system(size: 16, weight: .semibold)).monospacedDigit()
                 .rollingValue(self.snapshot)
-            if self.needsKPIStatusRow {
-                Text(status ?? " ")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .opacity(status == nil ? 0 : 1)
-                    .accessibilityHidden(status == nil)
-            }
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -389,79 +389,50 @@ struct CostSectionView: View {
         self.bars.first { $0.dayKey == self.selectedDayKey }
     }
 
-    private var dayDetail: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(self.selectedDay.map { Formatters.dayLabel($0.dayKey) } ?? "Day")
-                    .font(.system(size: 11, weight: .medium))
-                Spacer(minLength: 4)
-                if let day = self.selectedDay, !day.byModel.isEmpty {
-                    Text("\(day.byModel.count) models")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if let day = self.selectedDay {
-                if self.isUnobserved(day.dayKey) {
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Text("—")
-                            .font(.system(size: 17, weight: .medium))
-                        Text("Not scanned yet")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(height: 22, alignment: .top)
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        let cost = self.costValue(day.costAvailability)
-                        let tokens = "\(Formatters.tokens(day.tokens.total)) tokens"
-                        // Hovering or selecting another day swaps the values; the bar highlight
-                        // already shows where the selection moved.
-                        let primary = self.selectedLabelMode == .tokens ? tokens : cost
-                        let secondary = self.selectedLabelMode == .tokens ? cost : tokens
-                        Text(primary)
-                            .font(.system(size: 17, weight: .medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Text(secondary)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .monospacedDigit()
-                    .frame(height: 22, alignment: .top)
-                }
-            }
-            Divider()
-        }
+    /// The day the figures and the model list describe: the selected one, or today before any
+    /// day has data.
+    private var shownDay: CostDay {
+        self.selectedDay ?? self.todayDay
     }
 
-    private var modelDisclosure: some View {
+    /// A single row under the chart opens the shown day's model list; its totals are already in
+    /// the figures above.
+    @ViewBuilder
+    private var dayDetail: some View {
+        let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
+        let dayTotal = ranked.reduce(0) { $0 + self.breakdownValue($1.usage) }
+        // A day with no models has nothing to open, unless the list is already open and has to
+        // close again.
+        let canToggle = !ranked.isEmpty || self.isBreakdownExpanded
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                self.onBreakdownExpandedChanged(!self.isBreakdownExpanded, self.selectedDayKey)
-            } label: {
-                HStack {
-                    Text("Model breakdown")
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .rotationEffect(.degrees(self.breakdownOpenness * 90))
-                        .animation(DisclosureMotion.open(
-                            reduceMotion: CostChartHoverMotion.systemReduceMotion
-                        ), value: self.breakdownOpenness)
+            if canToggle {
+                Button {
+                    self.onBreakdownExpandedChanged(!self.isBreakdownExpanded, self.selectedDayKey)
+                } label: {
+                    self.dayToggleLabel(models: ranked.count, showsChevron: true)
+                        .padding(.horizontal, Self.summaryInset)
+                        .padding(.vertical, Self.summaryInset / 2)
+                        .contentShape(Rectangle())
                 }
-                .font(.system(size: 11))
-                .contentShape(Rectangle())
-                .frame(height: CGFloat(Self.breakdownLayout.toggleHeight))
+                .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
+                .background(
+                    self.summaryHovered ? Color.primary.opacity(0.06) : .clear,
+                    in: RoundedRectangle(cornerRadius: 5)
+                )
+                .animation(
+                    CostChartHoverMotion.systemReduceMotion ? nil : .easeOut(duration: 0.10),
+                    value: self.summaryHovered
+                )
+                // The highlight reaches past the text; the text stays aligned with the card.
+                .padding(.horizontal, -Self.summaryInset)
+                .padding(.vertical, -Self.summaryInset / 2)
+                .onHover { self.summaryHovered = $0 }
+                .accessibilityValue(self.isBreakdownExpanded ? "Expanded" : "Collapsed")
+                .accessibilityHint(self.isBreakdownExpanded ? "Collapse model list" : "Expand model list")
+            } else {
+                self.dayToggleLabel(models: ranked.count, showsChevron: false)
             }
-            .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
-            .accessibilityLabel("Model breakdown")
-            .accessibilityValue(self.isBreakdownExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint(self.isBreakdownExpanded ? "Collapse model list" : "Expand model list")
 
-            let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
-            let dayTotal = ranked.reduce(0) { $0 + self.breakdownValue($1.usage) }
             VStack(alignment: .leading, spacing: 0) {
                 if self.isBreakdownExpanded {
                     // The height cuts open; the rows rise into place together, like every other
@@ -488,6 +459,37 @@ struct CostSectionView: View {
             .opacity(self.breakdownOpenness)
             .accessibilityHidden(self.breakdownOpenness < 1)
         }
+    }
+
+    private func dayToggleLabel(models: Int, showsChevron: Bool) -> some View {
+        let day = self.shownDay
+        let count = switch models {
+        case 0: self.isUnobserved(day.dayKey) ? "Not scanned yet" : "No usage"
+        case 1: "1 model"
+        default: "\(models) models"
+        }
+        return HStack(spacing: 6) {
+            Text(Formatters.dayLabel(day.dayKey))
+                .fontWeight(.medium)
+            Text(count)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(self.breakdownOpenness * 90))
+                    .animation(DisclosureMotion.open(
+                        reduceMotion: CostChartHoverMotion.systemReduceMotion
+                    ), value: self.breakdownOpenness)
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(.system(size: 11))
+        .monospacedDigit()
+        .lineLimit(1)
+        .frame(height: 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// The tool's mark and the model's name over a bar of its share of the day, in the chosen unit.

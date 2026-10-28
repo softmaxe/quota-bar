@@ -319,10 +319,12 @@ enum CardDump {
         ]
         let errors = ["claude-rate-limited": "Claude usage API rate-limited. Try again after 4:24 PM."]
 
-        // Capture both the idle and hovered states, since the dump has no pointer.
+        // Capture both the idle and hovered states, since the dump has no pointer. The hovered day
+        // is an earlier one, so the left figure shows it in place of Today.
         for (provider, cost) in costs {
             guard let today = cost.days.last,
-                  let hovered = cost.days.max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) }) else { continue }
+                  let hovered = cost.days.dropLast().max(by: { ($0.costUSD ?? 0) < ($1.costUSD ?? 0) })
+            else { continue }
             for (name, hoveredDayKey) in [("idle", nil), ("hover", hovered.dayKey)] {
                 for mode in [CostChartLabelMode.tokens, .cost] {
                     let suffix = mode == .tokens ? "" : "-cost"

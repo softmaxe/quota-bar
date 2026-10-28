@@ -89,10 +89,9 @@ enum CostChartHighlightPolicy {
     }
 }
 
-/// Sizing for the model breakdown rows and disclosure control.
+/// Sizing for the model breakdown rows.
 struct CostBreakdownLayout {
     let rowHeight: Double
-    let toggleHeight: Double
     let spacing: Double
 
     func rowsHeight(rows: Int) -> Double {
