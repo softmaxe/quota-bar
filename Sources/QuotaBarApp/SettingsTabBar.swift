@@ -30,7 +30,8 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
 
 /// The segments size themselves to their labels and report where they
 /// landed; the pill is drawn from those frames, so nothing here assumes two equal halves of the
-/// width or a fixed label.
+/// width or a fixed label. It wears the menu's provider switch: a raised chip on a gray track,
+/// so the app has one look for "pick one of these" rather than a blue pill only Settings uses.
 struct SettingsTabBar: View {
     @Binding var selection: SettingsTab
 
@@ -45,8 +46,10 @@ struct SettingsTabBar: View {
     @State private var hovered: SettingsTab?
     @FocusState private var focusedTab: SettingsTab?
 
-    private static let segmentHeight: CGFloat = 28
-    private static let cornerRadius: CGFloat = 6
+    private static let segmentHeight: CGFloat = 24
+    private static let cornerRadius: CGFloat = 5
+    private static let inset: CGFloat = 2
+    private static let trackCornerRadius: CGFloat = 7
     private static let coordinateSpace = "SettingsTabBar.segments"
 
     var body: some View {
@@ -57,6 +60,11 @@ struct SettingsTabBar: View {
         }
         .coordinateSpace(name: Self.coordinateSpace)
         .background(alignment: .leading) { self.pill }
+        .padding(Self.inset)
+        .background {
+            RoundedRectangle(cornerRadius: Self.trackCornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(0.07))
+        }
         .onPreferenceChange(SettingsTabBoundsKey.self) { value in
             self.bounds = value
             // First layout, and any later one that resizes the labels out from under the pill.
@@ -69,7 +77,8 @@ struct SettingsTabBar: View {
                   rect.minX != self.pillMinX || rect.maxX != self.pillMaxX else { return }
             self.movePill(to: rect)
         }
-        .padding(.vertical, 8)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
     }
@@ -84,9 +93,9 @@ struct SettingsTabBar: View {
                 self.label(tab, weight: .semibold).opacity(self.selection == tab ? 1 : 0)
                 self.label(tab, weight: .regular).opacity(self.selection == tab ? 0 : 1)
             }
-            .foregroundStyle(self.selection == tab ? Color.white : Color.primary.opacity(0.85))
+            .foregroundStyle(self.selection == tab ? Color.primary : Color.primary.opacity(0.75))
             .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: self.selection)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .frame(height: Self.segmentHeight)
             .background {
                 // The wash an unselected segment carries under the pointer. A fade, nothing more:
@@ -108,7 +117,7 @@ struct SettingsTabBar: View {
         .accessibilityAddTraits(self.selection == tab ? [.isSelected] : [])
         .overlay {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                .strokeBorder(self.selection == tab ? Color.white : Color.accentColor, lineWidth: 2)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(self.focusedTab == tab ? 1 : 0)
                 .allowsHitTesting(false)
         }
@@ -126,13 +135,14 @@ struct SettingsTabBar: View {
     private func label(_ tab: SettingsTab, weight: Font.Weight) -> some View {
         Label(tab.title, systemImage: tab.symbol)
             .labelStyle(.titleOnly)
-            .font(.system(size: 13, weight: weight))
+            .font(.system(size: 12, weight: weight))
             .fixedSize()
     }
 
     private var pill: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-            .fill(Color.accentColor)
+            .fill(ProviderTabBar.pillColor)
+            .shadow(color: .black.opacity(0.14), radius: 1, y: 0.5)
             .frame(width: max(0, self.pillMaxX - self.pillMinX), height: Self.segmentHeight)
             .offset(x: self.pillMinX)
     }

@@ -49,7 +49,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.store = store
         self.settings = settings
-        self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing)
+        self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing, store: store)
         self.usageWindow = UsageReportWindowController(store: store)
         self.now = now
         self.openMenuClockInterval = openMenuClockInterval

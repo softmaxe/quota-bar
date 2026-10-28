@@ -7,12 +7,14 @@ import SwiftUI
 final class SettingsWindowController {
     private let settings: SettingsStore
     private let pricing: PricingTableModel
+    private let store: UsageStore
     private let selection = SettingsSelection()
     private var window: NSWindow?
 
-    init(settings: SettingsStore, pricing: PricingTableModel) {
+    init(settings: SettingsStore, pricing: PricingTableModel, store: UsageStore) {
         self.settings = settings
         self.pricing = pricing
+        self.store = store
     }
 
     func show() {
@@ -25,14 +27,15 @@ final class SettingsWindowController {
         }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        // The window outlives being closed, so a reopened pricing pane rereads its rates.
+        // The window outlives being closed, so a reopened window rereads its rates.
+        self.selection.windowShows += 1
         if self.selection.tab == .pricing { self.selection.pricingReloads += 1 }
     }
 
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing,
-                                   selection: self.selection)
+                                   store: self.store, selection: self.selection)
         )
         let window = NSWindow(contentViewController: hosting)
         window.title = "QuotaBar Settings"
