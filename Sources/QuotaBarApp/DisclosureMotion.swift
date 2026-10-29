@@ -14,19 +14,3 @@ enum DisclosureMotion {
         reduceMotion ? nil : Self.openCurve
     }
 }
-
-/// The disclosure control itself: one glyph taking a quarter turn, rather than two glyphs
-/// swapping places. Callers set the color, because the group header and the rows inside it are
-/// deliberately not the same weight.
-struct DisclosureChevron: View {
-    let isOpen: Bool
-    var size: CGFloat = 9
-    var reduceMotion = false
-
-    var body: some View {
-        Image(systemName: "chevron.right")
-            .font(.system(size: self.size, weight: .semibold))
-            .rotationEffect(.degrees(self.isOpen ? 90 : 0))
-            .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: self.isOpen)
-    }
-}

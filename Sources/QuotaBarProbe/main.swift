@@ -38,7 +38,7 @@ func report(_ provider: Provider, _ state: ProviderState) {
     print("")
 }
 
-func reportCost(_ provider: Provider, _ snapshot: CostSnapshot?) {
+func reportCost(_ snapshot: CostSnapshot?) {
     guard let snapshot else {
         print("  cost: unavailable")
         return
@@ -164,7 +164,7 @@ for provider in Provider.allCases {
         print("[\(provider.displayName)]")
     }
     let started = Date()
-    reportCost(provider, await costService.refresh(provider))
+    reportCost(await costService.refresh(provider))
     print(String(format: "  scan took %.1fs", Date().timeIntervalSince(started)))
     print("")
 }

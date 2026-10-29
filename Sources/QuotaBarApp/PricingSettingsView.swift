@@ -17,7 +17,6 @@ struct PricingSettingsView: View {
     @FocusState private var isListFocused: Bool
 
     private static let listWidth: CGFloat = 236
-    private static let rateTileWidth: CGFloat = 76
     private static let detailLabelWidth: CGFloat = 132
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!

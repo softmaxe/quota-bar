@@ -163,10 +163,4 @@ struct ProviderTabBar: View {
         let count = CGFloat(Self.providers.count)
         return (index / count, (index + 1) / count)
     }
-
-    private static func provider(at x: CGFloat, width: CGFloat) -> Provider {
-        guard width > 0 else { return Self.providers[0] }
-        let index = Int((x / width) * CGFloat(Self.providers.count))
-        return Self.providers[max(0, min(Self.providers.count - 1, index))]
-    }
 }

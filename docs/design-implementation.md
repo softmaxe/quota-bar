@@ -1,6 +1,6 @@
 # Interaction implementation
 
-This implementation follows the approved interaction proposal. The original before/after boards remain in `design-proposal/` for comparison. Product screenshots in `images/interactions/` render the implemented native views with sample data.
+How the menu bar card, its controls, and its motion behave, and how to check them. Product screenshots in `images/interactions/` render the native views with sample data.
 
 ## What changed
 
@@ -8,7 +8,7 @@ This implementation follows the approved interaction proposal. The original befo
 - Cmd-R dispatches through a validated AppKit application command, Cmd-1 / Cmd-2 switch providers, Cmd-comma opens settings, and Escape closes the popover. Edit commands use the responder chain for normal text editing in settings.
 - Signed-out cards preserve the provider's reason and offer the correct CLI command, copy feedback, and a Check sign-in action. Copying a command does not execute it. Credentials and permission errors retain their separate recovery paths.
 - Refresh failures retain quota readings and show the last successful update near a warning. Server and local cooldowns jointly determine when retry is available. A local usage scan exposes its own progress, failure, and retry.
-- Pricing is a read-only table of the rates every estimate uses, grouped into Claude, Codex, and Others, with each row naming its source: the price book or models.dev ([ADR 0002](adr/0002-price-third-party-models-from-models-dev.md)). It replaced an override editor with validation, drafts, and a quit-time save prompt.
+- Pricing is a read-only table of the rates every estimate uses, grouped into Claude, Codex, and Others, with each row naming its source: the price book or models.dev ([ADR 0002](adr/0002-price-third-party-models-from-models-dev.md)).
 - Local usage has a visible Tokens / Cost selector and ten calendar date columns. Dates support whole-column pointer targets and keyboard selection. Model details are collapsed as a group; complete labels remain available to accessibility. Unit changes and refreshes preserve a still-valid date selection. Unpriced and partially priced usage have distinct labels; dates not covered by the last completed scan do not claim zero usage.
 - Quota headlines display authoritative values; a changed reading rolls in over 120 ms. Reset feedback lasts about 0.82 seconds and respects Reduce Motion. Each quota bar carries its pace marker inline, with the outcome line below it; duplicate Top model text is removed. Credits follow local usage.
 
@@ -32,7 +32,7 @@ make test
 
 The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to another full Xcode installation's `Contents/Developer` directory if needed. The project does not change global developer settings.
 
-Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, usage window updates, draft preservation, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
+Keep automated coverage for parsing, authentication refresh, scan integrity, pricing, persistence, usage window updates, cooldowns, and native Cmd-R routing. Date boundaries, scan coverage, and reset detection also retain focused regression checks.
 
 Repeated disclosure clicks, popover open/close sweeps, pixel and layout snapshots, and animation-curve sampling are not part of the test suite. Do not add routine checks that pin button labels, enum counts, template structure, or animation constants. Test a specific failure when a behavior changes or a bug is reported; stable visual controls do not need repeated manual or automated clicking.
 
@@ -42,7 +42,7 @@ Run `.build/debug/QuotaBar --verify-menu-interaction` in a logged-in desktop ses
 
 `MenuLifecycleTests` and `PopoverInputActivationTests`, part of `make test`, check the deferred menu, the activation handoff, mouse and keyboard event ordering, Escape, and cancellation without posting desktop input. To check native menu tracking, open the loaded preview's status icon while another app is frontmost, then click either reset-time control (`↻ …`) once. Its menu must stay open after release; selecting an item must update both reset labels without closing the card. Repeat after dismissing the card and returning focus to another app.
 
-Dark and light sample views, signed-out guidance, a cooldown error, and an invalid pricing field were rendered and inspected during implementation. A complete manual VoiceOver and Full Keyboard Access audit remains outstanding. The native AppKit key-equivalent check does not claim a complete assistive-technology audit.
+A complete manual VoiceOver and Full Keyboard Access audit remains outstanding. The native AppKit key-equivalent check does not claim a complete assistive-technology audit.
 
 ## Preview and rendering
 
@@ -64,14 +64,8 @@ The underlying flags are `--preview-interface <state>` and
 
 The `motion` state slows fetches and the first local scan, starts Claude signed out until Check sign-in, and shortens the refresh cooldown, so each animation can be watched again. Preview uses sample providers, a separate preference suite, temporary history, and no-op pricing writes. Use its Quit command for cleanup. It does not use CLI credentials or scan real session files. Normal app launch retains the real integrations.
 
-`make readme-assets` regenerates the documentation images and all five interaction state screenshots. `--dump-interaction-states` can also render just those state screenshots. The generated `.build` directory is ordinary local build output.
+`make readme-assets` regenerates the documentation images and all four interaction state screenshots. `--dump-interaction-states` can also render just those state screenshots. The generated `.build` directory is ordinary local build output.
 
 ## README synchronization
 
-The English and Simplified Chinese READMEs describe the same controls, keyboard shortcuts, refresh and scan recovery, pricing draft lifecycle, and cost availability states. Both versions use the same sample images, with translated captions and alternative text. The pricing section explains that saving a new rate reprices all recorded usage of that model.
-
-The root READMEs show current product views. The annotated before/after boards in `design-proposal/` remain the historical design baseline and are labeled accordingly.
-
-The asset script converts hosted screenshots to sRGB before compositing, preserving provider colors when ffmpeg drops the source color profile.
-
-The documentation follow-up checked both READMEs for matching image references and command examples. Representative screenshots were visually inspected. Run `make readme-assets` when documentation images need updating.
+The English and Simplified Chinese READMEs describe the same controls, keyboard shortcuts, refresh and scan recovery, and cost availability states, and use the same sample images with translated captions and alternative text. Update both together, and run `make readme-assets` when documentation images need updating.
