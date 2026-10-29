@@ -51,8 +51,6 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         self.operations = operations
     }
 
-    var isVisible: Bool { self.window?.isVisible ?? false }
-
     func show() {
         let window = self.window ?? self.makeWindow()
         if !window.isVisible { window.center() }

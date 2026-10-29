@@ -68,13 +68,6 @@ enum Formatters {
         String(format: "$%.2f", value)
     }
 
-    /// Compact axis label: "$90", "$1.2K".
-    static func compactCost(_ value: Double) -> String {
-        if value >= 1_000 { return String(format: "$%.1fK", value / 1_000) }
-        if value >= 10 { return String(format: "$%.0f", value) }
-        return String(format: "$%.2f", value)
-    }
-
     /// "2026-08-24" -> "Aug 24".
     static func dayLabel(_ dayKey: String) -> String {
         let parts = dayKey.split(separator: "-")
