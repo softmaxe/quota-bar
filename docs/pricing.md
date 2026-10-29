@@ -1,6 +1,6 @@
 # Maintaining the price book
 
-Claude and OpenAI models are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model is priced from models.dev through a local cache (see [Third-party models](#third-party-models)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs. [ADR 0001](adr/0001-derive-cost-from-a-dated-price-book.md) and [ADR 0002](adr/0002-price-third-party-models-from-models-dev.md) explain why.
+Claude and OpenAI models are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model is priced from models.dev through a local cache (see [Third-party models](#third-party-models)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs.
 
 ## Layout
 
