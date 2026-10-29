@@ -15,6 +15,12 @@ Before triaging issues, read `docs/agents/triage-labels.md`.
 Use a single-context layout with root `GLOSSARY.md` and `docs/adr/`.
 Before exploring the codebase, read `docs/agents/domain.md`.
 
+### UI previews
+
+Before changing a view or producing a visual review, read
+`docs/design-implementation.md`. Use `make preview` or `make card-snapshot`;
+`make run` launches the live app and is not a screenshot tool.
+
 ### Merging and releasing
 
 Merge pull requests and publish releases through GitHub.

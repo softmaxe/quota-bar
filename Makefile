@@ -2,12 +2,14 @@ APP_NAME := QuotaBar
 BUILD_DIR := .build
 CONFIG ?= debug
 PROVIDER ?= codex
+PREVIEW_STATE ?= loaded
+SNAPSHOT_DIR ?= $(BUILD_DIR)/screenshots/card
 SWIFT := Scripts/swift.sh
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
 
-.PHONY: build run probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
+.PHONY: build run preview card-snapshot probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
 
 build:
 	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)
@@ -15,6 +17,17 @@ build:
 ## Build and launch in the foreground. Logs land in this terminal; Ctrl-C stops the app.
 run: kill build
 	$(BIN)
+
+## Build and open the isolated sample interface without stopping the installed app.
+preview:
+	$(SWIFT) build -c debug --product $(APP_NAME)
+	$(DEBUG_BIN) --preview-interface $(PREVIEW_STATE)
+
+## Render offscreen card images from sample data into SNAPSHOT_DIR.
+card-snapshot:
+	$(SWIFT) build -c debug --product $(APP_NAME)
+	$(DEBUG_BIN) --dump-card "$(SNAPSHOT_DIR)"
+	@printf 'Card snapshots: %s\n' "$(SNAPSHOT_DIR)"
 
 ## Headless check that both providers still return usable data.
 probe:
