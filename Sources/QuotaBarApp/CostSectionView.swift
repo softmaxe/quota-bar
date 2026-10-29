@@ -64,7 +64,11 @@ struct CostSectionView: View {
         self._selectedLabelMode = State(initialValue: labelMode)
         self.parentLabelMode = labelMode
         self._hoveredDayKey = State(initialValue: previewHoveredDayKey)
-        self._detailDayKey = State(initialValue: previewHoveredDayKey ?? bars.last?.dayKey)
+        // An open model list keeps describing its day when the card is rebuilt.
+        let expandedDayKey = isBreakdownExpanded
+            ? expandedBreakdownDayKey.flatMap { key in bars.contains { $0.dayKey == key } ? key : nil }
+            : nil
+        self._detailDayKey = State(initialValue: previewHoveredDayKey ?? expandedDayKey ?? bars.last?.dayKey)
         self.onLabelModeChanged = onLabelModeChanged
         self.isBreakdownExpanded = isBreakdownExpanded
         self.breakdownOpenness = isBreakdownExpanded ? 1 : 0
@@ -273,7 +277,7 @@ struct CostSectionView: View {
                 .accessibilityHidden(true)
         }
         .onHover { hovering in
-            guard self.pinnedDayKey == nil, !self.isBreakdownExpanded else { return }
+            guard self.pinnedDayKey == nil else { return }
             if hovering {
                 self.hoveredDayKey = day.dayKey
                 self.detailDayKey = day.dayKey
@@ -342,9 +346,10 @@ struct CostSectionView: View {
         }
     }
 
-    /// A second click on the pinned day releases it so hovering drives the chart again.
+    /// A second click on the pinned day releases it so hovering drives the chart, and an open
+    /// model list, again.
     private func toggleDay(_ key: String) {
-        guard self.pinnedDayKey == key, !self.isBreakdownExpanded else {
+        guard self.pinnedDayKey == key else {
             self.selectDay(key)
             return
         }
@@ -366,17 +371,11 @@ struct CostSectionView: View {
     private var selectedDayKey: String? {
         CostChartHighlightPolicy.selectedDayKey(
             pinnedDayKey: self.pinnedDayKey,
-            hoveredDayKey: self.isBreakdownExpanded ? nil : self.hoveredDayKey,
-            detailDayKey: self.validExpandedDayKey ?? self.detailDayKey,
+            hoveredDayKey: self.hoveredDayKey,
+            detailDayKey: self.detailDayKey,
             availableDayKeys: self.barDayKeys,
             defaultDayKey: self.bars.last?.dayKey
         )
-    }
-
-    private var validExpandedDayKey: String? {
-        guard self.isBreakdownExpanded, let key = self.expandedBreakdownDayKey,
-              self.barDayKeys.contains(key) else { return nil }
-        return key
     }
 
     private var todayDay: CostDay {
