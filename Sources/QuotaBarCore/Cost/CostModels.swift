@@ -30,6 +30,14 @@ public struct TokenTotals: Sendable, Equatable {
     /// `cacheWrite1h` is a subset of `cacheWrite`, so counting it here would double it.
     public var total: Int { self.input + self.output + self.cacheWrite + self.cacheRead }
 
+    /// The share of input the prompt cache served: cache reads over fresh input, cache writes,
+    /// and cache reads together. Output never comes from the cache, so it stays out. Nil when
+    /// there is no input to measure.
+    public var cacheHitRate: Double? {
+        let input = self.input + self.cacheWrite + self.cacheRead
+        return input > 0 ? Double(self.cacheRead) / Double(input) : nil
+    }
+
     public static func + (lhs: Self, rhs: Self) -> Self {
         Self(
             input: lhs.input + rhs.input,

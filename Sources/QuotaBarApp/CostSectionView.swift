@@ -433,6 +433,9 @@ struct CostSectionView: View {
                 self.dayToggleLabel(models: ranked.count, showsChevron: false)
             }
 
+            self.cacheMix
+                .padding(.top, 6)
+
             VStack(alignment: .leading, spacing: 0) {
                 if self.isBreakdownExpanded {
                     // The height cuts open; the rows rise into place together, like every other
@@ -490,6 +493,85 @@ struct CostSectionView: View {
         .lineLimit(1)
         .frame(height: 16)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The shown day's cache hit rate over a bar of how its tokens split between cache reads,
+    /// cache writes, fresh input, and output. It keeps its height on a day with no usage, so the
+    /// card does not jump as the pointer crosses the chart.
+    private var cacheMix: some View {
+        let day = self.shownDay
+        let tokens = self.isUnobserved(day.dayKey) ? TokenTotals() : day.tokens
+        let accent = Theme.accent(for: self.snapshot.provider)
+        let parts: [(label: String, count: Int, color: Color)] = [
+            ("Cache read", tokens.cacheRead, accent),
+            ("Cache write", tokens.cacheWrite, accent.opacity(0.45)),
+            ("Input", tokens.input, Color.primary.opacity(0.5)),
+            ("Output", tokens.output, Color.primary.opacity(0.25)),
+        ]
+        let inputTokens = tokens.input + tokens.cacheWrite + tokens.cacheRead
+        let rate = tokens.cacheHitRate.map(Self.hitRateLabel) ?? "—"
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Text("Cache hit").foregroundStyle(.secondary)
+                Text(rate).fontWeight(.medium)
+                Spacer(minLength: 4)
+                if inputTokens > 0 {
+                    Text("\(Formatters.tokens(tokens.cacheRead)) of \(Formatters.tokens(inputTokens)) input")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .font(.system(size: 11))
+            .monospacedDigit()
+            .lineLimit(1)
+
+            GeometryReader { geometry in
+                let shown = parts.filter { $0.count > 0 }
+                let gaps = CGFloat(max(0, shown.count - 1))
+                let width = max(0, geometry.size.width - gaps)
+                HStack(spacing: 1) {
+                    ForEach(shown, id: \.label) { part in
+                        Rectangle()
+                            .fill(part.color)
+                            .frame(width: max(2, width * CGFloat(part.count) / CGFloat(tokens.total)))
+                    }
+                }
+                .frame(width: geometry.size.width, alignment: .leading)
+                .background(Theme.progressTrack)
+                .clipShape(Capsule())
+                .animation(CostChartHoverMotion.selection, value: day.dayKey)
+            }
+            .frame(height: 4)
+
+            HStack(spacing: 8) {
+                ForEach(parts, id: \.label) { part in
+                    HStack(spacing: 4) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(part.color)
+                            .frame(width: 6, height: 6)
+                        Text(part.label)
+                    }
+                }
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .help(parts.map { "\($0.label) \(Formatters.tokens($0.count))" }.joined(separator: " · "))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Cache hit rate")
+        .accessibilityValue(
+            ([rate] + parts.map { "\($0.label) \($0.count) tokens" }).joined(separator: ", ")
+        )
+    }
+
+    /// Whole percents, but never a round 100% while some input missed the cache, or 0% while
+    /// some of it hit.
+    private static func hitRateLabel(_ rate: Double) -> String {
+        let percent = Int((rate * 100).rounded())
+        if percent == 100, rate < 1 { return "99%" }
+        if percent == 0, rate > 0 { return "<1%" }
+        return "\(percent)%"
     }
 
     /// The tool's mark and the model's name over a bar of its share of the day, in the chosen unit.
