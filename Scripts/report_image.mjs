@@ -11,7 +11,7 @@ const modulePath=process.env.PLAYWRIGHT_MODULE||realpathSync(execFileSync('which
 const {chromium}=createRequire(modulePath)('playwright');
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'});
 try{
-  const context=await browser.newContext({viewport:{width:1040,height:1000},reducedMotion:'reduce'});
+  const context=await browser.newContext({viewport:{width:1040,height:1000},reducedMotion:'reduce',colorScheme:'dark'});
   const errors=[];
   await context.route(/^https?:/,route=>{errors.push('Unexpected external resource: '+route.request().url());return route.abort();});
   const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
