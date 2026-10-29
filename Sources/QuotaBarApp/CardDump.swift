@@ -185,7 +185,7 @@ enum CardDump {
             dayKey: last.dayKey,
             byModel: Dictionary(uniqueKeysWithValues: zip(models, shares).map { entry, share in
                 (ModelUsageKey(source: entry.0, model: entry.1), ModelDayUsage(
-                    tokens: TokenTotals(input: Int(total * share * 1_000_000)),
+                    tokens: Self.mixedTokens(Int(total * share * 1_000_000), cacheHitRate: 0.95 - share / 2),
                     costUSD: total * share
                 ))
             }),
@@ -202,6 +202,21 @@ enum CardDump {
             topModel: sample.topModel,
             hasUnpricedTokens: sample.hasUnpricedTokens,
             scannedAt: sample.scannedAt
+        )
+    }
+
+    /// Splits a model's tokens the way an agent session does: most input comes back from the
+    /// cache, and the rest is cache writes, fresh input, and output.
+    private static func mixedTokens(_ total: Int, cacheHitRate: Double) -> TokenTotals {
+        let output = total / 25
+        let input = total - output
+        let cacheRead = Int(Double(input) * cacheHitRate)
+        let cacheWrite = (input - cacheRead) * 3 / 4
+        return TokenTotals(
+            input: input - cacheRead - cacheWrite,
+            output: output,
+            cacheWrite: cacheWrite,
+            cacheRead: cacheRead
         )
     }
 
@@ -245,6 +260,7 @@ enum CardDump {
         let mix: [(CostUsageSource, String, Double)] = provider == .codex
             ? [(.codex, top, 0.72), (.openCode, "gpt-5.6-terra", 0.2), (.piAgent, "gpt-5.6-luna", 0.08)]
             : [(.claude, top, 0.8), (.claude, "claude-sonnet-5", 0.15), (.claude, "claude-haiku-4-5", 0.05)]
+        let hitRates = [0.91, 0.88, 0.93, 0.9, 0.84, 0.92, 0.95, 0.94]
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let days = values.enumerated().map { index, value in
@@ -253,7 +269,10 @@ enum CardDump {
                 dayKey: DayKey.make(from: date),
                 byModel: Dictionary(uniqueKeysWithValues: mix.map { source, model, share in
                     (ModelUsageKey(source: source, model: model), ModelDayUsage(
-                        tokens: TokenTotals(input: Int(value * share * 1_000_000)),
+                        tokens: Self.mixedTokens(
+                            Int(value * share * 1_000_000),
+                            cacheHitRate: hitRates[index % hitRates.count]
+                        ),
                         costUSD: value * share
                     ))
                 }),

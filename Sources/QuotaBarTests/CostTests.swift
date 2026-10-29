@@ -8,6 +8,7 @@ enum CostTests {
     static func run() async {
         Self.iso8601Parsing()
         Self.modelBreakdownRanking()
+        Self.cacheHitRate()
         Self.logFileScanning()
         do {
             try await CostSchemaUpgradeTests.run()
@@ -187,6 +188,24 @@ enum CostTests {
         for raw in fallbackSamples {
             Harness.expectEqual(ISO8601.parse(raw), reference(raw), "ISO8601 fallback parity for \(raw)")
         }
+    }
+
+    private static func cacheHitRate() {
+        Harness.expectEqual(
+            TokenTotals(input: 10, output: 500, cacheWrite: 30, cacheRead: 160).cacheHitRate,
+            0.8,
+            "cache hit rate counts reads against all input and leaves output out"
+        )
+        Harness.expectEqual(
+            TokenTotals(output: 500).cacheHitRate,
+            nil,
+            "a day with output alone has no cache hit rate"
+        )
+        Harness.expectEqual(
+            TokenTotals(input: 40, cacheWrite: 60).cacheHitRate,
+            0,
+            "input that never reads the cache has a zero hit rate"
+        )
     }
 
     private static func modelBreakdownRanking() {
