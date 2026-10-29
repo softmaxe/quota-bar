@@ -275,6 +275,8 @@ make app
 | --- | --- |
 | `make build` | Build the debug binary. |
 | `make run` | Build and run in the foreground. |
+| `make preview` | Open the isolated sample interface without stopping the installed app. |
+| `make card-snapshot` | Render offscreen card images to `.build/screenshots/card`. |
 | `make test` | Run core assertions and UI/policy verifiers. |
 | `make probe` | Check both provider integrations. |
 | `make probe-cost` | Rescan local logs and print cost totals. |
@@ -295,11 +297,12 @@ make app
 To preview interactions with sample quota and cost data, run:
 
 ```bash
-make build
-.build/debug/QuotaBar --preview-interface loaded
+make preview
 ```
 
-Use `signed-out` or `stale` instead of `loaded` to inspect those states, or `motion` to watch the card's animations with slowed sample data. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
+Set `PREVIEW_STATE=signed-out`, `stale`, or `motion` to inspect those states; the default is `loaded`. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
+
+`make card-snapshot` writes offscreen card images to `.build/screenshots/card`. Set `SNAPSHOT_DIR` to write somewhere else.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the light and dark card, sign-in, and refresh-failure states. Regenerate them after changing the UI.
 

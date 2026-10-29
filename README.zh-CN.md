@@ -275,6 +275,8 @@ make app
 | --- | --- |
 | `make build` | 构建调试版本。 |
 | `make run` | 构建并在前台运行。 |
+| `make preview` | 打开隔离的示例界面，不会停止已安装的应用。 |
+| `make card-snapshot` | 将离屏卡片图生成到 `.build/screenshots/card`。 |
 | `make test` | 运行核心断言和界面、行为规则验证。 |
 | `make probe` | 检查两家供应商的集成。 |
 | `make probe-cost` | 重新扫描本地日志并输出成本总计。 |
@@ -295,11 +297,12 @@ make app
 如需用示例额度和成本数据预览交互，运行：
 
 ```bash
-make build
-.build/debug/QuotaBar --preview-interface loaded
+make preview
 ```
 
-将 `loaded` 换成 `signed-out` 或 `stale`，可以查看对应状态；换成 `motion` 可用放慢的示例数据观察卡片动效。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
+设置 `PREVIEW_STATE=signed-out`、`stale` 或 `motion` 可以查看对应状态；默认是 `loaded`。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
+
+`make card-snapshot` 会将离屏卡片图写到 `.build/screenshots/card`；设置 `SNAPSHOT_DIR` 可以改写到其他位置。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括深浅色卡片、登录和刷新失败状态。修改界面后应同步生成图片。
 

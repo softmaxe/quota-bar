@@ -47,12 +47,20 @@ Dark and light sample views, signed-out guidance, a cooldown error, and an inval
 ## Preview and rendering
 
 ```sh
-.build/debug/QuotaBar --preview-interface loaded
-.build/debug/QuotaBar --preview-interface signed-out
-.build/debug/QuotaBar --preview-interface stale
-.build/debug/QuotaBar --preview-interface motion
+make preview
+make preview PREVIEW_STATE=signed-out
+make preview PREVIEW_STATE=stale
+make preview PREVIEW_STATE=motion
+make card-snapshot
 .build/debug/QuotaBar --dump-interaction-states docs/images/interactions
 ```
+
+`make preview` builds the debug app and opens the isolated sample interface
+without stopping the installed app. `PREVIEW_STATE` selects `loaded`,
+`signed-out`, `stale`, or `motion`. `make card-snapshot` writes offscreen card
+images to `.build/screenshots/card`; set `SNAPSHOT_DIR` to write somewhere else.
+The underlying flags are `--preview-interface <state>` and
+`--dump-card <directory>`.
 
 The `motion` state slows fetches and the first local scan, starts Claude signed out until Check sign-in, and shortens the refresh cooldown, so each animation can be watched again. Preview uses sample providers, a separate preference suite, temporary history, and no-op pricing writes. Use its Quit command for cleanup. It does not use CLI credentials or scan real session files. Normal app launch retains the real integrations.
 
