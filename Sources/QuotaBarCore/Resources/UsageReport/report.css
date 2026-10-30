@@ -155,10 +155,6 @@ td{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:v
 .empty-row td{padding:24px 0;text-align:center}
 @media (max-width:639px){.models .share-col{display:none}}
 
-/* Notes */
-.notes{display:flex;flex-direction:column;gap:4px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;line-height:18px;color:var(--muted-foreground)}
-.notes p{overflow-wrap:anywhere}
-
 .tip{position:fixed;z-index:20;max-width:18rem;padding:6px 8px;border-radius:8px;font-size:12px;line-height:16px;pointer-events:none;
   background:var(--foreground);color:var(--background);box-shadow:var(--shadow-lg)}
 

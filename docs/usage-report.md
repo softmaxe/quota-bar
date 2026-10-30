@@ -20,7 +20,7 @@ For the chosen period the page shows:
 - cost by token type and, when Fast usage exists, cost by speed with the Fast premium
 - a breakdown by model, marked with the source that used it most, or by day and source
 
-Cache savings is what cache-read tokens would have cost at the input rate, minus what they cost. The Fast premium is what Fast usage cost above the same tokens at Standard rates. A day without saved records shows **No record** in the day breakdown, distinct from recorded zero usage. Notes at the bottom list the sources, snapshot time, and timezone.
+Cache savings is what cache-read tokens would have cost at the input rate, minus what they cost. The Fast premium is what Fast usage cost above the same tokens at Standard rates. A day without saved records shows **No record** in the day breakdown, distinct from recorded zero usage.
 
 The page keeps the period, metric, breakdown, and language in the web view's local storage, under the path `~/Library/Application Support/QuotaBar/usage-report.html`. Nothing is written to that path. The page follows the system light or dark appearance and reflows for narrow windows. Hover a table cell for its exact value.
 
