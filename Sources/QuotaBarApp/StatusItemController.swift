@@ -131,9 +131,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let display = self.store.displays[provider] ?? ProviderDisplay()
         let item = self.materializedStatusItem()
         let icon = IconRenderer.makeIcon(
-            hasReading: display.snapshot?.session != nil || display.snapshot?.weekly != nil,
-            stale: display.isStale,
-            runningLow: display.snapshot.map { MenuBarProviderPolicy.runningLow($0, now: self.now()) } ?? false
+            remainingPercent: display.snapshot.flatMap { MenuBarProviderPolicy.gaugeRemaining($0, now: self.now()) },
+            stale: display.isStale
         )
         // Icons are cached per state, so an unchanged state is the same instance. Assigning it
         // again would still invalidate and redraw the status button.

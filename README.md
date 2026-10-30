@@ -131,13 +131,13 @@ A failed refresh keeps the last good quota and shows its age and recovery instru
 
 ### Menu bar and shortcuts
 
-The menu bar robot shows the selected provider's status. It turns red when either quota window has 10% or less left, unless that window's reset time has passed. It dims after a failed refresh and fades further when no data is available.
+The menu bar gauge shows the selected provider's status. Its 11 ticks show what is left of the session window, or of the weekly window when the provider reports no session window. It dims after a failed refresh and fades further when no data is available.
 
 <p align="center">
-  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar robot states: normal, running low, refresh failed, and no data">
+  <img src="docs/images/menu-bar-icons.png" width="440" alt="Menu bar gauge states: normal, running low, refresh failed, and no data">
 </p>
 
-The icon is Material Design Icons' `robot-excited`. The card scrolls when needed and reopens with details collapsed. These shortcuts work while the card is open:
+The card scrolls when needed and reopens with details collapsed. These shortcuts work while the card is open:
 
 | Shortcut | Action |
 | --- | --- |

@@ -1,7 +1,6 @@
 // Adapted from CodexBar (MIT, © 2026 Peter Steinberger): Sources/CodexBar/IconRenderer.swift
 // Kept: the 18pt @2x bitmap and the image cache.
-// Replaced: the Codex "face" and Claude "crab" with the Material Design Icons robot-excited mark,
-// the glyph Omarchy's agents bar widget shows.
+// Replaced: the Codex "face" and Claude "crab" with a tick gauge in the app icon's style.
 // Dropped: the capsule meters, the Gemini/Antigravity/Factory/Warp decorations,
 // blink/wiggle/tilt animation, status overlays, and the morph cache.
 
@@ -14,9 +13,8 @@ enum IconRenderer {
     // MARK: - Cache
 
     private struct CacheKey: Hashable {
-        let hasReading: Bool
+        let litTicks: Int?
         let stale: Bool
-        let runningLow: Bool
     }
 
     private final class Cache: @unchecked Sendable {
@@ -40,116 +38,89 @@ enum IconRenderer {
 
     // MARK: - Entry point
 
-    /// The robot carries no percentages, only whether the provider on show is running low.
     /// - Parameters:
-    ///   - hasReading: false before the first snapshot arrives, which fades the robot.
+    ///   - remainingPercent: what the gauge shows; nil before the first reading, which fades it.
     ///   - stale: dims the icon when the last refresh failed.
-    ///   - runningLow: paints the icon red for the provider on show.
     static func makeIcon(
-        hasReading: Bool,
-        stale: Bool,
-        runningLow: Bool = false
+        remainingPercent: Double?,
+        stale: Bool
     ) -> NSImage {
-        let key = CacheKey(hasReading: hasReading, stale: stale, runningLow: runningLow)
+        let litTicks = remainingPercent.map(Gauge.litTicks(remainingPercent:))
+        let key = CacheKey(litTicks: litTicks, stale: stale)
         if let cached = self.cache.image(for: key) { return cached }
 
         let image = self.render(
-            hasReading: hasReading,
-            stale: stale,
-            runningLow: runningLow
+            litTicks: litTicks,
+            stale: stale
         )
         self.cache.store(image, for: key)
         return image
     }
 
-    // MARK: - Robot
+    // MARK: - Gauge
 
-    private enum Robot {
-        /// MDI's 24-unit viewBox drawn at 16pt, inset 1pt, so the mark fills the 18pt canvas the
-        /// way it fills a 16px icon font slot in Omarchy's bar. Points are y up.
-        static let unit: CGFloat = 16.0 / 24.0
+    private enum Gauge {
+        static let tickCount = 11
+        /// Degrees clockwise from twelve o'clock; the 270 degree sweep leaves its gap at the bottom.
+        static let firstTickDegrees: CGFloat = -135
+        static let tickSpacingDegrees: CGFloat = 27
+        /// Sits above the canvas center because the gap at the bottom carries no ink. Points are y up.
+        static let center = CGPoint(x: 9, y: 7.75)
+        static let innerRadius: CGFloat = 5.75
+        static let outerRadius: CGFloat = 8
+        static let tickWidth: CGFloat = 1.5
+        static let unlitAlpha: CGFloat = 0.3
 
-        static func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: 1 + x * unit, y: 17 - y * unit)
+        /// Any quota left lights a tick, so an empty gauge always means an empty window.
+        static func litTicks(remainingPercent: Double) -> Int {
+            guard remainingPercent > 0 else { return 0 }
+            let ticks = (min(remainingPercent, 100) / 100 * Double(Self.tickCount)).rounded()
+            return max(1, Int(ticks))
         }
 
-        /// `robot-excited` from Material Design Icons 7.4.47 (Apache-2.0), transcribed from its
-        /// SVG path. The two chevron eyes are separate subpaths cut out by the even-odd rule.
-        static let path: NSBezierPath = {
+        static func tick(_ index: Int) -> NSBezierPath {
+            let radians = (Self.firstTickDegrees + CGFloat(index) * Self.tickSpacingDegrees) * .pi / 180
+            let dx = sin(radians)
+            let dy = cos(radians)
+
             let path = NSBezierPath()
-            path.windingRule = .evenOdd
-
-            func move(_ x: CGFloat, _ y: CGFloat) { path.move(to: point(x, y)) }
-            func line(_ x: CGFloat, _ y: CGFloat) { path.line(to: point(x, y)) }
-            func curve(
-                _ x1: CGFloat, _ y1: CGFloat,
-                _ x2: CGFloat, _ y2: CGFloat,
-                _ x: CGFloat, _ y: CGFloat
-            ) {
-                path.curve(to: point(x, y), controlPoint1: point(x1, y1), controlPoint2: point(x2, y2))
-            }
-
-            // Body, ears, head, and antenna.
-            move(22, 14)
-            line(21, 14)
-            curve(21, 10.13, 17.87, 7, 14, 7)
-            line(13, 7)
-            line(13, 5.73)
-            curve(13.6, 5.39, 14, 4.74, 14, 4)
-            curve(14, 2.9, 13.11, 2, 12, 2)
-            curve(10.89, 2, 10, 2.9, 10, 4) // SVG "S": first control reflects the previous one
-            curve(10, 4.74, 10.4, 5.39, 11, 5.73)
-            line(11, 7)
-            line(10, 7)
-            curve(6.13, 7, 3, 10.13, 3, 14)
-            line(2, 14)
-            curve(1.45, 14, 1, 14.45, 1, 15)
-            line(1, 18)
-            curve(1, 18.55, 1.45, 19, 2, 19)
-            line(3, 19)
-            line(3, 20)
-            curve(3, 21.11, 3.9, 22, 5, 22)
-            line(19, 22)
-            curve(20.11, 22, 21, 21.11, 21, 20)
-            line(21, 19)
-            line(22, 19)
-            curve(22.55, 19, 23, 18.55, 23, 18)
-            line(23, 15)
-            curve(23, 14.45, 22.55, 14, 22, 14)
-            path.close()
-
-            for dx: CGFloat in [0, 9] {
-                move(8.68 + dx, 17.04)
-                line(7.5 + dx, 15.86)
-                line(6.32 + dx, 17.04)
-                line(5.14 + dx, 15.86)
-                line(7.5 + dx, 13.5)
-                line(9.86 + dx, 15.86)
-                path.close()
-            }
+            path.lineWidth = Self.tickWidth
+            path.lineCapStyle = .round
+            path.move(to: CGPoint(
+                x: Self.center.x + dx * Self.innerRadius,
+                y: Self.center.y + dy * Self.innerRadius
+            ))
+            path.line(to: CGPoint(
+                x: Self.center.x + dx * Self.outerRadius,
+                y: Self.center.y + dy * Self.outerRadius
+            ))
             return path
-        }()
+        }
     }
 
     private static func render(
-        hasReading: Bool,
-        stale: Bool,
-        runningLow: Bool
+        litTicks: Int?,
+        stale: Bool
     ) -> NSImage {
-        // The menu bar ignores a status button's contentTintColor on template images, so red has
-        // to be baked into a non-template image.
-        self.renderImage(template: !runningLow) {
-            let baseFill = runningLow ? NSColor.systemRed : NSColor.labelColor
-            // No reading at all: a faded robot, so the icon still shows the app is alive.
-            let alpha: CGFloat = !hasReading ? 0.45 : (stale ? 0.55 : 1)
-            baseFill.withAlphaComponent(alpha).setFill()
-            Robot.path.fill()
+        self.renderImage {
+            for index in 0..<Gauge.tickCount {
+                let alpha: CGFloat
+                if let litTicks {
+                    let level: CGFloat = stale ? 0.55 : 1
+                    alpha = index < litTicks ? level : level * Gauge.unlitAlpha
+                } else {
+                    // No reading at all: an even, faded gauge, so the icon still shows the app is alive.
+                    alpha = 0.45
+                }
+                NSColor.labelColor.withAlphaComponent(alpha).setStroke()
+                Gauge.tick(index).stroke()
+            }
         }
     }
 
     // MARK: - Bitmap
 
-    private static func renderImage(template: Bool, _ draw: () -> Void) -> NSImage {
+    private static func renderImage(_ draw: () -> Void) -> NSImage {
         let image = NSImage(size: Self.outputSize)
 
         if let rep = NSBitmapImageRep.rgba(
@@ -172,7 +143,7 @@ enum IconRenderer {
         }
 
         // Template mode lets the system tint the icon for light and dark menu bars.
-        image.isTemplate = template
+        image.isTemplate = true
         return image
     }
 

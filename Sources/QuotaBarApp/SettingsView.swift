@@ -346,8 +346,8 @@ extension View {
 }
 
 /// A slice of the menu bar with the status item drawn the way it is drawn now, so the provider
-/// choice below reads as what it changes. The robot carries no numbers, so the caption says
-/// what its color means.
+/// choice below reads as what it changes. The gauge carries no numbers, so the caption says
+/// which quota it shows.
 struct MenuBarPreview: View {
     let provider: Provider
     let display: ProviderDisplay
@@ -355,7 +355,7 @@ struct MenuBarPreview: View {
     var body: some View {
         TimelineView(.everyMinute) { context in
             HStack(spacing: 10) {
-                Text(self.caption(now: context.date))
+                Text(self.caption)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -386,28 +386,23 @@ struct MenuBarPreview: View {
             )
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Menu bar preview: \(self.caption(now: Date()))")
-    }
-
-    private func runningLow(now: Date) -> Bool {
-        self.display.snapshot.map { MenuBarProviderPolicy.runningLow($0, now: now) } ?? false
+        .accessibilityLabel("Menu bar preview: \(self.caption)")
     }
 
     /// The same icon the status item draws for this provider, from the same cache.
     private func icon(now: Date) -> NSImage {
         IconRenderer.makeIcon(
-            hasReading: self.display.snapshot?.session != nil || self.display.snapshot?.weekly != nil,
-            stale: self.display.isStale,
-            runningLow: self.runningLow(now: now)
+            remainingPercent: self.display.snapshot.flatMap { MenuBarProviderPolicy.gaugeRemaining($0, now: now) },
+            stale: self.display.isStale
         )
     }
 
-    private func caption(now: Date) -> String {
+    private var caption: String {
         let name = self.provider.displayName
-        if self.display.isSignedOut { return "\(name) is not signed in, so the robot is faded." }
-        if self.display.isStale { return "The last \(name) refresh failed, so the robot is dimmed." }
-        if self.runningLow(now: now) { return "\(name) is running low, so the robot is red." }
-        return "The robot turns red when \(name) runs low."
+        if self.display.isSignedOut { return "\(name) is not signed in, so the gauge is faded." }
+        if self.display.isStale { return "The last \(name) refresh failed, so the gauge is dimmed." }
+        let usesWeekly = self.display.snapshot?.session == nil && self.display.snapshot?.weekly != nil
+        return "The gauge shows \(name)'s \(usesWeekly ? "weekly" : "session") quota."
     }
 }
 
