@@ -34,31 +34,16 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$APP_NAME"
 cp -R "$BINARY_DIR/QuotaBar_QuotaBarCore.bundle" "$APP/Contents/Resources/"
 
-# Optional app icon. Drop a 1024x1024 PNG at Resources/AppIcon.png (or a ready-made
-# Resources/AppIcon.icns) and it gets compiled into the bundle; without one the app keeps the
-# generic executable icon and everything else still builds.
-ICON_PLIST_ENTRY=""
-ICON_PNG="$ROOT/Resources/AppIcon.png"
-ICON_ICNS="$ROOT/Resources/AppIcon.icns"
-if [[ -f "$ICON_ICNS" ]]; then
-    echo "==> Using $ICON_ICNS"
-    cp "$ICON_ICNS" "$APP/Contents/Resources/AppIcon.icns"
-    ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key><string>AppIcon</string>"
-elif [[ -f "$ICON_PNG" ]]; then
-    echo "==> Compiling $ICON_PNG into AppIcon.icns"
-    ICONSET="$BUILD_DIR/AppIcon.iconset"
-    rm -rf "$ICONSET"
-    mkdir -p "$ICONSET"
-    # The sizes iconutil expects; each @2x is the next size up rendered at double density.
-    for size in 16 32 128 256 512; do
-        sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
-        sips -z "$((size * 2))" "$((size * 2))" "$ICON_PNG" \
-            --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-    done
-    iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-    rm -rf "$ICONSET"
-    ICON_PLIST_ENTRY="    <key>CFBundleIconFile</key><string>AppIcon</string>"
-fi
+# Assets.car carries the light and dark icons for macOS 26 and later; earlier systems read the
+# light-only AppIcon.icns that actool writes beside it.
+echo "==> Compiling Resources/AppIcon.icon"
+DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" xcrun actool \
+    "$ROOT/Resources/AppIcon.icon" \
+    --compile "$APP/Contents/Resources" \
+    --app-icon AppIcon \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --output-partial-info-plist "$BUILD_DIR/AppIcon.partial.plist" >/dev/null
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -70,7 +55,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
-$ICON_PLIST_ENTRY
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>

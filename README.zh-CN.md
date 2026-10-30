@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="Resources/AppIcon.png" alt="QuotaBar 应用图标" width="96">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Resources/AppIcon-dark.png">
+    <img src="Resources/AppIcon.png" alt="QuotaBar 应用图标" width="96">
+  </picture>
 </p>
 
 <h1 align="center">QuotaBar</h1>
