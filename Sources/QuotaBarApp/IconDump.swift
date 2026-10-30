@@ -7,18 +7,17 @@ enum IconDump {
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
 
-        let cases: [(name: String, hasReading: Bool, stale: Bool, low: Bool)] = [
-            ("full", true, false, false),
-            ("low", true, false, true),
-            ("stale-reading", true, true, false),
-            ("stale", false, true, false),
+        let cases: [(name: String, remaining: Double?, stale: Bool)] = [
+            ("full", 64, false),
+            ("low", 8, false),
+            ("stale-reading", 64, true),
+            ("stale", nil, true),
         ]
 
         for entry in cases {
             let image = IconRenderer.makeIcon(
-                hasReading: entry.hasReading,
-                stale: entry.stale,
-                runningLow: entry.low
+                remainingPercent: entry.remaining,
+                stale: entry.stale
             )
             let url = root.appendingPathComponent("\(entry.name).png")
             guard Self.writePNG(image, to: url) else {
@@ -31,7 +30,6 @@ enum IconDump {
 
     /// Template images carry alpha only, so tint them white on a transparent layer first and
     /// then composite that onto a dark ground — the way the menu bar renders them in dark mode.
-    /// The red running-low icon is not a template and keeps its own color.
     private static func writePNG(_ image: NSImage, to url: URL) -> Bool {
         let scale: CGFloat = 8
         let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -41,10 +39,8 @@ enum IconDump {
         tinted.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
         image.draw(in: bounds)
-        if image.isTemplate {
-            NSColor.white.set()
-            bounds.fill(using: .sourceAtop)
-        }
+        NSColor.white.set()
+        bounds.fill(using: .sourceAtop)
         tinted.unlockFocus()
 
         guard let rep = NSBitmapImageRep.rgba(

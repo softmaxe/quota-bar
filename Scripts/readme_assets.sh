@@ -50,7 +50,7 @@ for state in main-dark main-light sign-in refresh-failed; do
 done
 
 echo "==> menu bar icons"
-# One row: normal, the provider on show running low (red), a failed refresh, and no data.
+# One row: normal, the provider on show running low, a failed refresh, and no data.
 ffmpeg -v error -y \
   -i "$WORK/icons/full.png" -i "$WORK/icons/low.png" \
   -i "$WORK/icons/stale-reading.png" -i "$WORK/icons/stale.png" \
