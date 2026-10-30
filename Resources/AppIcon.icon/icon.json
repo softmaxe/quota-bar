@@ -2,7 +2,7 @@
   "fill-specializations": [
     {
       "value": {
-        "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
+        "solid": "srgb:0.00000,0.00000,0.00000,1.00000"
       }
     },
     {
@@ -19,11 +19,11 @@
           "glass": false,
           "image-name-specializations": [
             {
-              "value": "gauge-light.svg"
+              "value": "gauge.svg"
             },
             {
               "appearance": "dark",
-              "value": "gauge-dark.svg"
+              "value": "gauge.svg"
             }
           ],
           "name": "Gauge"
