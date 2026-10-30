@@ -4,8 +4,7 @@ import SwiftUI
 enum SettingsTab: Int, CaseIterable, Identifiable {
     case general
     case pricing
-    case remote
-    case data
+    case usage
 
     var id: Int { self.rawValue }
 
@@ -13,8 +12,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .pricing: "Pricing"
-        case .remote: "Remote"
-        case .data: "Data"
+        case .usage: "Usage"
         }
     }
 
@@ -22,8 +20,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .pricing: "dollarsign.circle"
-        case .remote: "server.rack"
-        case .data: "cylinder"
+        case .usage: "cylinder"
         }
     }
 
@@ -43,7 +40,7 @@ struct SettingsSidebar: View {
     @State private var hovered: SettingsTab?
     @FocusState private var focusedTab: SettingsTab?
 
-    static let width: CGFloat = 200
+    static let width: CGFloat = 148
 
     private static let rowHeight: CGFloat = 32
     private static let cornerRadius: CGFloat = 7

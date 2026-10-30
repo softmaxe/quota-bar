@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, and turn models.dev pricing on or off under **Price sources**, to [see model prices](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, to [see model prices and turn models.dev pricing on or off](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -182,7 +182,7 @@ For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBa
 
 ### Remote machines
 
-To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed, how many usage records its logs hold, how many of those are new, and how many files were copied. New records are the ones no other log recorded first, so a host whose sessions are already here can sync successfully with few or none. A machine that is off only delays its own sync.
+To count Claude Code and Codex sessions from another machine, open **Settings → Usage**, press **Add host**, and type its SSH host or pick one from your SSH config. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed, how many usage records its logs hold, how many of those are new, and how much was copied. Press **Retry** on a failed host, or use its **···** menu to sync that host alone or stop syncing it. New records are the ones no other log recorded first, so a host whose sessions are already here can sync successfully with few or none. A machine that is off only delays its own sync.
 
 The host needs key-based SSH sign-in that works without a prompt, and `rsync` installed. QuotaBar reads `~/.claude/projects`, `~/.config/claude/projects`, `~/.codex/sessions`, and `~/.codex/archived_sessions` on the machine, not custom `CLAUDE_CONFIG_DIR` or `CODEX_HOME` locations. OpenCode and Pi Agent are local only.
 
@@ -205,7 +205,7 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 ### Backing up saved usage
 
-Saved usage outlives the session logs, but it is gone if QuotaBar's own data is deleted too. Open **Settings → Data** to see how much is saved and to keep a copy.
+Saved usage outlives the session logs, but it is gone if QuotaBar's own data is deleted too. Open **Settings → Usage** to see how much is saved and to keep a copy.
 
 - **Export…** saves one `.sqlite` file wherever you choose, such as an external disk or a synced folder. A backup restores only what was saved by then.
 - **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. It never removes usage: a message or rollout on both sides keeps the fuller record, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
@@ -216,7 +216,7 @@ A backup holds token counts, dates, models, pricing tiers, record IDs, scan posi
 
 - Every cost is an estimate at API list prices.
 - Claude and OpenAI models use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
-- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off under **Settings → General → Price sources**.
+- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off with the **models.dev** switch in **Settings → Pricing**.
 - Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. Without a Fast multiplier, and for models priced from models.dev, Fast usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
 - Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
@@ -236,10 +236,10 @@ While the window is open, QuotaBar scans every source's local logs once a minute
 
 ## Model prices
 
-Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. The table holds the current Claude and OpenAI API models from the price book and every other model found locally, priced from models.dev or unpriced, with each model's four main rates. Built-in, models.dev, and unpriced models sit in separate cards, each grouped by vendor. Vendors start folded each time the pane opens; click one to show its models. Within a vendor, models used on this Mac come first, busiest at the top; search narrows the list by name. Click a row to open its one-hour cache write rate, the long-context threshold and the rates above it, its recorded tokens, its source, and a link to the source's own price page. Use the Up and Down Arrow keys to move through the table.
+Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. The table holds the current Claude and OpenAI API models from the price book and every other model found locally, priced from models.dev or unpriced, with each model's four main rates. Built-in, models.dev, and unpriced models sit in separate cards, each grouped by vendor, and the models.dev heading holds the switch for that source. Vendors start folded each time the pane opens; click one to show its models. Within a vendor, models used on this Mac come first, busiest at the top; search narrows the list by name. Click a row to open its one-hour cache write rate, the long-context threshold and the rates above it, its recorded tokens, its source, and a link to the source's own price page. Use the Up and Down Arrow keys to move through the table.
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing list split into built-in and models.dev cards and grouped by vendor, with one model open to show its long-context tier">
+  <img src="docs/images/settings-pricing.png" width="672" alt="Read-only pricing list split into built-in and models.dev cards and grouped by vendor, with one model open to show its long-context tier">
 </p>
 
 Rates cannot be edited. To change a Claude or OpenAI rate, update the price book (see [Maintaining the price book](docs/pricing.md)). Earlier versions saved custom rates in `pricing-overrides.json`; this version deletes that file on launch.
@@ -267,7 +267,7 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 
 </details>
 
-Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Claude and OpenAI prices ship with the app. While **models.dev** is on under **Price sources**, QuotaBar downloads `https://models.dev/api.json` at most once a day; the request carries no usage or account data. It does not send local session records to these services.
+Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if set, or the default ChatGPT endpoint. QuotaBar also contacts `auth.openai.com` to refresh Codex tokens, and `api.anthropic.com` for Claude quota. Claude and OpenAI prices ship with the app. While **models.dev** is on in **Settings → Pricing**, QuotaBar downloads `https://models.dev/api.json` at most once a day; the request carries no usage or account data. It does not send local session records to these services.
 
 ## Build and develop
 
@@ -349,7 +349,7 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm models.dev is on under **Settings → General → Price sources** and that models.dev lists the model. |
+| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm the **models.dev** switch in **Settings → Pricing** is on and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
 | Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |

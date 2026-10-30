@@ -8,7 +8,7 @@ final class SettingsSelection: ObservableObject {
     /// Bumped whenever the pricing pane comes into view, so it rereads rates that a models.dev
     /// download or the General toggle changed while it sat mounted behind another pane.
     @Published var pricingReloads = 0
-    /// Bumped whenever the window is shown, so General rereads what the price sources cover.
+    /// Bumped whenever the window is shown, so Usage rereads what is saved.
     @Published var windowShows = 0
 }
 
@@ -26,7 +26,7 @@ struct SettingsView: View {
     /// the tab having actually been opened rather than on the view existing.
     @State private var pricingWasOpened = false
 
-    static let paneWidth: CGFloat = 620
+    static let paneWidth: CGFloat = 672
     static let paneHeight: CGFloat = 540
     /// The sidebar, the one-point divider, and a pane.
     static let windowSize = NSSize(width: SettingsSidebar.width + 1 + paneWidth, height: paneHeight)
@@ -61,35 +61,26 @@ struct SettingsView: View {
     private var panes: some View {
         ZStack(alignment: .topLeading) {
             self.pane(.general) {
-                GeneralSettingsView(
-                    settings: self.settings,
-                    pricing: self.pricing,
-                    store: self.store,
-                    reload: self.selection.windowShows
-                )
+                GeneralSettingsView(settings: self.settings, store: self.store)
             }
             self.pane(.pricing) {
                 PricingSettingsView(
+                    settings: self.settings,
                     model: self.pricing,
                     isLoadEnabled: self.pricingWasOpened,
                     reload: self.selection.pricingReloads
                 )
             }
-            self.pane(.remote) {
-                // Zero while the pane is out of view, so only opening it reads the mirrors.
-                RemoteSettingsView(
+            self.pane(.usage) {
+                // Zero while the pane is out of view, so only opening it reads the database.
+                UsageSettingsView(
                     settings: self.settings,
+                    store: self.store,
                     remote: self.store.remoteSync,
-                    reload: self.selection.tab == .remote
+                    backup: self.backup,
+                    reload: self.selection.tab == .usage
                         ? self.selection.windowShows + self.store.finishedLocalScans + 1
                         : 0
-                )
-            }
-            self.pane(.data) {
-                // Zero while the pane is out of view, so only opening it reads the database.
-                DataSettingsView(
-                    model: self.backup,
-                    reload: self.selection.tab == .data ? self.selection.windowShows + 1 : 0
                 )
             }
         }
@@ -108,101 +99,59 @@ struct SettingsView: View {
 }
 
 /// General shows each choice as what it changes: the menu bar item as it is drawn now, each
-/// provider with its live quota, the refresh cadences with a warning for the risky ones, and the
-/// price sources with what each one covers.
+/// provider with its live quota, and the refresh cadences with a warning for the risky ones.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
-    @ObservedObject var pricing: PricingTableModel
     @ObservedObject var store: UsageStore
-    /// Changes whenever the window is shown, which rereads the price sources.
-    var reload = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SettingsPane("General") {
-            MenuBarPreview(
-                provider: self.settings.menuBarProvider,
-                display: self.display(self.settings.menuBarProvider)
-            )
-
-            SettingsSectionTitle("Menu bar")
-            HStack(spacing: 10) {
-                ForEach(Provider.allCases, id: \.self) { provider in
-                    ProviderChoiceCard(
-                        provider: provider,
-                        display: self.display(provider),
-                        isSelected: self.settings.menuBarProvider == provider
-                    ) {
-                        withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
-                            self.settings.menuBarProvider = provider
+            SettingsSection("Menu bar") {
+                MenuBarPreview(
+                    provider: self.settings.menuBarProvider,
+                    display: self.display(self.settings.menuBarProvider)
+                )
+            } content: {
+                HStack(spacing: 10) {
+                    ForEach(Provider.allCases, id: \.self) { provider in
+                        ProviderChoiceCard(
+                            provider: provider,
+                            display: self.display(provider),
+                            isSelected: self.settings.menuBarProvider == provider
+                        ) {
+                            withAnimation(DisclosureMotion.open(reduceMotion: self.reduceMotion)) {
+                                self.settings.menuBarProvider = provider
+                            }
                         }
                     }
                 }
             }
 
-            SettingsSectionTitle("Refresh")
-            VStack(alignment: .leading, spacing: 8) {
-                Picker("Refresh", selection: self.$settings.refreshFrequency) {
-                    ForEach(RefreshFrequency.allCases) { frequency in
-                        Text(frequency.shortLabel).tag(frequency)
+            SettingsSection("Refresh") {
+                SettingsRow(
+                    title: "Refresh quota",
+                    detail: self.refreshHint,
+                    detailColor: self.settings.refreshFrequency.risksRateLimit ? .orange : .secondary
+                ) {
+                    Picker("Refresh quota", selection: self.$settings.refreshFrequency) {
+                        ForEach(RefreshFrequency.allCases) { frequency in
+                            Text(frequency.label).tag(frequency)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Text(self.refreshHint)
-                    .font(.system(size: 11))
-                    .foregroundStyle(self.settings.refreshFrequency.risksRateLimit ? Color.orange : Color.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .settingsGroup()
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
-            .settingsGroup()
-
-            SettingsSectionTitle("Price sources")
-            VStack(spacing: 0) {
-                SettingsRow(
-                    symbol: "book.closed",
-                    title: "Built-in price book",
-                    detail: "Claude and OpenAI · \(self.pricing.priceBookModelCount) models"
-                ) {
-                    Text("Always on")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                Divider().padding(.leading, 50)
-                SettingsRow(
-                    symbol: "globe",
-                    title: "models.dev",
-                    detail: self.modelsDevDetail
-                ) {
-                    Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .labelsHidden()
-                }
-            }
-            .settingsGroup()
-        }
-        .task(id: [self.reload, self.settings.modelsDevPricing ? 1 : 0]) {
-            self.pricing.loadSources()
         }
     }
 
     private func display(_ provider: Provider) -> ProviderDisplay {
         self.store.displays[provider] ?? ProviderDisplay()
-    }
-
-    private var modelsDevDetail: String {
-        guard self.settings.modelsDevPricing else {
-            return "Off: models outside the price book stay unpriced"
-        }
-        guard let fetchedAt = self.pricing.modelsDevFetchedAt else {
-            return "Everything else · not downloaded yet"
-        }
-        return "Everything else · \(self.pricing.modelsDevModelCount) models · "
-            + "updated \(Formatters.relativeAge(since: fetchedAt))"
     }
 
     private var refreshHint: String {
@@ -222,18 +171,6 @@ extension RefreshFrequency {
     /// Polls often enough that the quota endpoints the CLIs share can start refusing requests.
     var risksRateLimit: Bool {
         self == .oneMinute || self == .twoMinutes
-    }
-
-    /// The label on the cadence's segment.
-    var shortLabel: String {
-        switch self {
-        case .manual: "Manual"
-        case .oneMinute: "1m"
-        case .twoMinutes: "2m"
-        case .fiveMinutes: "5m"
-        case .fifteenMinutes: "15m"
-        case .thirtyMinutes: "30m"
-        }
     }
 }
 
@@ -263,10 +200,12 @@ struct SettingsPane<Accessory: View, Content: View>: View {
                 self.accessory()
             }
             .frame(height: 24)
-            .padding(.bottom, 12)
-            self.content()
+            .padding(.bottom, 14)
+            VStack(alignment: .leading, spacing: 22) {
+                self.content()
+            }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 28)
         .padding(.top, 18)
         .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .topLeading)
     }
@@ -278,54 +217,91 @@ extension SettingsPane where Accessory == EmptyView {
     }
 }
 
-/// The heading above a settings section.
-struct SettingsSectionTitle: View {
+/// The heading above a settings section, with whatever acts on that section beside it.
+struct SettingsSectionHeader<Accessory: View>: View {
     let title: String
+    @ViewBuilder let accessory: () -> Accessory
 
-    init(_ title: String) {
+    init(_ title: String, @ViewBuilder accessory: @escaping () -> Accessory) {
         self.title = title
+        self.accessory = accessory
     }
 
     var body: some View {
-        Text(self.title)
-            .font(.system(size: 13, weight: .semibold))
-            .padding(.leading, 2)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
+        HStack(spacing: 8) {
+            Text(self.title)
+                .font(.system(size: 13, weight: .semibold))
+            Spacer(minLength: 8)
+            self.accessory()
+                .buttonStyle(.accessoryBar)
+                .controlSize(.small)
+        }
+        .frame(minHeight: 24)
+        .padding(.horizontal, 2)
+    }
+}
+
+/// One titled part of a pane: its heading, whatever acts on that part, and what it holds.
+struct SettingsSection<Accessory: View, Content: View>: View {
+    let title: String
+    @ViewBuilder let accessory: () -> Accessory
+    @ViewBuilder let content: () -> Content
+
+    init(
+        _ title: String,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.accessory = accessory
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsSectionHeader(self.title, accessory: self.accessory)
+            self.content()
+        }
+    }
+}
+
+extension SettingsSection where Accessory == EmptyView {
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title, accessory: { EmptyView() }, content: content)
     }
 }
 
 /// One line of a settings section: what it is, a line about it, and its control.
 struct SettingsRow<Trailing: View>: View {
-    let symbol: String
+    var symbol: String?
     let title: String
     var detail: String?
+    var detailColor: Color = .secondary
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: self.symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
+        HStack(spacing: 12) {
+            if let symbol = self.symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(self.title)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
                 if let detail = self.detail {
                     Text(detail)
                         .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .foregroundStyle(self.detailColor)
+                        .lineLimit(2)
                 }
             }
             Spacer(minLength: 8)
             self.trailing()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 14)
         .padding(.vertical, 9)
     }
 }
@@ -344,39 +320,22 @@ extension View {
     }
 }
 
-/// A slice of the menu bar with the status item drawn the way it is drawn now, so the provider
-/// choice below reads as what it changes. The gauge carries no numbers, so the caption says
-/// which quota it shows.
+/// The status item drawn the way it is drawn now, so the provider choice below reads as what it
+/// changes. The gauge carries no numbers, so the caption says which quota it shows.
 struct MenuBarPreview: View {
     let provider: Provider
     let display: ProviderDisplay
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Text(self.caption)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Spacer(minLength: 8)
                 Image(nsImage: self.icon(now: context.date))
                     .foregroundStyle(.primary)
-                Text(context.date, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day()
-                    .hour().minute())
-                    .font(.system(size: 12))
-                    .monospacedDigit()
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 10)
-            .frame(height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.07))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-            )
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Menu bar preview: \(self.caption)")

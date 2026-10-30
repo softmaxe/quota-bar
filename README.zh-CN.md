@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，在 **Price sources** 中开关 models.dev 计价，[查看模型费率](#模型费率)，或[备份已保存用量](#备份已保存用量)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，[查看模型费率并开关 models.dev 计价](#模型费率)，或[备份已保存用量](#备份已保存用量)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
@@ -182,7 +182,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 ### 远程机器
 
-如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因、日志中的用量记录数、其中新增的数量，以及复制的文件数。新增记录是指其他日志尚未记录过的部分，因此会话已在本机的主机即使同步成功，新增也可能很少甚至为零。机器关机只会推迟它自己的同步。
+如需统计其他机器上的 Claude Code 和 Codex 会话，打开 **Settings → Usage**，点击 **Add host**，输入它的 SSH 主机或从 SSH 配置中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因、日志中的用量记录数、其中新增的数量，以及复制的数据量。同步失败时可点击 **Retry**，也可以通过 **···** 菜单单独同步这台主机或停止同步。新增记录是指其他日志尚未记录过的部分，因此会话已在本机的主机即使同步成功，新增也可能很少甚至为零。机器关机只会推迟它自己的同步。
 
 主机需要支持免交互的 SSH 密钥登录，并已安装 `rsync`。QuotaBar 读取这台机器上的 `~/.claude/projects`、`~/.config/claude/projects`、`~/.codex/sessions` 和 `~/.codex/archived_sessions`，不读取自定义的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME` 路径。OpenCode 和 Pi Agent 仅统计本机数据。
 
@@ -205,7 +205,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ### 备份已保存用量
 
-已保存用量不依赖会话日志，但 QuotaBar 自己的数据也被删除后就没有了。打开 **Settings → Data**，可以查看已保存多少数据，并留一份副本。
+已保存用量不依赖会话日志，但 QuotaBar 自己的数据也被删除后就没有了。打开 **Settings → Usage**，可以查看已保存多少数据，并留一份副本。
 
 - **Export…** 把数据保存为一个 `.sqlite` 文件，位置由你选择，例如移动硬盘或同步文件夹。备份只能恢复到导出那一刻。
 - **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。导入不会删除用量：两边都有的消息或 rollout 保留更完整的记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
@@ -216,7 +216,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 - 所有成本都是按 API 公开价格的估算。
 - Claude 和 OpenAI 模型使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。价格表按生效日期分段记录费率，每天的用量使用当天的费率。
-- 其他模型使用 [models.dev](https://models.dev) 的费率：模型厂商自己有报价时用厂商价，否则取各家供应商报价的中间值。QuotaBar 把这些费率缓存在本地，每天最多更新一次；价格变化后，之前的日期仍按旧费率计算。只有免费报价的模型保持未计价。可在 **Settings → General → Price sources** 中关闭。
+- 其他模型使用 [models.dev](https://models.dev) 的费率：模型厂商自己有报价时用厂商价，否则取各家供应商报价的中间值。QuotaBar 把这些费率缓存在本地，每天最多更新一次；价格变化后，之前的日期仍按旧费率计算。只有免费报价的模型保持未计价。可用 **Settings → Pricing** 中的 **models.dev** 开关关闭。
 - Fast 用量（Codex priority 层级和 Claude Fast mode）使用价格表中的费率乘以该时段的 Fast 倍率，缓存费率同样适用。没有 Fast 倍率的模型，以及使用 models.dev 计价的模型，其 Fast 用量保持未计价状态。QuotaBar 开始记录 Fast mode 之前扫描的 Claude 用量仍按 Standard 计价。
 - 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。QuotaBar 在扫描时记录这一归类，之后修改阈值不会重新归类已保存的用量。
 
@@ -236,10 +236,10 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ## 模型费率
 
-打开 **Settings → Pricing**，可以查看所有估算使用的费率，单位为美元/百万 token。表格包含价格表中当前的 Claude 和 OpenAI API 模型，以及本地发现的其他模型，后者由 models.dev 计价或未计价，每行列出四项主要费率。内置、models.dev 和未计价的模型分别放在独立卡片中，并按厂商分组。每次打开此页时厂商默认折叠，点击厂商可显示其模型。同一厂商内，本机用过的模型排在前面，用量最大的在最上方；搜索框可按名称筛选。点击某一行可展开一小时缓存写入费率、长上下文阈值及超过阈值后的费率、记录的 token 数、费率来源，以及来源官方价格页的链接。可用上下方向键在表格中移动。
+打开 **Settings → Pricing**，可以查看所有估算使用的费率，单位为美元/百万 token。表格包含价格表中当前的 Claude 和 OpenAI API 模型，以及本地发现的其他模型，后者由 models.dev 计价或未计价，每行列出四项主要费率。内置、models.dev 和未计价的模型分别放在独立卡片中，并按厂商分组；models.dev 标题旁是该来源的开关。每次打开此页时厂商默认折叠，点击厂商可显示其模型。同一厂商内，本机用过的模型排在前面，用量最大的在最上方；搜索框可按名称筛选。点击某一行可展开一小时缓存写入费率、长上下文阈值及超过阈值后的费率、记录的 token 数、费率来源，以及来源官方价格页的链接。可用上下方向键在表格中移动。
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="分为内置和 models.dev 卡片并按厂商分组的只读价格表，其中一个模型已展开并显示长上下文费率">
+  <img src="docs/images/settings-pricing.png" width="672" alt="分为内置和 models.dev 卡片并按厂商分组的只读价格表，其中一个模型已展开并显示长上下文费率">
 </p>
 
 费率不可编辑。如需修改 Claude 或 OpenAI 的费率，请更新价格表（见[维护价格表](docs/pricing.md)）。旧版本把自定义费率保存在 `pricing-overrides.json`，此版本启动时会删除该文件。
@@ -267,7 +267,7 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 
 </details>
 
-Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度。Claude 和 OpenAI 的价格随应用发布。在 **Price sources** 中开启 **models.dev** 时，QuotaBar 每天最多请求一次 `https://models.dev/api.json`，请求不携带用量或账号数据。本地会话记录不会发送到这些服务。
+Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`；未设置时使用 ChatGPT 默认接口。QuotaBar 还会请求 `auth.openai.com` 刷新 Codex token、请求 `api.anthropic.com` 获取 Claude 额度。Claude 和 OpenAI 的价格随应用发布。在 **Settings → Pricing** 中开启 **models.dev** 时，QuotaBar 每天最多请求一次 `https://models.dev/api.json`，请求不携带用量或账号数据。本地会话记录不会发送到这些服务。
 
 ## 构建与开发
 
@@ -349,7 +349,7 @@ make preview
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型，以及第三方模型的 Fast 用量，都保持未计价。其他模型请确认 **Settings → General → Price sources** 中已开启 models.dev，且 models.dev 收录了该模型。 |
+| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型，以及第三方模型的 Fast 用量，都保持未计价。其他模型请确认 **Settings → Pricing** 中的 **models.dev** 开关已开启，且 models.dev 收录了该模型。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
 | 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |

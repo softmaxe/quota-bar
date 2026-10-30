@@ -210,11 +210,11 @@ final class PricingTableModel: ObservableObject {
     @Published private(set) var hasLoadedUsage = false
     @Published private(set) var isReadingUsage = false
     @Published private(set) var scanStatusMessages: [String] = []
-    /// When models.dev was last read, and whether pricing from it is on, for the footer.
+    /// When models.dev was last read, and whether pricing from it is on, for its section heading.
     @Published private(set) var modelsDevFetchedAt: Date?
     @Published private(set) var modelsDevEnabled = true
-    /// How many models each source prices, for the source list in General. The models.dev count
-    /// is the cached catalog's, so it still reads while that source is switched off.
+    /// How many models each source prices, for the section headings. The models.dev count is the
+    /// cached catalog's, so it still reads while that source is switched off.
     @Published private(set) var priceBookModelCount = 0
     @Published private(set) var modelsDevModelCount = 0
     /// The row open in the table, nil when none is. Kept here rather than in the view so it
@@ -266,9 +266,8 @@ final class PricingTableModel: ObservableObject {
         }
     }
 
-    /// Rereads the rates and what each source covers, without touching the usage database, so
-    /// General can describe the sources without paying for the pricing list.
-    func loadSources() {
+    /// Rereads the rates and what each source covers.
+    private func loadSources() {
         let cached: ThirdPartyRates
         if let fixtures = self.fixtures {
             self.rateCard = fixtures.rateCard

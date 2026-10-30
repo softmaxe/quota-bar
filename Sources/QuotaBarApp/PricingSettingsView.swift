@@ -6,6 +6,7 @@ import SwiftUI
 /// grouped by vendor and the ones the local logs spend tokens on first; a row opens in place to
 /// show the rest of what the billing math reads for that model.
 struct PricingSettingsView: View {
+    @ObservedObject var settings: SettingsStore
     @ObservedObject var model: PricingTableModel
     /// The settings window keeps this pane mounted behind the General one so the panes can
     /// cross-fade, so reading the scan cache waits for the pane to actually be opened.
@@ -16,7 +17,7 @@ struct PricingSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isTableFocused: Bool
 
-    private static let rateColumnWidth: CGFloat = 56
+    private static let rateColumnWidth: CGFloat = 64
     private static let detailLabelWidth: CGFloat = 132
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
@@ -29,12 +30,13 @@ struct PricingSettingsView: View {
                 .controlSize(.small)
                 .frame(width: 200)
         } content: {
-            self.table
-            self.footer
-                .padding(.top, 10)
-                .padding(.bottom, 16)
+            VStack(alignment: .leading, spacing: 10) {
+                self.table
+                self.footer
+            }
+            .padding(.bottom, 16)
         }
-        .task(id: [self.isLoadEnabled ? 1 : 0, self.reload]) {
+        .task(id: [self.isLoadEnabled ? 1 : 0, self.reload, self.settings.modelsDevPricing ? 1 : 0]) {
             guard self.isLoadEnabled else { return }
             await self.model.load()
         }
@@ -43,10 +45,48 @@ struct PricingSettingsView: View {
 
     // MARK: - Table
 
-    private func sectionTitle(_ section: PricingSectionGroup) -> some View {
-        Text(section.section.rawValue)
-            .font(.system(size: 13, weight: .semibold))
-            .padding(.leading, 2)
+    /// models.dev keeps its heading with nothing to list, because the heading holds its switch.
+    private var sections: [PricingSectionGroup] {
+        var sections = self.model.listSections
+        guard !self.model.isSearching, !sections.contains(where: { $0.section == .modelsDev }) else {
+            return sections
+        }
+        let index = sections.firstIndex { $0.section == .unpriced } ?? sections.endIndex
+        sections.insert(PricingSectionGroup(section: .modelsDev, vendors: []), at: index)
+        return sections
+    }
+
+    private func sectionHeader(_ section: PricingSection) -> some View {
+        SettingsSectionHeader(section.rawValue) {
+            switch section {
+            case .builtIn:
+                self.sourceDetail("Always on · \(self.model.priceBookModelCount) models")
+            case .modelsDev:
+                self.sourceDetail(self.modelsDevDetail)
+                Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            case .unpriced:
+                EmptyView()
+            }
+        }
+    }
+
+    private func sourceDetail(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+
+    private var modelsDevDetail: String {
+        guard self.settings.modelsDevPricing else {
+            return "Off: models outside the price book stay unpriced"
+        }
+        guard let fetchedAt = self.model.modelsDevFetchedAt else {
+            return "Not downloaded yet"
+        }
+        return "\(self.model.modelsDevModelCount) models · updated \(Formatters.relativeAge(since: fetchedAt))"
     }
 
     /// Names the rates of a vendor's rows, so a folded list carries no empty columns.
@@ -72,7 +112,7 @@ struct PricingSettingsView: View {
     }
 
     private var table: some View {
-        let sections = self.model.listSections
+        let sections = self.sections
         return Group {
             if self.model.isLoading {
                 self.placeholder {
@@ -91,10 +131,12 @@ struct PricingSettingsView: View {
                         // Inside the scroll view so a classic scroll bar narrows both alike.
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                                self.sectionTitle(section)
-                                    .padding(.top, index == 0 ? 0 : 18)
+                                self.sectionHeader(section.section)
+                                    .padding(.top, index == 0 ? 0 : 22)
                                     .padding(.bottom, 8)
-                                self.sectionCard(section)
+                                if !section.vendors.isEmpty {
+                                    self.sectionCard(section)
+                                }
                             }
                         }
                     }
@@ -351,7 +393,7 @@ struct PricingSettingsView: View {
         guard row.group == .others, !self.model.modelsDevEnabled else {
             return "No source prices this model today. Its tokens count toward totals but not cost."
         }
-        return "models.dev prices are off in General, so its tokens count toward totals but not cost."
+        return "models.dev prices are off, so its tokens count toward totals but not cost."
     }
 
     private var footer: some View {
@@ -378,22 +420,11 @@ struct PricingSettingsView: View {
                     .disabled(self.model.isReadingUsage)
                 }
             }
-            Text(self.footerText)
+            Text("Rates are USD per 1M tokens. Costs are estimates at API list prices.")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
-    }
-
-    private var footerText: String {
-        let estimate = "Rates are USD per 1M tokens. Costs are estimates at API list prices."
-        guard self.model.modelsDevEnabled else {
-            return "\(estimate) models.dev prices are off in General."
-        }
-        guard let fetchedAt = self.model.modelsDevFetchedAt else {
-            return "\(estimate) models.dev prices have not been downloaded yet."
-        }
-        return "\(estimate) models.dev prices updated \(Formatters.relativeAge(since: fetchedAt))."
     }
 
     // MARK: - Sources
