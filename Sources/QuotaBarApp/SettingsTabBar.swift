@@ -6,6 +6,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
     case general
     case pricing
     case remote
+    case data
 
     var id: Int { self.rawValue }
 
@@ -14,6 +15,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         case .general: "General"
         case .pricing: "Pricing"
         case .remote: "Remote"
+        case .data: "Data"
         }
     }
 
@@ -22,6 +24,7 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .pricing: "dollarsign.circle"
         case .remote: "network"
+        case .data: "externaldrive"
         }
     }
 

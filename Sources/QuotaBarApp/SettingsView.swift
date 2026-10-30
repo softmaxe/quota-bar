@@ -16,6 +16,7 @@ struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var pricing: PricingTableModel
     @ObservedObject var store: UsageStore
+    @ObservedObject var backup: UsageBackupModel
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -70,6 +71,14 @@ struct SettingsView: View {
             self.pane(.remote) {
                 RemoteSettingsView(settings: self.settings, remote: self.store.remoteSync)
             }
+            self.pane(.data) {
+                // Zero while the pane is out of view, so only opening it reads the database.
+                DataSettingsView(
+                    model: self.backup,
+                    settings: self.settings,
+                    reload: self.selection.tab == .data ? self.selection.windowShows + 1 : 0
+                )
+            }
         }
         .frame(width: Self.paneWidth, height: Self.paneHeight, alignment: .topLeading)
     }
@@ -104,7 +113,7 @@ struct GeneralSettingsView: View {
                 display: self.display(self.settings.menuBarProvider)
             )
 
-            self.sectionTitle("Menu bar")
+            SettingsSectionTitle("Menu bar")
             HStack(spacing: 10) {
                 ForEach(Provider.allCases, id: \.self) { provider in
                     ProviderChoiceCard(
@@ -119,7 +128,7 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            self.sectionTitle("Refresh")
+            SettingsSectionTitle("Refresh")
             VStack(alignment: .leading, spacing: 8) {
                 RefreshStopSlider(selection: self.$settings.refreshFrequency)
                 Text(self.refreshHint)
@@ -132,9 +141,9 @@ struct GeneralSettingsView: View {
             .padding(.bottom, 10)
             .settingsGroup()
 
-            self.sectionTitle("Price sources")
+            SettingsSectionTitle("Price sources")
             VStack(spacing: 0) {
-                self.sourceRow(
+                SettingsRow(
                     symbol: "book.closed",
                     title: "Built-in price book",
                     detail: "Claude and OpenAI · \(self.pricing.priceBookModelCount) models"
@@ -144,7 +153,7 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Divider().padding(.leading, 50)
-                self.sourceRow(
+                SettingsRow(
                     symbol: "globe",
                     title: "models.dev",
                     detail: self.modelsDevDetail
@@ -167,44 +176,6 @@ struct GeneralSettingsView: View {
 
     private func display(_ provider: Provider) -> ProviderDisplay {
         self.store.displays[provider] ?? ProviderDisplay()
-    }
-
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 13, weight: .semibold))
-            .padding(.leading, 2)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-    }
-
-    private func sourceRow(
-        symbol: String,
-        title: String,
-        detail: String,
-        @ViewBuilder trailing: () -> some View
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
-                )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13))
-                Text(detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            trailing()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
     }
 
     private var modelsDevDetail: String {
@@ -247,6 +218,56 @@ extension RefreshFrequency {
         case .fifteenMinutes: "15m"
         case .thirtyMinutes: "30m"
         }
+    }
+}
+
+/// The heading above a settings section.
+struct SettingsSectionTitle: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        Text(self.title)
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.leading, 2)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+    }
+}
+
+/// One line of a settings section: what it is, a line about it, and its control.
+struct SettingsRow<Trailing: View>: View {
+    let symbol: String
+    let title: String
+    let detail: String
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: self.symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(self.title)
+                    .font(.system(size: 13))
+                Text(self.detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            self.trailing()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
     }
 }
 

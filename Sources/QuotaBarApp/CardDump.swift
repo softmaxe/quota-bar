@@ -63,9 +63,22 @@ enum CardDump {
             store.debugSetDisplay(ProviderDisplay(snapshot: Self.loadedSnapshot(provider)), for: provider)
         }
 
+        // The data pane shows the size of what is saved, which the throwaway database does not have.
+        let backup = UsageBackupModel(
+            settings: settings,
+            store: store,
+            fixture: SavedUsageSummary(records: 56_412, firstDay: "2025-11-03", bytes: 27_400_000)
+        )
+        settings.lastUsageExport = Date().addingTimeInterval(-3 * 86_400)
+
         Self.captureSettings(
-            AnyView(SettingsView(settings: settings, pricing: pricing, store: store)),
+            AnyView(SettingsView(settings: settings, pricing: pricing, store: store, backup: backup)),
             named: "settings",
+            into: root
+        )
+        Self.captureSettings(
+            AnyView(DataSettingsView(model: backup, settings: settings)),
+            named: "settings-data",
             into: root
         )
         // The pricing pane again on its own. The rows only load when the pane appears, and the

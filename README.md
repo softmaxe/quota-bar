@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, drag the refresh interval along a track that marks the rate-limit-prone stops in orange, and turn models.dev pricing on or off under **Price sources**, or to [see model prices](#model-prices).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, drag the refresh interval along a track that marks the rate-limit-prone stops in orange, and turn models.dev pricing on or off under **Price sources**, to [see model prices](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -203,6 +203,15 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 
 </details>
 
+### Backing up saved usage
+
+Saved usage outlives the session logs, but it is gone if QuotaBar's own data is deleted too. Open **Settings → Data** to see how much is saved and to keep a copy.
+
+- **Export…** saves one `.sqlite` file wherever you choose, such as an external disk or a synced folder. The pane shows when you last exported, because a backup restores only what was saved by then.
+- **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. It never removes usage: a message or rollout on both sides keeps the fuller record, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
+
+A backup holds token counts, dates, models, pricing tiers, record IDs, scan positions, and local session paths, so check where you share it. It holds no prompts or replies. Quota pace samples and cached models.dev rates are not included: pace rebuilds as QuotaBar samples quota again, and past third-party costs use the rates downloaded on that Mac.
+
 ### Pricing rules
 
 - Every cost is an estimate at API list prices.
@@ -250,6 +259,7 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite.pre-import   # before the latest import
 ~/Library/Application Support/QuotaBar/cost-usage/remote-logs/   # copies from remote machines
 ~/Library/Preferences/com.quotabar.app.plist
 ~/Library/WebKit/com.quotabar.app        # usage report view settings

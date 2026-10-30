@@ -141,6 +141,28 @@ public actor CostService {
         self.book = rateCard.book
     }
 
+    /// Writes a backup of Recorded usage to `destination`, replacing any file there only once the
+    /// backup is complete. Waits for a scan in progress.
+    public func exportBackup(to destination: URL) throws {
+        let recorder = try self.openRecorder()
+        try UsageBackup.publish(to: destination, write: recorder.writeSnapshot(to:))
+    }
+
+    /// Adds what the backup at `source` holds and this database lacks, and removes nothing. The
+    /// database as it stood stays beside it in `undoCopyURL`. Waits for a scan in progress.
+    public func importBackup(from source: URL) throws -> UsageImportResult {
+        let recorder = try self.openRecorder()
+        return try UsageBackup.withStagedCopy(of: source) {
+            try recorder.merge(backup: $0, undoCopy: self.undoCopyURL)
+        }
+    }
+
+    /// The database as it stood before the latest import.
+    public nonisolated var undoCopyURL: URL {
+        self.databaseURL.deletingLastPathComponent()
+            .appendingPathComponent(self.databaseURL.lastPathComponent + ".pre-import", isDirectory: false)
+    }
+
     private func openRecorder() throws -> UsageRecorder {
         if let recorder = self.recorder { return recorder }
         let recorder = try UsageRecorder(databaseURL: self.databaseURL)

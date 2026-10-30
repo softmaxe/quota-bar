@@ -26,4 +26,15 @@ public enum CostUsageReader {
         }
         return try RecordedUsageReader(databaseURL: databaseURL).modelUsage(provider: provider)
     }
+
+    /// What the saved usage amounts to. An absent cache means nothing is saved yet.
+    public static func savedUsage(databaseURL: URL = CostService.defaultDatabaseURL) throws -> SavedUsageSummary {
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else { return .empty }
+        let usage = try RecordedUsageReader(databaseURL: databaseURL).savedUsage()
+        let bytes = [databaseURL.path, databaseURL.path + "-wal"].reduce(Int64(0)) { total, path in
+            let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber
+            return total + (size?.int64Value ?? 0)
+        }
+        return SavedUsageSummary(records: usage.records, firstDay: usage.firstDay, bytes: bytes)
+    }
 }

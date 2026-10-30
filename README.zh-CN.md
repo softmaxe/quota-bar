@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，沿刷新轨道拖动选择刷新间隔（容易触发限流的档位标为橙色），并在 **Price sources** 中开关 models.dev 计价，或[查看模型费率](#模型费率)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，沿刷新轨道拖动选择刷新间隔（容易触发限流的档位标为橙色），在 **Price sources** 中开关 models.dev 计价，[查看模型费率](#模型费率)，或[备份已保存用量](#备份已保存用量)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
@@ -203,6 +203,15 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 </details>
 
+### 备份已保存用量
+
+已保存用量不依赖会话日志，但 QuotaBar 自己的数据也被删除后就没有了。打开 **Settings → Data**，可以查看已保存多少数据，并留一份副本。
+
+- **Export…** 把数据保存为一个 `.sqlite` 文件，位置由你选择，例如移动硬盘或同步文件夹。面板会显示上次导出的时间，因为备份只能恢复到导出那一刻。
+- **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。导入不会删除用量：两边都有的消息或 rollout 保留更完整的记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
+
+备份包含 token 数量、日期、模型、计价档位、记录 ID、扫描位置和本地会话路径，分享前请留意。备份不包含提示词或回复。额度节奏样本和缓存的 models.dev 费率也不在备份内：节奏会随着 QuotaBar 重新采样而恢复，第三方模型的历史费用使用这台 Mac 已下载的费率。
+
 ### 计价规则
 
 - 所有成本都是按 API 公开价格的估算。
@@ -250,6 +259,7 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite.pre-import   # 最近一次导入之前的数据库
 ~/Library/Application Support/QuotaBar/cost-usage/remote-logs/   # 从远程机器复制的日志
 ~/Library/Preferences/com.quotabar.app.plist
 ~/Library/WebKit/com.quotabar.app        # 用量报告的视图设置

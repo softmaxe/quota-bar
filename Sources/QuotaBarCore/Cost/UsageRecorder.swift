@@ -57,6 +57,22 @@ package final class UsageRecorder {
     /// Borrows the recorder's connection; read only between recordings.
     package var recordedUsageReader: RecordedUsageReader { self.cache.recordedUsageReader }
 
+    /// Writes one consistent copy of Recorded usage to a path that does not exist.
+    package func writeSnapshot(to url: URL) throws {
+        try self.cache.writeSnapshot(to: url)
+    }
+
+    /// Folds a staged backup into Recorded usage. Opening the copy upgrades it to this version's
+    /// schema, as opening any older database does.
+    package func merge(backup copy: URL, undoCopy: URL) throws -> UsageImportResult {
+        do {
+            _ = try CostCache(path: copy, access: RecordingAccess())
+        } catch {
+            throw UsageBackupError.unreadable
+        }
+        return try self.cache.merge(backup: copy, undoCopy: undoCopy)
+    }
+
     /// Records every Usage source whose usage counts toward `provider`. A source that fails
     /// keeps what was recorded before and reports the failure in its scan status, so it never
     /// hides the others. `remoteLogs` is the `RemoteLogMirror` directory, whose logs count as this

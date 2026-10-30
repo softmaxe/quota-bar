@@ -8,6 +8,7 @@ final class SettingsWindowController {
     private let settings: SettingsStore
     private let pricing: PricingTableModel
     private let store: UsageStore
+    private let backup: UsageBackupModel
     private let selection = SettingsSelection()
     private var window: NSWindow?
 
@@ -15,6 +16,7 @@ final class SettingsWindowController {
         self.settings = settings
         self.pricing = pricing
         self.store = store
+        self.backup = UsageBackupModel(settings: settings, store: store)
     }
 
     func show() {
@@ -35,7 +37,7 @@ final class SettingsWindowController {
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing,
-                                   store: self.store, selection: self.selection)
+                                   store: self.store, backup: self.backup, selection: self.selection)
         )
         let window = NSWindow(contentViewController: hosting)
         window.title = "QuotaBar Settings"

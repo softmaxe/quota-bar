@@ -18,7 +18,7 @@ final class UsageStore: ObservableObject {
     private(set) lazy var remoteSync = RemoteSyncModel(
         settings: self.settings,
         mirror: self.remoteLogMirror,
-        didSync: { [weak self] in self?.refreshAllLocalUsageAfterRemoteSync() }
+        didSync: { [weak self] in self?.refreshAllLocalUsageAfterChange() }
     )
 
     private var timer: Timer?
@@ -43,6 +43,8 @@ final class UsageStore: ObservableObject {
     private let updateThirdPartyRates: () async -> Bool
     private let invalidatePricing: () async -> Void
     private let remoteLogMirror: RemoteLogMirror
+    /// The cost service every local scan goes through.
+    let costService: CostService
 
     init(
         settings: SettingsStore,
@@ -56,6 +58,7 @@ final class UsageStore: ObservableObject {
         recoveryDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.costService = costService
         self.historyStore = historyStore ?? UsageHistoryStore()
         self.recovery = QuotaRecoveryTracker(defaults: recoveryDefaults)
         self.clock = clock
@@ -234,9 +237,9 @@ final class UsageStore: ObservableObject {
         self.refreshCosts(for: self.settings.menuBarProvider, repeatingRunningScan: true)
     }
 
-    /// Newly mirrored logs need a scan that starts after them, so a scan already running does
-    /// not stand in for this one.
-    private func refreshAllLocalUsageAfterRemoteSync() {
+    /// Newly mirrored logs and imported usage need a scan that starts after them, so a scan
+    /// already running does not stand in for this one.
+    func refreshAllLocalUsageAfterChange() {
         for provider in Provider.allCases { self.refreshCosts(for: provider, repeatingRunningScan: true) }
     }
 
