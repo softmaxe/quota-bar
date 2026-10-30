@@ -64,6 +64,7 @@ public final class SettingsStore: ObservableObject {
         static let costChartLabelMode = "costChartLabelMode"
         static let quotaResetDisplayMode = "quotaResetDisplayMode"
         static let modelsDevPricing = "modelsDevPricing"
+        static let remoteHosts = "remoteHosts"
     }
 
     private let defaults: UserDefaults
@@ -113,6 +114,14 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// The SSH hosts whose Claude Code and Codex logs count toward this Mac's usage.
+    @Published public var remoteHosts: [String] {
+        didSet {
+            guard oldValue != self.remoteHosts else { return }
+            self.defaults.set(self.remoteHosts, forKey: Key.remoteHosts)
+        }
+    }
+
     /// The saved `modelsDevPricing`, readable off the main actor by the cost service.
     public nonisolated static func isModelsDevPricingEnabled(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.modelsDevPricing) as? Bool ?? true
@@ -129,5 +138,6 @@ public final class SettingsStore: ObservableObject {
         self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
         self.modelsDevPricing = Self.isModelsDevPricingEnabled(defaults)
+        self.remoteHosts = defaults.stringArray(forKey: Key.remoteHosts) ?? []
     }
 }

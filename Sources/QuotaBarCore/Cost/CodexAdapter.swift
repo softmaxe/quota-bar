@@ -13,9 +13,13 @@ import Foundation
 /// only new if the running total moved. That state travels between scans as opaque saved state.
 package struct CodexAdapter: AppendedLogAdapter {
     private let env: [String: String]
+    private let mirroredRoots: [URL]
 
-    package init(env: [String: String] = ProcessInfo.processInfo.environment) {
+    /// `mirroredRoots` are copies of other machines' session directories, read alongside this
+    /// Mac's own. A rollout that appears in both still counts once, by its session UUID.
+    package init(env: [String: String] = ProcessInfo.processInfo.environment, mirroredRoots: [URL] = []) {
         self.env = env
+        self.mirroredRoots = mirroredRoots
     }
 
     package var source: AppendedLogSource { .codex }
@@ -30,7 +34,7 @@ package struct CodexAdapter: AppendedLogAdapter {
 
     /// One copy per rollout: archiving moves or copies a live rollout into the other root.
     package func logFiles() -> [URL] {
-        self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env)))
+        self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env) + self.mirroredRoots))
     }
 
     /// Standard rollout names end in the session UUID, which survives archive moves and copies.

@@ -180,6 +180,14 @@ The chart distinguishes zero usage from missing data:
 
 For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBar checks each app's current OAuth credentials against the Codex account. Matching usage counts toward Codex totals. Other providers, API-key credentials, and account mismatches are excluded. These totals do not affect quota bars. See [Limitations](#limitations) for historical OpenCode authentication changes.
 
+### Remote machines
+
+To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With refresh set to **Manual**, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed. A machine that is off only delays its own sync.
+
+The host needs key-based SSH sign-in that works without a prompt, and `rsync` installed. QuotaBar reads `~/.claude/projects`, `~/.config/claude/projects`, `~/.codex/sessions`, and `~/.codex/archived_sessions` on the machine, not custom `CLAUDE_CONFIG_DIR` or `CODEX_HOME` locations. OpenCode and Pi Agent are local only.
+
+Remote usage adds to the same totals as this Mac's, with no per-machine breakdown. Sessions present on both count once. Removing a host stops syncing it and keeps what was recorded.
+
 ### Saved history
 
 The first scan of a large history may take time. QuotaBar saves token counts, dates, models, sources, and pricing tiers in SQLite, along with record IDs and scan positions. It calculates costs when reading that usage.
@@ -233,6 +241,8 @@ QuotaBar reads CLI credentials and local session records. It does not write to C
 
 QuotaBar uses timestamps, models, token counts, record IDs, and account IDs needed to match OAuth sessions. It does not store prompts, responses, or reasoning text in its usage history or upload them.
 
+[Remote machines](#remote-machines) are the one exception to local-only reading: QuotaBar connects to the SSH hosts you add and copies their whole session logs, which can include prompts and responses, into a directory only your user can read. Nothing is sent to those hosts, and the copies stay after a host is removed. Delete `cost-usage/remote-logs` to remove them; recorded usage stays.
+
 <details>
 <summary>Local storage paths</summary>
 
@@ -240,6 +250,7 @@ QuotaBar uses timestamps, models, token counts, record IDs, and account IDs need
 ~/Library/Application Support/QuotaBar/usage-history.json
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
+~/Library/Application Support/QuotaBar/cost-usage/remote-logs/   # copies from remote machines
 ~/Library/Preferences/com.quotabar.app.plist
 ~/Library/WebKit/com.quotabar.app        # usage report view settings
 ```

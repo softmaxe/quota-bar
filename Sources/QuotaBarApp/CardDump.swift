@@ -84,6 +84,19 @@ enum CardDump {
             named: "settings-pricing",
             into: root
         )
+
+        settings.remoteHosts = ["ubuntu-tailscale", "build-server", "old-laptop"]
+        store.remoteSync.debugSetState(.synced(Date().addingTimeInterval(-240)), for: "ubuntu-tailscale")
+        store.remoteSync.debugSetState(.syncing, for: "build-server")
+        store.remoteSync.debugSetState(
+            .failed("ssh: connect to host old-laptop port 22: Operation timed out"),
+            for: "old-laptop"
+        )
+        Self.captureSettings(
+            AnyView(RemoteSettingsView(settings: settings, remote: store.remoteSync)),
+            named: "settings-remote",
+            into: root
+        )
     }
 
     /// The settings window is a tab bar over a 620x460 pane and the pricing pane is that pane on

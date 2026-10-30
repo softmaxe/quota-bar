@@ -28,6 +28,10 @@ public actor CostService {
     /// Readable without the actor so `CostUsageReader` can open the same file on a connection
     /// of its own rather than queueing behind a scan.
     public nonisolated let databaseURL: URL
+    /// Where `RemoteLogMirror` keeps other machines' logs, beside the database they feed.
+    public nonisolated var remoteLogsURL: URL {
+        self.databaseURL.deletingLastPathComponent().appendingPathComponent("remote-logs", isDirectory: true)
+    }
     private let env: [String: String]
 
     /// models.dev is read at most once a day, and a failed download waits an hour.
@@ -64,7 +68,12 @@ public actor CostService {
             let rateCard = self.currentRateCard()
 
             let started = Date()
-            let touched = recorder.record(provider, rateCard: rateCard, env: self.env)
+            let touched = recorder.record(
+                provider,
+                rateCard: rateCard,
+                env: self.env,
+                remoteLogs: self.remoteLogsURL
+            )
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(

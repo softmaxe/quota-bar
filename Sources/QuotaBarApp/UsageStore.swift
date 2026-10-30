@@ -14,6 +14,13 @@ final class UsageStore: ObservableObject {
     /// "Refreshing…" for a request that is not about it.
     @Published private(set) var refreshingProviders: Set<Provider> = []
 
+    /// Keeps other machines' logs mirrored for the scans below to read.
+    private(set) lazy var remoteSync = RemoteSyncModel(
+        settings: self.settings,
+        mirror: self.remoteLogMirror,
+        didSync: { [weak self] in self?.refreshAllLocalUsageAfterRemoteSync() }
+    )
+
     private var timer: Timer?
     private var refreshTasks: [Provider: Task<Void, Never>] = [:]
     private var costTasks: [Provider: Task<Void, Never>] = [:]
@@ -35,6 +42,7 @@ final class UsageStore: ObservableObject {
     /// Downloads models.dev when it is due; true when the rates changed.
     private let updateThirdPartyRates: () async -> Bool
     private let invalidatePricing: () async -> Void
+    private let remoteLogMirror: RemoteLogMirror
 
     init(
         settings: SettingsStore,
@@ -56,11 +64,13 @@ final class UsageStore: ObservableObject {
         self.fetchCost = fetchCost ?? { await costService.refresh($0) }
         self.updateThirdPartyRates = updateThirdPartyRates ?? { await costService.updateThirdPartyRates() }
         self.invalidatePricing = { await costService.invalidatePricing() }
+        self.remoteLogMirror = RemoteLogMirror(root: costService.remoteLogsURL)
     }
 
     func start() {
         self.refresh()
         self.rescheduleTimer()
+        self.remoteSync.start()
         self.settingsObserver = self.settings.$refreshFrequency
             .removeDuplicates()
             .dropFirst()
@@ -115,6 +125,7 @@ final class UsageStore: ObservableObject {
     }
 
     func stop() {
+        self.remoteSync.stop()
         self.timer?.invalidate()
         self.timer = nil
         for task in self.refreshTasks.values { task.cancel() }
@@ -189,10 +200,10 @@ final class UsageStore: ObservableObject {
     /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
     /// hold up the quota numbers, which are what the menu bar icon needs. Utility priority lets
     /// that multi-second pass yield the performance cores to whatever the user is doing.
-    private func refreshCosts(for provider: Provider, afterPricingChange: Bool = false) {
+    private func refreshCosts(for provider: Provider, repeatingRunningScan: Bool = false) {
         self.updateThirdPartyRatesIfDue()
         guard self.costTasks[provider] == nil else {
-            if afterPricingChange { self.pendingCostRefreshes.insert(provider) }
+            if repeatingRunningScan { self.pendingCostRefreshes.insert(provider) }
             return
         }
 
@@ -220,7 +231,13 @@ final class UsageStore: ObservableObject {
     /// New rates only affect local costs. Coalesce changes during a scan into one follow-up
     /// so its earlier snapshot cannot hide the result of the new rates.
     func refreshCostsAfterPricingChange() {
-        self.refreshCosts(for: self.settings.menuBarProvider, afterPricingChange: true)
+        self.refreshCosts(for: self.settings.menuBarProvider, repeatingRunningScan: true)
+    }
+
+    /// Newly mirrored logs need a scan that starts after them, so a scan already running does
+    /// not stand in for this one.
+    private func refreshAllLocalUsageAfterRemoteSync() {
+        for provider in Provider.allCases { self.refreshCosts(for: provider, repeatingRunningScan: true) }
     }
 
     /// Checks models.dev alongside a cost refresh without holding the scan up. The service

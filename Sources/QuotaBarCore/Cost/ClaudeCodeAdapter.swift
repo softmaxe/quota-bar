@@ -11,9 +11,13 @@ import Foundation
 /// Turns Claude Code transcript lines into observed requests.
 package struct ClaudeCodeAdapter: AppendedLogAdapter {
     private let env: [String: String]
+    private let mirroredRoots: [URL]
 
-    package init(env: [String: String] = ProcessInfo.processInfo.environment) {
+    /// `mirroredRoots` are copies of other machines' project directories, read alongside this
+    /// Mac's own. A message that appears in both still counts once, by its identity.
+    package init(env: [String: String] = ProcessInfo.processInfo.environment, mirroredRoots: [URL] = []) {
         self.env = env
+        self.mirroredRoots = mirroredRoots
     }
 
     package var source: AppendedLogSource { .claude }
@@ -32,7 +36,7 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
     }
 
     package func logFiles() -> [URL] {
-        LogFileScanner.jsonlFiles(under: Self.projectRoots(env: self.env))
+        LogFileScanner.jsonlFiles(under: Self.projectRoots(env: self.env) + self.mirroredRoots)
     }
 
     package func isWanted(_ line: UnsafeRawBufferPointer) -> Bool {
