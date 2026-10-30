@@ -23,13 +23,11 @@ final class UsageBackupModel: ObservableObject {
     @Published private(set) var activity: Activity?
     @Published private(set) var outcome: Outcome?
 
-    private let settings: SettingsStore
     private let store: UsageStore
     private let fixture: SavedUsageSummary?
 
     /// `fixture` stands in for the saved usage, for dumps.
-    init(settings: SettingsStore, store: UsageStore, fixture: SavedUsageSummary? = nil) {
-        self.settings = settings
+    init(store: UsageStore, fixture: SavedUsageSummary? = nil) {
         self.store = store
         self.fixture = fixture
         self.summary = fixture
@@ -48,7 +46,6 @@ final class UsageBackupModel: ObservableObject {
         defer { self.activity = nil }
         do {
             try await self.store.costService.exportBackup(to: url)
-            self.settings.lastUsageExport = Date()
             self.outcome = .exported(fileName: url.lastPathComponent)
         } catch {
             self.outcome = .failed(error.localizedDescription)
@@ -72,7 +69,6 @@ final class UsageBackupModel: ObservableObject {
 /// action asks for confirmation.
 struct DataSettingsView: View {
     @ObservedObject var model: UsageBackupModel
-    @ObservedObject var settings: SettingsStore
     /// Zero while the pane is out of view; any other change rereads what is saved.
     var reload = 0
 
@@ -92,8 +88,7 @@ struct DataSettingsView: View {
             VStack(spacing: 0) {
                 SettingsRow(
                     symbol: "square.and.arrow.up",
-                    title: "Export a backup",
-                    detail: self.exportDetail
+                    title: "Export a backup"
                 ) {
                     Button("Export…") { Task { await self.chooseExportDestination() } }
                         .disabled(self.model.activity != nil || self.model.summary?.records == 0)
@@ -101,8 +96,7 @@ struct DataSettingsView: View {
                 Divider().padding(.leading, 50)
                 SettingsRow(
                     symbol: "square.and.arrow.down",
-                    title: "Import a backup",
-                    detail: "Adds what this Mac is missing. Removes nothing."
+                    title: "Import a backup"
                 ) {
                     Button("Import…") { Task { await self.chooseBackup() } }
                         .disabled(self.model.activity != nil)
@@ -179,13 +173,6 @@ struct DataSettingsView: View {
     private var size: String {
         guard let bytes = self.model.summary?.bytes, bytes > 0 else { return "—" }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private var exportDetail: String {
-        guard let exported = self.settings.lastUsageExport else {
-            return "Not exported yet"
-        }
-        return "Last exported \(Formatters.relativeAge(since: exported))"
     }
 
     private func chooseExportDestination() async {

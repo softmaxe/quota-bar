@@ -17,7 +17,6 @@ enum UsageBackupTests {
         await Self.importKeepsTheDatabaseAsItStood()
         await Self.legacyBackupIsUpgraded()
         await Self.unusableFilesChangeNothing()
-        await MainActor.run { Self.lastExportSurvivesARestart() }
         await Self.settingsPaneReportsEachOutcome()
     }
 
@@ -318,20 +317,8 @@ enum UsageBackupTests {
         Harness.expectEqual(fixture.logs.recorded(.claude)[Self.claudeTier]?.input, 7, "the saved usage is untouched")
     }
 
-    @MainActor
-    private static func lastExportSurvivesARestart() {
-        let suite = "QuotaBarBackupTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suite) else { return }
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let exported = Date(timeIntervalSinceReferenceDate: 800_000_000)
-
-        SettingsStore(defaults: defaults).lastUsageExport = exported
-
-        Harness.expectEqual(SettingsStore(defaults: defaults).lastUsageExport, exported, "the export date is saved")
-    }
-
-    /// What the pane does around the service: the date it shows, the message it shows, and the
-    /// scan that puts imported usage on the card.
+    /// What the pane does around the service: the message it shows and the scan that puts imported
+    /// usage on the card.
     @MainActor
     private static func settingsPaneReportsEachOutcome() async {
         let fixture = BackupFixture(name: "pane")
@@ -358,14 +345,13 @@ enum UsageBackupTests {
             historyStore: UsageHistoryStore(fileURL: fixture.logs.root.appendingPathComponent("history.json")),
             recoveryDefaults: defaults
         )
-        let model = UsageBackupModel(settings: settings, store: store)
+        let model = UsageBackupModel(store: store)
 
         await model.loadSummary()
         Harness.expectEqual(model.summary?.records, 1, "the pane reads what is saved")
 
         await model.exportBackup(to: fixture.backup)
         Harness.expectEqual(model.outcome, .exported(fileName: "backup.sqlite"), "the pane names the file it saved")
-        Harness.expect(settings.lastUsageExport != nil, "an export is dated")
 
         let text = fixture.logs.root.appendingPathComponent("notes.sqlite")
         try? Data(String(repeating: "not a database\n", count: 200).utf8).write(to: text)
