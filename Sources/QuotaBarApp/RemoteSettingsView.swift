@@ -38,10 +38,7 @@ struct RemoteSettingsView: View {
 
             SettingsRow(
                 symbol: "clock.arrow.circlepath",
-                title: "Sync automatically",
-                detail: self.settings.remoteAutoSync
-                    ? "Every 15 minutes and when QuotaBar starts"
-                    : "Only when you press Sync now"
+                title: "Sync automatically"
             ) {
                 Toggle("Sync automatically", isOn: self.$settings.remoteAutoSync)
                     .toggleStyle(.switch)

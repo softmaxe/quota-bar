@@ -8,7 +8,7 @@ final class SettingsSelection: ObservableObject {
     /// Bumped whenever the pricing pane comes into view, so it rereads rates that a models.dev
     /// download or the General toggle changed while it sat mounted behind another pane.
     @Published var pricingReloads = 0
-    /// Bumped whenever the window is shown, so General rereads what the price sources cover.
+    /// Bumped whenever the window is shown, so the open pane rereads what it shows.
     @Published var windowShows = 0
 }
 
@@ -63,9 +63,7 @@ struct SettingsView: View {
             self.pane(.general) {
                 GeneralSettingsView(
                     settings: self.settings,
-                    pricing: self.pricing,
-                    store: self.store,
-                    reload: self.selection.windowShows
+                    store: self.store
                 )
             }
             self.pane(.pricing) {
@@ -107,25 +105,16 @@ struct SettingsView: View {
     }
 }
 
-/// General shows each choice as what it changes: the menu bar item as it is drawn now, each
-/// provider with its live quota, the refresh cadences with a warning for the risky ones, and the
-/// price sources with what each one covers.
+/// General shows each choice as what it changes: each provider with its live quota, the refresh
+/// cadences with a warning for the risky ones, and the price sources.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
-    @ObservedObject var pricing: PricingTableModel
     @ObservedObject var store: UsageStore
-    /// Changes whenever the window is shown, which rereads the price sources.
-    var reload = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         SettingsPane("General") {
-            MenuBarPreview(
-                provider: self.settings.menuBarProvider,
-                display: self.display(self.settings.menuBarProvider)
-            )
-
             SettingsSectionTitle("Menu bar")
             HStack(spacing: 10) {
                 ForEach(Provider.allCases, id: \.self) { provider in
@@ -150,22 +139,25 @@ struct GeneralSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                Text(self.refreshHint)
+                if self.settings.refreshFrequency.risksRateLimit {
+                    Text(
+                        "The quota endpoints are shared with the Codex and Claude CLIs. "
+                            + "Polling this often can get you rate-limited."
+                    )
                     .font(.system(size: 11))
-                    .foregroundStyle(self.settings.refreshFrequency.risksRateLimit ? Color.orange : Color.secondary)
+                    .foregroundStyle(Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.vertical, 12)
             .settingsGroup()
 
             SettingsSectionTitle("Price sources")
             VStack(spacing: 0) {
                 SettingsRow(
                     symbol: "book.closed",
-                    title: "Built-in price book",
-                    detail: "Claude and OpenAI · \(self.pricing.priceBookModelCount) models"
+                    title: "Built-in price book"
                 ) {
                     Text("Always on")
                         .font(.system(size: 11))
@@ -174,8 +166,7 @@ struct GeneralSettingsView: View {
                 Divider().padding(.leading, 50)
                 SettingsRow(
                     symbol: "globe",
-                    title: "models.dev",
-                    detail: self.modelsDevDetail
+                    title: "models.dev"
                 ) {
                     Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
                         .toggleStyle(.switch)
@@ -185,36 +176,10 @@ struct GeneralSettingsView: View {
             }
             .settingsGroup()
         }
-        .task(id: [self.reload, self.settings.modelsDevPricing ? 1 : 0]) {
-            self.pricing.loadSources()
-        }
     }
 
     private func display(_ provider: Provider) -> ProviderDisplay {
         self.store.displays[provider] ?? ProviderDisplay()
-    }
-
-    private var modelsDevDetail: String {
-        guard self.settings.modelsDevPricing else {
-            return "Off: models outside the price book stay unpriced"
-        }
-        guard let fetchedAt = self.pricing.modelsDevFetchedAt else {
-            return "Everything else · not downloaded yet"
-        }
-        return "Everything else · \(self.pricing.modelsDevModelCount) models · "
-            + "updated \(Formatters.relativeAge(since: fetchedAt))"
-    }
-
-    private var refreshHint: String {
-        switch self.settings.refreshFrequency {
-        case .manual:
-            "Only refreshes when you open a menu or press ⌘R."
-        case .oneMinute, .twoMinutes:
-            "The quota endpoints are shared with the Codex and Claude CLIs. "
-                + "Polling this often can get you rate-limited."
-        default:
-            "Opening the menu adds at most one extra refresh a minute."
-        }
     }
 }
 
@@ -295,11 +260,10 @@ struct SettingsSectionTitle: View {
     }
 }
 
-/// One line of a settings section: what it is, a line about it, and its control.
+/// One line of a settings section: what it is and its control.
 struct SettingsRow<Trailing: View>: View {
     let symbol: String
     let title: String
-    var detail: String?
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
@@ -312,16 +276,8 @@ struct SettingsRow<Trailing: View>: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(Color.primary.opacity(0.08))
                 )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(self.title)
-                    .font(.system(size: 13))
-                if let detail = self.detail {
-                    Text(detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
+            Text(self.title)
+                .font(.system(size: 13))
             Spacer(minLength: 8)
             self.trailing()
         }
@@ -341,61 +297,6 @@ extension View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
         )
-    }
-}
-
-/// A slice of the menu bar with the status item drawn the way it is drawn now, so the provider
-/// choice below reads as what it changes. The gauge carries no numbers, so the caption says
-/// which quota it shows.
-struct MenuBarPreview: View {
-    let provider: Provider
-    let display: ProviderDisplay
-
-    var body: some View {
-        TimelineView(.everyMinute) { context in
-            HStack(spacing: 10) {
-                Text(self.caption)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Image(nsImage: self.icon(now: context.date))
-                    .foregroundStyle(.primary)
-                Text(context.date, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day()
-                    .hour().minute())
-                    .font(.system(size: 12))
-                    .monospacedDigit()
-            }
-            .padding(.leading, 12)
-            .padding(.trailing, 10)
-            .frame(height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.07))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
-            )
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Menu bar preview: \(self.caption)")
-    }
-
-    /// The same icon the status item draws for this provider, from the same cache.
-    private func icon(now: Date) -> NSImage {
-        IconRenderer.makeIcon(
-            remainingPercent: self.display.snapshot.flatMap { MenuBarProviderPolicy.gaugeRemaining($0, now: now) },
-            stale: self.display.isStale
-        )
-    }
-
-    private var caption: String {
-        let name = self.provider.displayName
-        if self.display.isSignedOut { return "\(name) is not signed in, so the gauge is faded." }
-        if self.display.isStale { return "The last \(name) refresh failed, so the gauge is dimmed." }
-        let usesWeekly = self.display.snapshot?.session == nil && self.display.snapshot?.weekly != nil
-        return "The gauge shows \(name)'s \(usesWeekly ? "weekly" : "session") quota."
     }
 }
 
