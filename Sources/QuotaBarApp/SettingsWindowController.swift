@@ -39,14 +39,17 @@ final class SettingsWindowController {
             rootView: SettingsView(settings: self.settings, pricing: self.pricing,
                                    store: self.store, backup: self.backup, selection: self.selection)
         )
+        // SwiftUI would add the title bar's safe area to the height, but the sidebar runs up
+        // behind the title bar, so the window is sized here instead.
+        hosting.sizingOptions = []
         let window = NSWindow(contentViewController: hosting)
         window.title = "QuotaBar Settings"
-        window.styleMask = [.titled, .closable]
+        // The title stays for the Window menu and assistive technology; the sidebar names the app.
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        // SwiftUI settles the content size only after a layout pass; centering the pre-layout
-        // frame is what left the window sitting off-centre.
-        hosting.view.layoutSubtreeIfNeeded()
-        window.setContentSize(hosting.view.fittingSize)
+        window.setContentSize(SettingsView.windowSize)
         self.window = window
         return window
     }

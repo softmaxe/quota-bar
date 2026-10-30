@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, drag the refresh interval along a track that marks the rate-limit-prone stops in orange, and turn models.dev pricing on or off under **Price sources**, to [see model prices](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
+Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, and turn models.dev pricing on or off under **Price sources**, to [see model prices](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -182,7 +182,7 @@ For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBa
 
 ### Remote machines
 
-To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With refresh set to **Manual**, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed. A machine that is off only delays its own sync.
+To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed. A machine that is off only delays its own sync.
 
 The host needs key-based SSH sign-in that works without a prompt, and `rsync` installed. QuotaBar reads `~/.claude/projects`, `~/.config/claude/projects`, `~/.codex/sessions`, and `~/.codex/archived_sessions` on the machine, not custom `CLAUDE_CONFIG_DIR` or `CODEX_HOME` locations. OpenCode and Pi Agent are local only.
 
@@ -236,10 +236,10 @@ While the window is open, QuotaBar scans every source's local logs once a minute
 
 ## Model prices
 
-Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. The list on the left holds the current Claude and OpenAI API models from the price book and every other model found locally, priced from models.dev or unpriced. Models used on this Mac come first, busiest at the top, with a bar of their recorded tokens; search narrows the list by name. Select a model to see its four main rates, the one-hour cache write rate, the long-context threshold and the rates above it, its source, and a link to the source's own price page. Use the Up and Down Arrow keys to move through the list.
+Open **Settings → Pricing** to see the rates every estimate uses, in USD per million tokens. The table holds the current Claude and OpenAI API models from the price book and every other model found locally, priced from models.dev or unpriced, with each model's four main rates. Models used on this Mac come first, busiest at the top; search narrows the table by name. Click a row to open its one-hour cache write rate, the long-context threshold and the rates above it, its recorded tokens, its source, and a link to the source's own price page. Use the Up and Down Arrow keys to move through the table.
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing pane with a model list ordered by local usage on the left and the selected model's rates, including its long-context tier, on the right">
+  <img src="docs/images/settings-pricing.png" width="620" alt="Read-only pricing table ordered by local usage, with one model open to show its long-context tier">
 </p>
 
 Rates cannot be edited. To change a Claude or OpenAI rate, update the price book (see [Maintaining the price book](docs/pricing.md)). Earlier versions saved custom rates in `pricing-overrides.json`; this version deletes that file on launch.

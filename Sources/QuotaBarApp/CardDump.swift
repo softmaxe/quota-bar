@@ -112,9 +112,9 @@ enum CardDump {
         )
     }
 
-    /// The settings window is a tab bar over a 620x460 pane and the pricing pane is that pane on
-    /// its own, so the height comes from the view rather than from a constant here. The pane loads
-    /// its rows asynchronously, so the capture lets the run loop turn first.
+    /// The settings window is a sidebar beside a pane and the pricing pane is that pane on its
+    /// own, so the size comes from the view rather than from a constant here. The pane loads its
+    /// rows asynchronously, so the capture lets the run loop turn first.
     private static func captureSettings(_ view: AnyView, named name: String, into root: URL) {
         Self.capture(
             view,

@@ -77,8 +77,7 @@ struct DataSettingsView: View {
     var reload = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionTitle("Saved usage")
+        SettingsPane("Data") {
             HStack(spacing: 0) {
                 self.figure("Records", self.model.summary.map { $0.records.formatted() } ?? "—")
                 Divider()
@@ -116,8 +115,6 @@ struct DataSettingsView: View {
                 .padding(.top, 10)
                 .padding(.leading, 2)
         }
-        .padding(.horizontal, 20)
-        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .top)
         .task(id: self.reload) {
             guard self.reload != 0 else { return }
             await self.model.loadSummary()

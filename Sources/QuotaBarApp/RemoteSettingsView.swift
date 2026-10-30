@@ -11,19 +11,11 @@ struct RemoteSettingsView: View {
     @State private var configHosts: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Remote machines")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Button("Sync now") { self.remote.syncAll() }
-                    .controlSize(.small)
-                    .disabled(self.settings.remoteHosts.isEmpty || self.remote.isSyncing)
-            }
-            .padding(.leading, 2)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
+        SettingsPane("Remote") {
+            Button("Sync now") { self.remote.syncAll() }
+                .controlSize(.small)
+                .disabled(self.settings.remoteHosts.isEmpty || self.remote.isSyncing)
+        } content: {
             if !self.settings.remoteHosts.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -33,7 +25,7 @@ struct RemoteSettingsView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 200)
+                .frame(maxHeight: 280)
                 .fixedSize(horizontal: false, vertical: true)
                 .settingsGroup()
                 .padding(.bottom, 10)
@@ -41,31 +33,21 @@ struct RemoteSettingsView: View {
 
             self.addRow
 
-            Text(
-                "Sessions on these machines count toward this Mac's usage, without counting twice. "
-                    + "QuotaBar connects with your SSH config every 15 minutes, or only when you "
-                    + "press Sync now if refreshing is Manual. Hosts need key sign-in, and rsync "
-                    + "on the machine."
-            )
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 10)
-            .padding(.leading, 2)
-
-            Text(
-                "Claude Code and Codex logs are copied whole to this Mac and may include "
-                    + "prompts and responses. OpenCode and Pi Agent are not included."
-            )
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.top, 6)
-            .padding(.leading, 2)
+            SettingsRow(
+                symbol: "clock.arrow.circlepath",
+                title: "Sync automatically",
+                detail: self.settings.remoteAutoSync
+                    ? "Every 15 minutes and when QuotaBar starts"
+                    : "Only when you press Sync now"
+            ) {
+                Toggle("Sync automatically", isOn: self.$settings.remoteAutoSync)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .labelsHidden()
+            }
+            .settingsGroup()
+            .padding(.top, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .top)
         .onAppear { self.configHosts = SSHConfigHosts.userHosts() }
     }
 

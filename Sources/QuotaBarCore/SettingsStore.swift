@@ -66,6 +66,7 @@ public final class SettingsStore: ObservableObject {
         static let modelsDevPricing = "modelsDevPricing"
         static let lastUsageExport = "lastUsageExport"
         static let remoteHosts = "remoteHosts"
+        static let remoteAutoSync = "remoteAutoSync"
     }
 
     private let defaults: UserDefaults
@@ -123,6 +124,15 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Whether those hosts are mirrored on a schedule rather than only on request. Its own choice,
+    /// because a host connection is not a quota refresh.
+    @Published public var remoteAutoSync: Bool {
+        didSet {
+            guard oldValue != self.remoteAutoSync else { return }
+            self.defaults.set(self.remoteAutoSync, forKey: Key.remoteAutoSync)
+        }
+    }
+
     /// When a usage backup was last exported, so Settings can show how old the newest one is.
     @Published public var lastUsageExport: Date? {
         didSet {
@@ -138,8 +148,9 @@ public final class SettingsStore: ObservableObject {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
+        let refreshFrequency = (defaults.string(forKey: Key.refreshFrequency))
             .flatMap(RefreshFrequency.init(rawValue:)) ?? .fiveMinutes
+        self.refreshFrequency = refreshFrequency
         self.menuBarProvider = (defaults.string(forKey: Key.menuBarProvider))
             .flatMap(Provider.init(rawValue:)) ?? (Provider.allCases.first ?? .codex)
         self.costChartLabelMode = (defaults.string(forKey: Key.costChartLabelMode))
@@ -149,5 +160,8 @@ public final class SettingsStore: ObservableObject {
         self.modelsDevPricing = Self.isModelsDevPricingEnabled(defaults)
         self.lastUsageExport = defaults.object(forKey: Key.lastUsageExport) as? Date
         self.remoteHosts = defaults.stringArray(forKey: Key.remoteHosts) ?? []
+        // Manual refresh used to stop these connections too, so it keeps doing that until changed.
+        self.remoteAutoSync = defaults.object(forKey: Key.remoteAutoSync) as? Bool
+            ?? (refreshFrequency != .manual)
     }
 }

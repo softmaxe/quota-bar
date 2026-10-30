@@ -11,7 +11,7 @@ enum RemoteHostSyncState: Equatable {
 }
 
 /// Keeps the SSH hosts in Settings mirrored: once when the app starts and every fifteen minutes,
-/// unless refreshing is set to Manual, and whenever the user asks. Mirroring has its own schedule
+/// unless automatic sync is off, and whenever the user asks. Mirroring has its own schedule
 /// because it costs network time the local scan does not, and a machine that is off must not
 /// hold the menu up. Each sync that succeeds asks for a scan, which records the new logs.
 @MainActor
@@ -77,7 +77,7 @@ final class RemoteSyncModel: ObservableObject {
     }
 
     private func syncAll(isAutomatic: Bool) {
-        if isAutomatic, self.settings.refreshFrequency == .manual { return }
+        if isAutomatic, !self.settings.remoteAutoSync { return }
         for host in self.settings.remoteHosts { self.sync(host) }
     }
 

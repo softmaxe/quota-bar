@@ -2,77 +2,88 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// The rates every cost estimate uses, read only. The list on the left is every model, the ones
-/// the local logs spend tokens on first; the side on the right carries everything the billing
-/// math reads for the one picked, so nothing hides behind a disclosure.
+/// The rates every cost estimate uses, read only. The table is every model, the ones the local
+/// logs spend tokens on first; a row opens in place to show the rest of what the billing math
+/// reads for that model.
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingTableModel
-    /// The settings window keeps this pane mounted behind the General one so the tabs can
-    /// cross-fade, so reading the scan cache waits for the tab to actually be opened.
+    /// The settings window keeps this pane mounted behind the General one so the panes can
+    /// cross-fade, so reading the scan cache waits for the pane to actually be opened.
     var isLoadEnabled = true
     /// Changes whenever the pane comes back into view, which rereads the rates.
     var reload = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var isListFocused: Bool
+    @FocusState private var isTableFocused: Bool
 
-    private static let listWidth: CGFloat = 236
+    private static let rateColumnWidth: CGFloat = 62
     private static let detailLabelWidth: CGFloat = 132
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
     private static let modelsDevURL = URL(string: "https://models.dev")!
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
+        SettingsPane("Pricing") {
+            TextField("Search models", text: self.$model.searchText)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(width: 200)
+        } content: {
+            self.table
+            self.footer
                 .padding(.top, 10)
-            HStack(spacing: 0) {
-                self.list
-                    .frame(width: Self.listWidth)
-                Divider()
-                self.detail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
+                .padding(.bottom, 16)
         }
-        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight)
         .task(id: [self.isLoadEnabled ? 1 : 0, self.reload]) {
             guard self.isLoadEnabled else { return }
             await self.model.load()
         }
     }
 
-    // MARK: - List
+    // MARK: - Table
 
-    private var list: some View {
+    private var columnHeader: some View {
+        HStack(spacing: 0) {
+            Text("USD per 1M tokens")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(["Input", "Output", "Cache w", "Cache r"], id: \.self) { title in
+                Text(title)
+                    .frame(width: Self.rateColumnWidth, alignment: .leading)
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var table: some View {
         let rows = self.model.listRows
-        let selected = self.model.selectedRow?.id
-        let busiest = max(1, rows.map(\.usageTokens).max() ?? 0)
-        return VStack(spacing: 0) {
-            TextField("Search models", text: self.$model.searchText)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+        return Group {
             if self.model.isLoading {
                 ProgressView()
                     .controlSize(.small)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if rows.isEmpty {
                 Text("No models match.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 1) {
-                            ForEach(rows) { row in
-                                self.listRow(row, isSelected: row.id == selected, busiest: busiest)
-                                    .id(row.id)
+                        // Inside the scroll view so a classic scroll bar narrows both alike.
+                        LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
+                            Section {
+                                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                                    if index > 0 { Divider() }
+                                    self.tableRow(row)
+                                        .id(row.id)
+                                }
+                            } header: {
+                                self.columnHeader
                             }
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.bottom, 8)
                     }
                     .onChange(of: self.model.selectedRowID) { _, id in
                         guard let id else { return }
@@ -80,7 +91,7 @@ struct PricingSettingsView: View {
                     }
                 }
                 .focusable()
-                .focused(self.$isListFocused)
+                .focused(self.$isTableFocused)
                 .focusEffectDisabled()
                 .onMoveCommand { direction in
                     switch direction {
@@ -91,164 +102,97 @@ struct PricingSettingsView: View {
                 }
             }
         }
-        .background(Color.primary.opacity(0.025))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .settingsGroup()
     }
 
-    private func listRow(_ row: PricingRow, isSelected: Bool, busiest: Int) -> some View {
+    private func tableRow(_ row: PricingRow) -> some View {
+        let isOpen = row.id == self.model.selectedRowID
         let isUsed = row.usageTokens > 0
-        return Button {
-            self.model.selectedRowID = row.id
-            self.isListFocused = true
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(Self.accent(for: row.group))
-                        .opacity(isUsed ? 1 : 0.45)
-                        .frame(width: 7, height: 7)
-                    Text(row.model)
-                        .font(.system(size: 12))
-                        .foregroundStyle(isUsed || isSelected ? Color.primary : Color.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    self.listTrailing(row)
-                }
-                if isUsed {
-                    Capsule()
-                        .fill(Theme.progressTrack)
-                        .frame(height: 3)
-                        .overlay(alignment: .leading) {
-                            GeometryReader { geometry in
-                                Capsule()
-                                    .fill(Self.accent(for: row.group))
-                                    .frame(width: max(3, geometry.size.width
-                                        * CGFloat(row.usageTokens) / CGFloat(busiest)))
-                            }
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                self.model.selectedRowID = isOpen ? nil : row.id
+                self.isTableFocused = true
+            } label: {
+                HStack(spacing: 0) {
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(Self.accent(for: row.group))
+                            .opacity(isUsed ? 1 : 0.45)
+                            .frame(width: 7, height: 7)
+                        Text(row.model)
+                            .foregroundStyle(isUsed || isOpen ? Color.primary : Color.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if row.seenInLogs, !row.isPriced {
+                            Text("unpriced")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange)
                         }
-                        .padding(.leading, 14)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    self.rateCell(row.input)
+                    self.rateCell(row.output)
+                    self.rateCell(row.cacheWrite)
+                    self.rateCell(row.cacheRead)
                 }
+                .font(.system(size: 13))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(isSelected ? 0.11 : 0))
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
+            .accessibilityAddTraits(isOpen ? [.isSelected] : [])
+            if isOpen {
+                self.rowDetail(row)
+                    .padding(.leading, 26)
+                    .padding(.trailing, 12)
+                    .padding(.top, 2)
+                    .padding(.bottom, 12)
+            }
         }
-        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .background(Color.primary.opacity(isOpen ? 0.05 : 0))
     }
 
-    /// Tokens for a model in use, a flag for one whose tokens count toward no cost, a dash for
-    /// one the logs never named.
-    @ViewBuilder
-    private func listTrailing(_ row: PricingRow) -> some View {
-        if row.seenInLogs, !row.isPriced {
-            Text("unpriced")
-                .font(.system(size: 10))
-                .foregroundStyle(.orange)
-        } else if !self.model.hasLoadedUsage {
-            EmptyView()
-        } else if row.usageTokens > 0 {
-            Text(Formatters.tokens(row.usageTokens))
-                .font(.system(size: 11))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        } else {
-            Text("—")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-        }
+    private func rateCell(_ value: Double?) -> some View {
+        Text(PricingTableModel.text(value))
+            .monospacedDigit()
+            .foregroundStyle(value == nil ? .tertiary : .primary)
+            .lineLimit(1)
+            .frame(width: Self.rateColumnWidth, alignment: .leading)
     }
 
     private func moveSelection(by offset: Int) {
         let rows = self.model.listRows
         guard !rows.isEmpty else { return }
-        let current = rows.firstIndex { $0.id == self.model.selectedRow?.id } ?? 0
-        let next = max(0, min(rows.count - 1, current + offset))
-        self.model.selectedRowID = rows[next].id
+        guard let current = rows.firstIndex(where: { $0.id == self.model.selectedRowID }) else {
+            self.model.selectedRowID = rows.first?.id
+            return
+        }
+        self.model.selectedRowID = rows[max(0, min(rows.count - 1, current + offset))].id
     }
 
     // MARK: - Detail
 
-    private var detail: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let row = self.model.selectedRow {
-                self.detailBody(row)
-            } else if !self.model.isLoading {
-                Text("Pick a model to see its rates.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            Spacer(minLength: 0)
-            self.footer
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
-    }
-
-    private func detailBody(_ row: PricingRow) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.model)
-                    .font(.system(size: 17, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                HStack(spacing: 4) {
-                    Text(self.sourceLine(row))
-                    if let link = Self.link(for: row) {
-                        Text("·")
-                        Link(destination: link.url) {
-                            Text("\(link.title) ↗")
-                                .underline()
-                        }
-                        .foregroundStyle(.secondary)
+    private func rowDetail(_ row: PricingRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Text(self.sourceLine(row))
+                if let link = Self.link(for: row) {
+                    Text("·")
+                    Link(destination: link.url) {
+                        Text("\(link.title) ↗")
+                            .underline()
                     }
+                    .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
             }
-
-            HStack(spacing: 8) {
-                self.rateTile("Input", row.input)
-                self.rateTile("Output", row.output)
-                self.rateTile("Cache write", row.cacheWrite)
-                self.rateTile("Cache read", row.cacheRead)
-            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
 
             self.secondaryRates(row)
         }
-    }
-
-    private func rateTile(_ title: String, _ value: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            Text(PricingTableModel.text(value))
-                .font(.system(size: 18, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(value == nil ? .tertiary : .primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-        )
     }
 
     /// Everything else the cost math reads: the one-hour cache write, the second tier that kicks
@@ -333,8 +277,8 @@ struct PricingSettingsView: View {
 
     private func sourceLine(_ row: PricingRow) -> String {
         switch row.source {
-        case .priceBook?: "Built-in price book · USD per 1M tokens"
-        case .modelsDev?: "models.dev · USD per 1M tokens"
+        case .priceBook?: "Built-in price book"
+        case .modelsDev?: "models.dev"
         case nil: "Unpriced"
         }
     }
@@ -404,7 +348,7 @@ struct PricingSettingsView: View {
         switch (row.source, row.group) {
         case (.priceBook?, .claude): ("Claude API pricing", Self.claudePricingURL)
         case (.priceBook?, _): ("OpenAI API pricing", Self.openAIPricingURL)
-        case (.modelsDev?, _): ("models.dev", Self.modelsDevURL)
+        case (.modelsDev?, _): ("Open models.dev", Self.modelsDevURL)
         case (nil, _): nil
         }
     }

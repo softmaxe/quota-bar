@@ -104,7 +104,7 @@ final class PricingTableModel: ObservableObject {
     /// is the cached catalog's, so it still reads while that source is switched off.
     @Published private(set) var priceBookModelCount = 0
     @Published private(set) var modelsDevModelCount = 0
-    /// The row whose rates fill the detail side. Kept here rather than in the view so it
+    /// The row open in the table, nil when none is. Kept here rather than in the view so it
     /// survives a reload of the rates and a headless dump can pick one.
     @Published var selectedRowID: String?
     /// Narrows the list by model name.
