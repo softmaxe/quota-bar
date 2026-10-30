@@ -22,13 +22,16 @@ public struct ThirdPartyRates: Sendable, Equatable {
 
     /// Keyed by `ThirdPartyRates.key(for:)`. Periods ascend by start day.
     public let models: [String: [Period]]
+    /// Who makes each model, by the same keys, for the models.dev listings that say.
+    public let makers: [String: String]
     /// When models.dev was last read successfully; nil when it never was.
     public let fetchedAt: Date?
 
     public static let empty = ThirdPartyRates(models: [:], fetchedAt: nil)
 
-    public init(models: [String: [Period]], fetchedAt: Date?) {
+    public init(models: [String: [Period]], makers: [String: String] = [:], fetchedAt: Date?) {
         self.models = models
+        self.makers = makers
         self.fetchedAt = fetchedAt
     }
 
@@ -51,6 +54,13 @@ public struct ThirdPartyRates: Sendable, Equatable {
     /// Whether models.dev has priced this model at all.
     public func prices(_ name: String) -> Bool {
         self.periods(for: name) != nil
+    }
+
+    /// Who makes a model, or nil when models.dev does not say. A regional spelling has the same
+    /// maker as the model it decorates.
+    public func maker(for name: String) -> String? {
+        let key = Self.key(for: name)
+        return self.makers[key] ?? Self.strippingRegion(key).flatMap { self.makers[$0] }
     }
 
     /// The periods a model is priced by. A name models.dev does not list under its own spelling
@@ -79,8 +89,14 @@ public struct ThirdPartyRates: Sendable, Equatable {
 
     /// This fetch folded into the rates already kept. A model whose rates changed opens a period
     /// on `day`, so earlier days keep the rates they had. A model models.dev no longer lists
-    /// keeps its last rates, so its recorded usage stays priced.
-    public func merging(_ fetched: [String: ModelPricing], on day: String, at date: Date) -> ThirdPartyRates {
+    /// keeps its last rates, so its recorded usage stays priced, and a model no listing names a
+    /// maker for keeps the one it had.
+    public func merging(
+        _ fetched: [String: ModelPricing],
+        makers fetchedMakers: [String: String] = [:],
+        on day: String,
+        at date: Date
+    ) -> ThirdPartyRates {
         var models = self.models
         for (name, rates) in fetched {
             let key = Self.key(for: name)
@@ -97,7 +113,9 @@ public struct ThirdPartyRates: Sendable, Equatable {
             }
             models[key] = periods
         }
-        return ThirdPartyRates(models: models, fetchedAt: date)
+        var makers = self.makers
+        for (name, maker) in fetchedMakers { makers[Self.key(for: name)] = maker }
+        return ThirdPartyRates(models: models, makers: makers, fetchedAt: date)
     }
 
     /// The name a model is kept under: lowercased, after its last `/`, so `openrouter/z-ai/GLM-5.3`
@@ -162,11 +180,16 @@ public struct ModelsDevPricing: Sendable {
     /// Downloads models.dev and folds it into the cache. Returns the new rates, or throws and
     /// leaves the cache as it was.
     package func fetch(into current: ThirdPartyRates, now: Date) async throws -> ThirdPartyRates {
-        let fetched = try ModelsDevCatalog.rates(from: try await self.download())
+        let fetched = try ModelsDevCatalog.models(from: try await self.download())
         guard !fetched.isEmpty else { throw ModelsDevCatalog.Error.empty }
         // The setting may have been turned off while the download was in flight.
         guard self.isEnabled() else { throw CancellationError() }
-        let merged = current.merging(fetched, on: DayKey.make(from: now), at: now)
+        let merged = current.merging(
+            fetched.mapValues(\.rates),
+            makers: fetched.compactMapValues(\.maker),
+            on: DayKey.make(from: now),
+            at: now
+        )
         try self.save(merged)
         return merged
     }
@@ -189,7 +212,11 @@ public struct ModelsDevPricing: Sendable {
             if periods.count == rawPeriods.count { models[name] = periods }
         }
         let fetchedAt = (root["fetchedAt"] as? String).flatMap(ISO8601.parse)
-        return ThirdPartyRates(models: models, fetchedAt: fetchedAt)
+        return ThirdPartyRates(
+            models: models,
+            makers: root["makers"] as? [String: String] ?? [:],
+            fetchedAt: fetchedAt
+        )
     }
 
     package func save(_ rates: ThirdPartyRates) throws {
@@ -202,6 +229,7 @@ public struct ModelsDevPricing: Sendable {
             }
         }
         var root: [String: Any] = ["schemaVersion": Self.schemaVersion, "models": models]
+        if !rates.makers.isEmpty { root["makers"] = rates.makers }
         if let fetchedAt = rates.fetchedAt {
             root["fetchedAt"] = ISO8601DateFormatter().string(from: fetchedAt)
         }
@@ -213,5 +241,7 @@ public struct ModelsDevPricing: Sendable {
         try data.write(to: self.cacheURL, options: .atomic)
     }
 
+    /// `makers` is optional, so a cache written before it existed still reads, with its rates
+    /// history, and gains makers on the next fetch.
     private static let schemaVersion = 1
 }

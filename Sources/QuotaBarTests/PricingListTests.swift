@@ -2,7 +2,8 @@
 import QuotaBarCore
 import Foundation
 
-/// Checks the pricing list order, the search, and which row the detail side shows.
+/// Checks the pricing list's sections, vendors and order, the search, folding a vendor, and which
+/// row the detail side shows.
 @MainActor
 enum PricingListTests {
     static func run() {
@@ -14,22 +15,38 @@ enum PricingListTests {
             Self.row("claude-fable-4", usageTokens: 0, input: 10, output: 50, cacheRead: 1, settingsRank: 2),
             // Seen in the logs but priced nowhere: it still ranks by the tokens it spent.
             Self.row("claude-next", usageTokens: 40, input: nil, output: nil, cacheRead: nil),
-            Self.row("glm-z", usageTokens: 900, input: nil, output: nil, cacheRead: nil, group: .others),
-            Self.row("other-a", usageTokens: 0, input: 1, output: 2, cacheRead: nil, group: .others),
+            Self.row("gpt-a", usageTokens: 6_000, input: 1, output: 2, cacheRead: nil, group: .codex, vendor: "OpenAI"),
+            Self.row("glm-z", usageTokens: 900, input: nil, output: nil, cacheRead: nil, group: .others, vendor: "Zhipu AI"),
+            Self.row("kimi-a", usageTokens: 10, input: 1, output: 2, cacheRead: nil, group: .others,
+                     vendor: "Moonshot AI", source: .modelsDev),
+            Self.row("deepseek-a", usageTokens: 0, input: 1, output: 2, cacheRead: nil, group: .others,
+                     vendor: "DeepSeek", source: .modelsDev),
+            Self.row("other-a", usageTokens: 900, input: 1, output: 2, cacheRead: nil, group: .others,
+                     vendor: PricingVendor.other, source: .modelsDev),
         ])
 
         func names() -> [String] { model.listRows.map(\.model) }
 
-        // Busiest first whatever the source; ties fall back to provider and name. Unused models
-        // follow in their provider's configured order, Others last.
+        // Each source is a block of its own, even when the other holds a busier model. A vendor
+        // is ordered by its tokens, with Other last whatever it spent.
+        Harness.expectEqual(
+            model.listSections.map { $0.section },
+            [.builtIn, .modelsDev, .unpriced],
+            "sources keep a fixed order"
+        )
+        Harness.expectEqual(
+            model.listSections.map { $0.vendors.map(\.vendor) },
+            [["OpenAI", "Anthropic"], ["Moonshot AI", "DeepSeek", PricingVendor.other], ["Zhipu AI", "Anthropic"]],
+            "vendors go busiest first with Other last, and a vendor can appear under two sources"
+        )
         Harness.expectEqual(
             names(),
-            ["claude-haiku-4", "claude-opus-4", "glm-z", "claude-next",
-             "claude-sonnet-4", "claude-fable-4", "other-a"],
-            "the list puts used models first by tokens, then unused ones by configured order"
+            ["gpt-a", "claude-haiku-4", "claude-opus-4", "claude-sonnet-4", "claude-fable-4",
+             "kimi-a", "deepseek-a", "other-a", "glm-z", "claude-next"],
+            "within a vendor, used models go first by tokens, then unused ones by configured order"
         )
-        Harness.expectEqual(model.selectedRow?.model, "claude-haiku-4",
-                            "with nothing picked the detail shows the busiest model")
+        Harness.expectEqual(model.selectedRow?.model, "gpt-a",
+                            "with nothing picked the detail shows the top of the list")
 
         model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
         Harness.expectEqual(model.selectedRow?.model, "claude-sonnet-4", "a picked row fills the detail")
@@ -38,6 +55,22 @@ enum PricingListTests {
         Harness.expectEqual(names(), ["glm-z"], "search ignores case and surrounding spaces")
         Harness.expectEqual(model.selectedRow?.model, "glm-z",
                             "a search that hides the picked row shows the first match instead")
+
+        model.searchText = ""
+        let anthropic = model.listSections[0].vendors[1]
+        model.toggle(anthropic)
+        Harness.expect(!model.visibleRows.contains { $0.vendor == "Anthropic" && $0.section == .builtIn },
+                       "a folded vendor's rows leave the arrow keys' path")
+        Harness.expect(model.visibleRows.contains { $0.model == "claude-next" },
+                       "folding a vendor in one source leaves it open in the others")
+        Harness.expect(model.selectedRowID == nil, "folding away the picked row clears the pick")
+        model.searchText = "sonnet"
+        Harness.expectEqual(model.visibleRows.map(\.model), ["claude-sonnet-4"],
+                            "a search reaches into a folded vendor")
+        model.searchText = ""
+        model.toggle(anthropic)
+        Harness.expect(model.visibleRows.contains { $0.model == "claude-sonnet-4" }, "a second toggle opens it again")
+        model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
 
         model.searchText = "claude-o"
         Harness.expectEqual(names(), ["claude-opus-4"], "search matches inside the name")
@@ -58,6 +91,8 @@ enum PricingListTests {
         output: Double?,
         cacheRead: Double?,
         group: PricingGroup = .claude,
+        vendor: String = "Anthropic",
+        source: RateCard.Source = .priceBook,
         settingsRank: Int? = nil
     ) -> PricingRow {
         let rates = input.flatMap { input in
@@ -66,11 +101,12 @@ enum PricingListTests {
         return PricingRow(
             group: group,
             model: model,
+            vendor: vendor,
             seenInLogs: usageTokens > 0,
             usageTokens: usageTokens,
             settingsRank: settingsRank,
             rates: rates,
-            source: rates == nil ? nil : .priceBook
+            source: rates == nil ? nil : source
         )
     }
 }

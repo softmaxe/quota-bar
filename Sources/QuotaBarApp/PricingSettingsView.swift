@@ -2,9 +2,9 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// The rates every cost estimate uses, read only. The table is every model, the ones the local
-/// logs spend tokens on first; a row opens in place to show the rest of what the billing math
-/// reads for that model.
+/// The rates every cost estimate uses, read only. Each source has its own card, with its models
+/// grouped by vendor and the ones the local logs spend tokens on first; a row opens in place to
+/// show the rest of what the billing math reads for that model.
 struct PricingSettingsView: View {
     @ObservedObject var model: PricingTableModel
     /// The settings window keeps this pane mounted behind the General one so the panes can
@@ -42,10 +42,16 @@ struct PricingSettingsView: View {
 
     // MARK: - Table
 
-    private var columnHeader: some View {
+    /// Stays pinned while its card scrolls, so the columns and the source stay in view.
+    private func sectionHeader(_ section: PricingSectionGroup) -> some View {
         HStack(spacing: 0) {
-            Text("USD per 1M tokens")
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(section.section.rawValue)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(section.modelCountText)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(["Input", "Output", "Cache w", "Cache r"], id: \.self) { title in
                 Text(title)
                     .frame(width: Self.rateColumnWidth, alignment: .leading)
@@ -56,32 +62,40 @@ struct PricingSettingsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func placeholder(@ViewBuilder content: () -> some View) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .settingsGroup()
     }
 
     private var table: some View {
-        let rows = self.model.listRows
+        let sections = self.model.listSections
         return Group {
             if self.model.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            } else if rows.isEmpty {
-                Text("No models match.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                self.placeholder {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            } else if sections.isEmpty {
+                self.placeholder {
+                    Text("No models match.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
                         // Inside the scroll view so a classic scroll bar narrows both alike.
                         LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                            Section {
-                                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                    if index > 0 { Divider() }
-                                    self.tableRow(row)
-                                        .id(row.id)
+                            ForEach(sections) { section in
+                                Section {
+                                    self.sectionCard(section)
+                                        .padding(.bottom, 14)
+                                } header: {
+                                    self.sectionHeader(section)
                                 }
-                            } header: {
-                                self.columnHeader
                             }
                         }
                     }
@@ -103,8 +117,55 @@ struct PricingSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func sectionCard(_ section: PricingSectionGroup) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(section.vendors.enumerated()), id: \.element.id) { index, vendor in
+                if index > 0 { Divider() }
+                self.vendorHeader(vendor)
+                if self.model.isOpen(vendor) {
+                    ForEach(vendor.rows) { row in
+                        Divider()
+                        self.tableRow(row)
+                            .id(row.id)
+                    }
+                }
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .settingsGroup()
+    }
+
+    private func vendorHeader(_ vendor: PricingVendorGroup) -> some View {
+        let isOpen = self.model.isOpen(vendor)
+        return Button {
+            self.model.toggle(vendor)
+            self.isTableFocused = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: isOpen)
+                Text(vendor.vendor)
+                    .fontWeight(.medium)
+                Text("\(vendor.rows.count)")
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
+        .background(Color.primary.opacity(0.03))
+        .disabled(self.model.isSearching)
+        .accessibilityLabel("\(vendor.vendor), \(vendor.rows.count == 1 ? "1 model" : "\(vendor.rows.count) models")")
+        .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
     }
 
     private func tableRow(_ row: PricingRow) -> some View {
@@ -164,7 +225,7 @@ struct PricingSettingsView: View {
     }
 
     private func moveSelection(by offset: Int) {
-        let rows = self.model.listRows
+        let rows = self.model.visibleRows
         guard !rows.isEmpty else { return }
         guard let current = rows.firstIndex(where: { $0.id == self.model.selectedRowID }) else {
             self.model.selectedRowID = rows.first?.id
@@ -322,7 +383,7 @@ struct PricingSettingsView: View {
     }
 
     private var footerText: String {
-        let estimate = "Costs are estimates at API list prices."
+        let estimate = "Rates are USD per 1M tokens. Costs are estimates at API list prices."
         guard self.model.modelsDevEnabled else {
             return "\(estimate) models.dev prices are off in General."
         }
