@@ -37,11 +37,31 @@ public enum RemoteSyncError: LocalizedError, Equatable {
     }
 }
 
+/// How much a host's mirror holds, for its row in Settings.
+public struct RemoteHostUsage: Sendable, Equatable {
+    public let files: Int
+    public let bytes: Int64
+    /// Usage records the mirrored logs hold, whichever log recorded them first.
+    public let records: Int
+    /// The records no other log recorded first.
+    public let newRecords: Int
+
+    public init(files: Int, bytes: Int64, records: Int, newRecords: Int) {
+        self.files = files
+        self.bytes = bytes
+        self.records = records
+        self.newRecords = newRecords
+    }
+}
+
 /// Copies the Claude Code and Codex logs of SSH hosts into a local directory, so the Usage
 /// recorder reads them the way it reads this Mac's own. rsync's `--inplace` keeps each file's
 /// inode, so the recorder resumes a grown log instead of rereading it. Nothing is ever deleted
 /// from the mirror: a log the remote tool cleans up remains recorded here.
 public struct RemoteLogMirror: Sendable {
+    /// The mirror's directory beside the database.
+    static let directoryName = "remote-logs"
+
     /// A log directory, relative to the remote home directory and to the host's mirror.
     private struct LogRoot {
         let remote: String
@@ -165,6 +185,23 @@ public struct RemoteLogMirror: Sendable {
         return hosts.flatMap { host in
             roots.map { host.appendingPathComponent($0.mirror, isDirectory: true) }
         }
+    }
+
+    /// The host whose mirror holds the log at `path`. Read from the path alone, because a listing
+    /// can spell a symlinked root differently from the URL it was asked about.
+    static func host(ofLog path: String) -> String? {
+        guard let marker = path.range(of: "/\(self.directoryName)/") else { return nil }
+        return path[marker.upperBound...].split(separator: "/", maxSplits: 1).first.map(String.init)
+    }
+
+    /// What every path under a host's mirror contains.
+    static func pathMarker(of host: String) -> String {
+        "/\(self.directoryName)/\(host)/"
+    }
+
+    /// The logs mirrored from `host`. Empty before its first sync.
+    static func logs(of host: String, under root: URL) -> [URL] {
+        LogFileScanner.jsonlFiles(under: [root.appendingPathComponent(host, isDirectory: true)])
     }
 
     /// Output goes to files rather than pipes: an ssh `ControlPersist` master inherits them and

@@ -30,7 +30,7 @@ public actor CostService {
     public nonisolated let databaseURL: URL
     /// Where `RemoteLogMirror` keeps other machines' logs, beside the database they feed.
     public nonisolated var remoteLogsURL: URL {
-        self.databaseURL.deletingLastPathComponent().appendingPathComponent("remote-logs", isDirectory: true)
+        self.databaseURL.deletingLastPathComponent().appendingPathComponent(RemoteLogMirror.directoryName, isDirectory: true)
     }
     private let env: [String: String]
 

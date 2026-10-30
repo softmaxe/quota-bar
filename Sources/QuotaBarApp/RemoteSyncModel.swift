@@ -17,19 +17,29 @@ enum RemoteHostSyncState: Equatable {
 @MainActor
 final class RemoteSyncModel: ObservableObject {
     @Published private(set) var states: [String: RemoteHostSyncState] = [:]
+    /// What each host's mirror holds, as of the last read.
+    @Published private(set) var usage: [String: RemoteHostUsage] = [:]
 
     private static let interval: TimeInterval = 15 * 60
 
     private let settings: SettingsStore
     private let mirror: RemoteLogMirror
     private let didSync: @MainActor () -> Void
+    private let readUsage: @Sendable ([String]) -> [String: RemoteHostUsage]?
     private var timer: Timer?
     private var tasks: [String: Task<Void, Never>] = [:]
 
-    init(settings: SettingsStore, mirror: RemoteLogMirror, didSync: @escaping @MainActor () -> Void) {
+    /// `readUsage` runs off the main actor and returns nil when the usage cannot be read.
+    init(
+        settings: SettingsStore,
+        mirror: RemoteLogMirror,
+        didSync: @escaping @MainActor () -> Void,
+        readUsage: @escaping @Sendable ([String]) -> [String: RemoteHostUsage]? = { _ in nil }
+    ) {
         self.settings = settings
         self.mirror = mirror
         self.didSync = didSync
+        self.readUsage = readUsage
     }
 
     func start() {
@@ -54,6 +64,15 @@ final class RemoteSyncModel: ObservableObject {
     }
 
     var isSyncing: Bool { !self.tasks.isEmpty }
+
+    /// Rereads what the mirrors hold. A failed read keeps the figures already shown.
+    func loadUsage() async {
+        let hosts = self.settings.remoteHosts
+        let read = self.readUsage
+        let usage = await Task.detached(priority: .utility) { read(hosts) }.value
+        guard !Task.isCancelled, let usage else { return }
+        self.usage = usage
+    }
 
     /// Adds a host and mirrors it at once, so a wrong name or a missing key shows up right away.
     func add(_ host: String) {
@@ -111,6 +130,10 @@ final class RemoteSyncModel: ObservableObject {
 #if DEBUG
     func debugSetState(_ state: RemoteHostSyncState, for host: String) {
         self.states[host] = state
+    }
+
+    func debugSetUsage(_ usage: RemoteHostUsage, for host: String) {
+        self.usage[host] = usage
     }
 #endif
 }

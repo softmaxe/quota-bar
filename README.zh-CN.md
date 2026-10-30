@@ -182,11 +182,11 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 ### 远程机器
 
-如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因。机器关机只会推迟它自己的同步。
+如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因、日志中的用量记录数、其中新增的数量，以及复制的文件数。新增记录是指其他日志尚未记录过的部分，因此会话已在本机的主机即使同步成功，新增也可能很少甚至为零。机器关机只会推迟它自己的同步。
 
 主机需要支持免交互的 SSH 密钥登录，并已安装 `rsync`。QuotaBar 读取这台机器上的 `~/.claude/projects`、`~/.config/claude/projects`、`~/.codex/sessions` 和 `~/.codex/archived_sessions`，不读取自定义的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME` 路径。OpenCode 和 Pi Agent 仅统计本机数据。
 
-远程用量与本机用量合并到同一总计中，不按机器拆分。两边都有的会话只计一次。移除主机后不再同步，已记录的用量会保留。
+远程用量与本机用量合并到同一总计中，菜单和用量报告不按机器拆分。两边都有的会话只计一次。移除主机后不再同步，已记录的用量会保留。
 
 ### 历史记录
 

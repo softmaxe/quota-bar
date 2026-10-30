@@ -76,7 +76,14 @@ struct SettingsView: View {
                 )
             }
             self.pane(.remote) {
-                RemoteSettingsView(settings: self.settings, remote: self.store.remoteSync)
+                // Zero while the pane is out of view, so only opening it reads the mirrors.
+                RemoteSettingsView(
+                    settings: self.settings,
+                    remote: self.store.remoteSync,
+                    reload: self.selection.tab == .remote
+                        ? self.selection.windowShows + self.store.finishedLocalScans + 1
+                        : 0
+                )
             }
             self.pane(.data) {
                 // Zero while the pane is out of view, so only opening it reads the database.

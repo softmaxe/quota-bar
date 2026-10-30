@@ -13,12 +13,21 @@ final class UsageStore: ObservableObject {
     /// while the provider left behind is still fetching must not make the new card say
     /// "Refreshing…" for a request that is not about it.
     @Published private(set) var refreshingProviders: Set<Provider> = []
+    /// Counts finished local usage scans, for views that show what a scan recorded.
+    @Published private(set) var finishedLocalScans = 0
 
     /// Keeps other machines' logs mirrored for the scans below to read.
     private(set) lazy var remoteSync = RemoteSyncModel(
         settings: self.settings,
         mirror: self.remoteLogMirror,
-        didSync: { [weak self] in self?.refreshAllLocalUsageAfterChange() }
+        didSync: { [weak self] in self?.refreshAllLocalUsageAfterChange() },
+        readUsage: { [costService = self.costService] hosts in
+            try? CostUsageReader.remoteUsage(
+                hosts: hosts,
+                remoteLogs: costService.remoteLogsURL,
+                databaseURL: costService.databaseURL
+            )
+        }
     )
 
     private var timer: Timer?
@@ -224,6 +233,7 @@ final class UsageStore: ObservableObject {
                         .failed("Local usage scan failed. Previous usage remains available.")
                 }
                 self.costTasks[provider] = nil
+                self.finishedLocalScans += 1
                 if self.pendingCostRefreshes.remove(provider) != nil {
                     self.refreshCosts(for: provider)
                 }

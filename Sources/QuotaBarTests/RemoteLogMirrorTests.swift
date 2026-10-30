@@ -15,9 +15,18 @@ enum RemoteLogMirrorTests {
         await Self.failedCopyReportsItsLastLine()
         Self.sessionsOnBothMachinesCountOnce()
         Self.mirroredLogsResumeWhereTheyStopped()
+        Self.hostUsageSeparatesHeldFromNew()
+        Self.logsWithoutUsageHoldNoRecords()
+        Self.scannedMirrorsAreCountedAfterAnUpgrade()
+        Self.restoredBackupKeepsWhatHostsHold()
     }
 
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000001.jsonl"
+    private static let otherRollout = "2026/09/02/rollout-2026-09-02T12-00-00-0199a000-0000-7000-8000-000000000003.jsonl"
+    private static let codexLines = [
+        CodexLine.turnContext(model: "gpt-5.6-sol"),
+        CodexLine.tokenCount(input: 100, output: 10, total: 110),
+    ]
 
     private static func hostNamesCannotReadAsOptions() {
         Harness.expect(RemoteLogMirror.isValidHost("ubuntu-tailscale"), "an alias is a host")
@@ -201,6 +210,98 @@ enum RemoteLogMirrorTests {
             "an appended mirror adds only its new turns"
         )
     }
+
+    /// A sync can succeed and bring nothing new. The row must tell that apart from a host whose
+    /// usage all arrived through it.
+    private static func hostUsageSeparatesHeldFromNew() {
+        let fixture = RecorderFixture(name: "remote-usage")
+        defer { fixture.remove() }
+        let shared = ClaudeLine.assistant(id: "shared", model: "claude-tier", input: 1_000, output: 10)
+        fixture.writeClaudeTranscript("app/session.jsonl", lines: [shared])
+        fixture.writeCodexRollout(Self.rollout, lines: Self.codexLines)
+        fixture.record(.claude)
+        fixture.record(.codex)
+
+        let streamed = ClaudeLine.assistant(id: "remote", model: "claude-tier", input: 2_000, output: 20)
+        fixture.writeMirrored("host/claude/projects/-home-dev-app/session.jsonl", lines: [shared, streamed, streamed])
+        fixture.writeMirrored("host/codex/sessions/\(Self.rollout)", lines: Self.codexLines)
+        fixture.writeMirrored("host/codex/sessions/\(Self.otherRollout)", lines: Self.codexLines)
+        fixture.writeMirrored("host/codex/archived_sessions/\(Self.otherRollout)", lines: Self.codexLines)
+        fixture.recordMirrored(.claude)
+        fixture.recordMirrored(.codex)
+
+        let usage = fixture.remoteUsage("host")
+        Harness.expectEqual(usage?.files, 4, "every mirrored log is a file")
+        Harness.expectEqual(usage?.records, 4, "shared usage is held, and a session counts once")
+        Harness.expectEqual(usage?.newRecords, 2, "only usage no other log recorded first is new")
+        Harness.expect((usage?.bytes ?? 0) > 0, "the copied logs have a size")
+        Harness.expectEqual(
+            fixture.remoteUsage("unsynced"),
+            RemoteHostUsage(files: 0, bytes: 0, records: 0, newRecords: 0),
+            "a host with no mirror holds nothing"
+        )
+    }
+
+    private static func logsWithoutUsageHoldNoRecords() {
+        let fixture = RecorderFixture(name: "remote-no-usage")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/claude/projects/-home-dev-app/session.jsonl", lines: [#"{"type":"user"}"#])
+        fixture.recordMirrored(.claude)
+
+        let usage = fixture.remoteUsage("host")
+        Harness.expectEqual(usage?.files, 1, "the log was copied")
+        Harness.expectEqual(usage?.records, 0, "a log with no usage holds no records")
+    }
+
+    /// Transcripts scanned before hosts' messages were tracked sit past their cursors.
+    private static func scannedMirrorsAreCountedAfterAnUpgrade() {
+        let fixture = RecorderFixture(name: "remote-upgrade")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/claude/projects/-home-dev-app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "remote", model: "claude-tier", input: 2_000, output: 20),
+        ])
+        fixture.recordMirrored(.claude)
+        let tier = RecordedTier(model: "claude-tier", longContext: false, isFast: false)
+        let before = fixture.recorded(.claude)[tier]
+
+        do {
+            try TestDatabase(fixture.databaseURL).exec("DROP TABLE mirrored_message")
+            let upgraded = try UsageRecorder(databaseURL: fixture.databaseURL)
+            upgraded.record(.claude, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+        } catch {
+            Harness.expect(false, "upgrading threw: \(error)")
+        }
+
+        Harness.expectEqual(fixture.remoteUsage("host")?.records, 1, "an upgrade rereads scanned mirrors")
+        Harness.expectEqual(fixture.recorded(.claude)[tier], before, "rereading a mirror changes no usage")
+    }
+
+    private static func restoredBackupKeepsWhatHostsHold() {
+        let original = RecorderFixture(name: "remote-backup-original")
+        let restored = RecorderFixture(name: "remote-backup-restored")
+        defer {
+            original.remove()
+            restored.remove()
+        }
+        original.writeMirrored("host/claude/projects/-home-dev-app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "remote", model: "claude-tier", input: 2_000, output: 20),
+        ])
+        original.recordMirrored(.claude)
+        restored.writeMirrored("host/claude/projects/-home-dev-app/session.jsonl", lines: [])
+
+        do {
+            let backup = restored.root.appendingPathComponent("backup.sqlite")
+            try original.recorder?.writeSnapshot(to: backup)
+            _ = try restored.recorder?.merge(
+                backup: backup,
+                undoCopy: restored.root.appendingPathComponent("undo.sqlite")
+            )
+        } catch {
+            Harness.expect(false, "restoring threw: \(error)")
+        }
+
+        Harness.expectEqual(restored.remoteUsage("host")?.records, 1, "a restored backup keeps what a host held")
+    }
 }
 
 /// Answers commands from a script and remembers what was asked.
@@ -229,6 +330,15 @@ private final class CommandLog: @unchecked Sendable {
 
 private extension RecorderFixture {
     var remoteLogs: URL { self.root.appendingPathComponent("remote-logs") }
+
+    func remoteUsage(_ host: String) -> RemoteHostUsage? {
+        let usage = try? CostUsageReader.remoteUsage(
+            hosts: [host],
+            remoteLogs: self.remoteLogs,
+            databaseURL: self.databaseURL
+        )
+        return usage?[host]
+    }
 
     func recordMirrored(_ provider: Provider) {
         self.recorder?.record(provider, rateCard: RateCard(), env: self.env, remoteLogs: self.remoteLogs)

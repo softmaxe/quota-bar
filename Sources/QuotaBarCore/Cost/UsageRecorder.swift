@@ -194,14 +194,22 @@ extension UsageRecorder {
         }
     }
 
-    /// Merges a request from an appended log, read from the log at `path`.
-    private func merge(_ row: RecordedRow, from source: AppendedLogSource, path: String) throws {
+    /// Merges a request from an appended log, read from the log at `path`. `mirrorHost` is the
+    /// machine a mirrored log came from.
+    private func merge(
+        _ row: RecordedRow,
+        from source: AppendedLogSource,
+        path: String,
+        mirrorHost: String?
+    ) throws {
         switch source {
         case .claude:
+            let key = try Self.key(of: row, from: source.usageSource)
+            if let mirrorHost { try self.cache.addMirroredMessage(host: mirrorHost, key: key) }
             // One row per message: a replay keeps the stored row and a larger output supersedes it.
             // A rewritten transcript keeps its rows (see `dropsRowsOnRewrite`).
             try self.cache.addClaudeMessage(
-                key: try Self.key(of: row, from: source.usageSource),
+                key: key,
                 path: path,
                 day: row.day,
                 model: row.model,
@@ -373,6 +381,7 @@ extension UsageRecorder {
             // Deleting the live file may leave an older copy. It cannot roll history back.
             if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
             guard plan.requiresScan else { continue }
+            let mirrorHost = RemoteLogMirror.host(ofLog: filePath)
 
             try self.cache.beginTransaction()
             do {
@@ -397,7 +406,8 @@ extension UsageRecorder {
                         try self.merge(
                             Self.row(for: request, provider: provider, rateCard: rateCard),
                             from: source,
-                            path: path
+                            path: path,
+                            mirrorHost: mirrorHost
                         )
                     } catch {
                         failure = error

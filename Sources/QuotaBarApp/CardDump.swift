@@ -103,6 +103,18 @@ enum CardDump {
             .failed("ssh: connect to host old-laptop port 22: Operation timed out"),
             for: "old-laptop"
         )
+        store.remoteSync.debugSetUsage(
+            RemoteHostUsage(files: 62, bytes: 74_800_000, records: 1_161, newRecords: 7),
+            for: "ubuntu-tailscale"
+        )
+        store.remoteSync.debugSetUsage(
+            RemoteHostUsage(files: 18, bytes: 9_100_000, records: 412, newRecords: 412),
+            for: "build-server"
+        )
+        store.remoteSync.debugSetUsage(
+            RemoteHostUsage(files: 240, bytes: 118_000_000, records: 8_204, newRecords: 8_204),
+            for: "old-laptop"
+        )
         Self.captureSettings(
             AnyView(RemoteSettingsView(settings: settings, remote: store.remoteSync)),
             named: "settings-remote",
