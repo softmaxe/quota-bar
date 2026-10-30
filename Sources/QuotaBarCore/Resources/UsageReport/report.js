@@ -13,10 +13,6 @@
       costByType:'Cost by type',tokensByType:'Tokens by type',costBySpeed:'Cost by speed',
       input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',standard:'Standard',fast:'Fast',premium:'Premium',
       share:'Share',total:'Total',noActivity:'No activity in this window.',unpriced:'Unpriced',noRecord:'No record',
-      estimateNote:'Costs are API estimates at each day’s list prices, not a bill.',
-      partialNote:'Unpriced tokens count toward token totals but not toward cost.',
-      missingNote:'A day without saved records is not the same as a day of zero usage. Today ends at snapshot time.',
-      sourcesLine:v=>`Sources · ${v}`,snapshotLine:(t,z)=>`Snapshot ${t} · ${z}`,
       metric:'Usage metric',language:'Language',breakdownGroup:'Usage breakdown',
       last7:'7 days',last30:'30 days',custom:'Custom',period:'Usage period',rangeFrom:'Start date',rangeTo:'End date',
     },
@@ -31,10 +27,6 @@
       costByType:'按类型的费用',tokensByType:'按类型的 tokens',costBySpeed:'按速度的费用',
       input:'输入',cacheRead:'缓存读取',cacheWrite:'缓存写入',standard:'标准',fast:'Fast',premium:'溢价',
       share:'占比',total:'合计',noActivity:'此区间没有用量。',unpriced:'未定价',noRecord:'无记录',
-      estimateNote:'费用按每天的 API 标价估算，不是实际账单。',
-      partialNote:'未定价 tokens 计入 token 总量，不计入费用。',
-      missingNote:'无记录的日期不等于零用量。今天的数据截至快照生成时。',
-      sourcesLine:v=>`来源 · ${v}`,snapshotLine:(t,z)=>`快照 ${t} · ${z}`,
       metric:'用量指标',language:'语言',breakdownGroup:'用量明细',
       last7:'7 天',last30:'30 天',custom:'自定义',period:'统计区间',rangeFrom:'开始日期',rangeTo:'结束日期',
     },
@@ -330,14 +322,6 @@
     document.getElementById('breakdown').replaceChildren(breakdown==='model'?modelTable():dayTable());
   }
 
-  function notes(){
-    let snapshot=report.capturedAt;
-    try{snapshot=new Intl.DateTimeFormat('sv-SE',{timeZone:report.timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(report.capturedAt));}catch{}
-    const lines=[t('estimateNote'),totals.unpricedTokens>0?t('partialNote'):null,t('missingNote'),
-      t('sourcesLine')(providers.map(id=>presentation(id).label).join(' · ')||t('noRecord')),t('snapshotLine')(snapshot,report.timezone)];
-    document.getElementById('notes').replaceChildren(...lines.filter(Boolean).map(x=>h('p',{},x)));
-  }
-
   function render(){
     document.documentElement.lang=language==='zh'?'zh-Hans':'en';
     document.title=`QuotaBar · ${t('usage')}`;
@@ -359,7 +343,7 @@
     document.querySelectorAll('[data-metric]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.metric===metric)));
     document.querySelectorAll('[data-language]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.language===language)));
     document.querySelectorAll('[data-breakdown]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.breakdown===breakdown)));
-    summary();chart();metrics();shares();breakdownSection();notes();
+    summary();chart();metrics();shares();breakdownSection();
   }
 
   const STORE='quotabar-report:'+location.pathname;
