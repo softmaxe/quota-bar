@@ -1,10 +1,13 @@
 import QuotaBarCore
 import SwiftUI
 
-/// The SSH hosts whose logs count toward this Mac's usage, each with how its last sync went.
+/// The SSH hosts whose logs count toward this Mac's usage, each with how its last sync went and
+/// how much usage its logs hold.
 struct RemoteSettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var remote: RemoteSyncModel
+    /// Zero while the pane is out of view; any other change rereads what the mirrors hold.
+    var reload = 0
 
     @State private var newHost = ""
     /// Read when the pane appears, so a host added to the config meanwhile shows up.
@@ -49,21 +52,30 @@ struct RemoteSettingsView: View {
             .padding(.top, 12)
         }
         .onAppear { self.configHosts = SSHConfigHosts.userHosts() }
+        .task(id: self.reload) {
+            guard self.reload != 0 else { return }
+            await self.remote.loadUsage()
+        }
     }
 
     private func hostRow(_ host: String) -> some View {
         let state = self.remote.state(of: host)
+        let usage = self.remote.usage[host]
+        let detail = Self.detail(of: state, usage: usage)
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(host)
                     .font(.system(size: 13))
-                Text(Self.detail(of: state))
+                Text(detail)
                     .font(.system(size: 11))
-                    .foregroundStyle(Self.isFailure(state) ? Color.orange : Color.secondary)
+                    .foregroundStyle(Self.isWarning(state, usage: usage) ? Color.orange : Color.secondary)
                     .lineLimit(2)
-                    .help(Self.detail(of: state))
+                    .help(detail)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 12)
+            if let usage, usage.files > 0 {
+                self.usageSummary(usage)
+            }
             if state == .syncing {
                 ProgressView().controlSize(.small)
             }
@@ -78,6 +90,21 @@ struct RemoteSettingsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
+    }
+
+    private func usageSummary(_ usage: RemoteHostUsage) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(Self.count(usage.records, "record"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(usage.records == 0 ? Color.orange : Color.primary)
+            Text("\(Self.count(usage.files, "file")) · \(ByteCountFormatter.string(fromByteCount: usage.bytes, countStyle: .file))")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .monospacedDigit()
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+        .help("Usage records in this machine's logs. New counts those no other log recorded first.")
     }
 
     private var addRow: some View {
@@ -115,17 +142,30 @@ struct RemoteSettingsView: View {
         self.newHost = ""
     }
 
-    private static func detail(of state: RemoteHostSyncState) -> String {
+    private static func detail(of state: RemoteHostSyncState, usage: RemoteHostUsage?) -> String {
         switch state {
-        case .idle: "Waiting for the next sync"
+        case .idle: self.joined("Waiting for the next sync", usage)
         case .syncing: "Syncing…"
-        case let .synced(date): "Synced \(Formatters.relativeAge(since: date))"
+        case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date))", usage)
         case let .failed(reason): reason
         }
     }
 
-    private static func isFailure(_ state: RemoteHostSyncState) -> Bool {
-        if case .failed = state { return true }
-        return false
+    private static func joined(_ status: String, _ usage: RemoteHostUsage?) -> String {
+        guard let usage, usage.files > 0 else { return status }
+        return "\(status) · \(usage.records == 0 ? "no usage in these logs" : "\(usage.newRecords.formatted()) new")"
+    }
+
+    /// A failed sync, or logs that arrived holding nothing to count.
+    private static func isWarning(_ state: RemoteHostSyncState, usage: RemoteHostUsage?) -> Bool {
+        switch state {
+        case .failed: true
+        case .syncing: false
+        case .idle, .synced: usage.map { $0.files > 0 && $0.records == 0 } ?? false
+        }
+    }
+
+    private static func count(_ value: Int, _ noun: String) -> String {
+        "\(value.formatted()) \(noun)\(value == 1 ? "" : "s")"
     }
 }

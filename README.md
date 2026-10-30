@@ -182,11 +182,11 @@ For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBa
 
 ### Remote machines
 
-To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed. A machine that is off only delays its own sync.
+To count Claude Code and Codex sessions from another machine, add its SSH host under **Settings → Remote**, or pick it from **From SSH config**. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed, how many usage records its logs hold, how many of those are new, and how many files were copied. New records are the ones no other log recorded first, so a host whose sessions are already here can sync successfully with few or none. A machine that is off only delays its own sync.
 
 The host needs key-based SSH sign-in that works without a prompt, and `rsync` installed. QuotaBar reads `~/.claude/projects`, `~/.config/claude/projects`, `~/.codex/sessions`, and `~/.codex/archived_sessions` on the machine, not custom `CLAUDE_CONFIG_DIR` or `CODEX_HOME` locations. OpenCode and Pi Agent are local only.
 
-Remote usage adds to the same totals as this Mac's, with no per-machine breakdown. Sessions present on both count once. Removing a host stops syncing it and keeps what was recorded.
+Remote usage adds to the same totals as this Mac's; the menu and the usage report have no per-machine breakdown. Sessions present on both count once. Removing a host stops syncing it and keeps what was recorded.
 
 ### Saved history
 
