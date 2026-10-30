@@ -34,8 +34,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$APP_NAME"
 cp -R "$BINARY_DIR/QuotaBar_QuotaBarCore.bundle" "$APP/Contents/Resources/"
 
-# Assets.car carries the light and dark icons for macOS 26 and later; earlier systems read the
-# light-only AppIcon.icns that actool writes beside it.
+# macOS 26 and later read the icon from Assets.car; earlier systems read the AppIcon.icns that
+# actool writes beside it.
 echo "==> Compiling Resources/AppIcon.icon"
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" xcrun actool \
     "$ROOT/Resources/AppIcon.icon" \
