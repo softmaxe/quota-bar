@@ -57,12 +57,15 @@ enum PricingListTests {
                             "a search that hides the picked row shows the first match instead")
 
         model.searchText = ""
+        Harness.expect(model.visibleRows.isEmpty, "every vendor starts folded")
         let anthropic = model.listSections[0].vendors[1]
         model.toggle(anthropic)
-        Harness.expect(!model.visibleRows.contains { $0.vendor == "Anthropic" && $0.section == .builtIn },
+        Harness.expect(model.visibleRows.contains { $0.model == "claude-sonnet-4" }, "toggling opens a vendor")
+        Harness.expect(!model.visibleRows.contains { $0.model == "claude-next" },
+                       "opening a vendor in one source leaves it folded in the others")
+        model.toggle(anthropic)
+        Harness.expect(!model.visibleRows.contains { $0.vendor == "Anthropic" },
                        "a folded vendor's rows leave the arrow keys' path")
-        Harness.expect(model.visibleRows.contains { $0.model == "claude-next" },
-                       "folding a vendor in one source leaves it open in the others")
         Harness.expect(model.selectedRowID == nil, "folding away the picked row clears the pick")
         model.searchText = "sonnet"
         Harness.expectEqual(model.visibleRows.map(\.model), ["claude-sonnet-4"],
@@ -70,6 +73,10 @@ enum PricingListTests {
         model.searchText = ""
         model.toggle(anthropic)
         Harness.expect(model.visibleRows.contains { $0.model == "claude-sonnet-4" }, "a second toggle opens it again")
+        model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
+        model.foldAll()
+        Harness.expect(model.visibleRows.isEmpty, "opening the pane folds every vendor again")
+        Harness.expect(model.selectedRowID == nil, "folding everything clears the pick")
         model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
 
         model.searchText = "claude-o"
