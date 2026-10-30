@@ -67,6 +67,9 @@ struct SettingsView: View {
                     reload: self.selection.pricingReloads
                 )
             }
+            self.pane(.remote) {
+                RemoteSettingsView(settings: self.settings, remote: self.store.remoteSync)
+            }
         }
         .frame(width: Self.paneWidth, height: Self.paneHeight, alignment: .topLeading)
     }
@@ -247,8 +250,8 @@ extension RefreshFrequency {
     }
 }
 
-private extension View {
-    /// The rounded box each General section sits in.
+extension View {
+    /// The rounded box each settings section sits in.
     func settingsGroup() -> some View {
         self.background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
