@@ -210,13 +210,9 @@ final class PricingTableModel: ObservableObject {
     @Published private(set) var hasLoadedUsage = false
     @Published private(set) var isReadingUsage = false
     @Published private(set) var scanStatusMessages: [String] = []
-    /// When models.dev was last read, and whether pricing from it is on, for its section heading.
+    /// When models.dev was last read, and whether pricing from it is on, for the footer.
     @Published private(set) var modelsDevFetchedAt: Date?
     @Published private(set) var modelsDevEnabled = true
-    /// How many models each source prices, for the section headings. The models.dev count is the
-    /// cached catalog's, so it still reads while that source is switched off.
-    @Published private(set) var priceBookModelCount = 0
-    @Published private(set) var modelsDevModelCount = 0
     /// The row open in the table, nil when none is. Kept here rather than in the view so it
     /// survives a reload of the rates and a headless dump can pick one.
     @Published var selectedRowID: String?
@@ -258,16 +254,6 @@ final class PricingTableModel: ObservableObject {
 
     /// Fills the table from the price book, the third-party rates, and the local scan cache.
     func load() async {
-        self.loadSources()
-        await self.readUsage()
-        guard self.fixtures == nil else { return }
-        self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
-            $0.status.message(agent: $0.source.displayName)
-        }
-    }
-
-    /// Rereads the rates and what each source covers.
-    private func loadSources() {
         let cached: ThirdPartyRates
         if let fixtures = self.fixtures {
             self.rateCard = fixtures.rateCard
@@ -279,9 +265,10 @@ final class PricingTableModel: ObservableObject {
             self.modelsDevEnabled = modelsDev.enabled
         }
         self.modelsDevFetchedAt = cached.fetchedAt
-        self.modelsDevModelCount = cached.models.count
-        self.priceBookModelCount = Provider.allCases.reduce(0) {
-            $0 + self.rateCard.settingsModels(for: $1).count
+        await self.readUsage()
+        guard self.fixtures == nil else { return }
+        self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
+            $0.status.message(agent: $0.source.displayName)
         }
     }
 

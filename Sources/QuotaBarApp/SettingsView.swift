@@ -6,9 +6,9 @@ import SwiftUI
 final class SettingsSelection: ObservableObject {
     @Published var tab: SettingsTab = .general
     /// Bumped whenever the pricing pane comes into view, so it rereads rates that a models.dev
-    /// download or the General toggle changed while it sat mounted behind another pane.
+    /// download changed while it sat mounted behind another pane.
     @Published var pricingReloads = 0
-    /// Bumped whenever the window is shown, so Usage rereads what is saved.
+    /// Bumped whenever the window is shown, so the open pane rereads what it shows.
     @Published var windowShows = 0
 }
 
@@ -98,8 +98,8 @@ struct SettingsView: View {
     }
 }
 
-/// General shows each choice as what it changes: the menu bar item as it is drawn now, each
-/// provider with its live quota, and the refresh cadences with a warning for the risky ones.
+/// General shows each choice as what it changes: each provider with its live quota, and the
+/// refresh cadences with a warning for the risky ones.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var store: UsageStore
@@ -109,11 +109,6 @@ struct GeneralSettingsView: View {
     var body: some View {
         SettingsPane("General") {
             SettingsSection("Menu bar") {
-                MenuBarPreview(
-                    provider: self.settings.menuBarProvider,
-                    display: self.display(self.settings.menuBarProvider)
-                )
-            } content: {
                 HStack(spacing: 10) {
                     ForEach(Provider.allCases, id: \.self) { provider in
                         ProviderChoiceCard(
@@ -132,8 +127,11 @@ struct GeneralSettingsView: View {
             SettingsSection("Refresh") {
                 SettingsRow(
                     title: "Refresh quota",
-                    detail: self.refreshHint,
-                    detailColor: self.settings.refreshFrequency.risksRateLimit ? .orange : .secondary
+                    detail: self.settings.refreshFrequency.risksRateLimit
+                        ? "The quota endpoints are shared with the Codex and Claude CLIs. "
+                            + "Polling this often can get you rate-limited."
+                        : nil,
+                    detailColor: .orange
                 ) {
                     Picker("Refresh quota", selection: self.$settings.refreshFrequency) {
                         ForEach(RefreshFrequency.allCases) { frequency in
@@ -152,18 +150,6 @@ struct GeneralSettingsView: View {
 
     private func display(_ provider: Provider) -> ProviderDisplay {
         self.store.displays[provider] ?? ProviderDisplay()
-    }
-
-    private var refreshHint: String {
-        switch self.settings.refreshFrequency {
-        case .manual:
-            "Only refreshes when you open a menu or press ⌘R."
-        case .oneMinute, .twoMinutes:
-            "The quota endpoints are shared with the Codex and Claude CLIs. "
-                + "Polling this often can get you rate-limited."
-        default:
-            "Opening the menu adds at most one extra refresh a minute."
-        }
     }
 }
 
@@ -317,44 +303,6 @@ extension View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
         )
-    }
-}
-
-/// The status item drawn the way it is drawn now, so the provider choice below reads as what it
-/// changes. The gauge carries no numbers, so the caption says which quota it shows.
-struct MenuBarPreview: View {
-    let provider: Provider
-    let display: ProviderDisplay
-
-    var body: some View {
-        TimelineView(.everyMinute) { context in
-            HStack(spacing: 8) {
-                Text(self.caption)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Image(nsImage: self.icon(now: context.date))
-                    .foregroundStyle(.primary)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Menu bar preview: \(self.caption)")
-    }
-
-    /// The same icon the status item draws for this provider, from the same cache.
-    private func icon(now: Date) -> NSImage {
-        IconRenderer.makeIcon(
-            remainingPercent: self.display.snapshot.flatMap { MenuBarProviderPolicy.gaugeRemaining($0, now: now) },
-            stale: self.display.isStale
-        )
-    }
-
-    private var caption: String {
-        let name = self.provider.displayName
-        if self.display.isSignedOut { return "\(name) is not signed in, so the gauge is faded." }
-        if self.display.isStale { return "The last \(name) refresh failed, so the gauge is dimmed." }
-        let usesWeekly = self.display.snapshot?.session == nil && self.display.snapshot?.weekly != nil
-        return "The gauge shows \(name)'s \(usesWeekly ? "weekly" : "session") quota."
     }
 }
 

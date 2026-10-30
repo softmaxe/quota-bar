@@ -60,9 +60,10 @@ struct PricingSettingsView: View {
         SettingsSectionHeader(section.rawValue) {
             switch section {
             case .builtIn:
-                self.sourceDetail("Always on · \(self.model.priceBookModelCount) models")
+                Text("Always on")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             case .modelsDev:
-                self.sourceDetail(self.modelsDevDetail)
                 Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
                     .toggleStyle(.switch)
                     .labelsHidden()
@@ -70,23 +71,6 @@ struct PricingSettingsView: View {
                 EmptyView()
             }
         }
-    }
-
-    private func sourceDetail(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-    }
-
-    private var modelsDevDetail: String {
-        guard self.settings.modelsDevPricing else {
-            return "Off: models outside the price book stay unpriced"
-        }
-        guard let fetchedAt = self.model.modelsDevFetchedAt else {
-            return "Not downloaded yet"
-        }
-        return "\(self.model.modelsDevModelCount) models · updated \(Formatters.relativeAge(since: fetchedAt))"
     }
 
     /// Names the rates of a vendor's rows, so a folded list carries no empty columns.
@@ -420,11 +404,22 @@ struct PricingSettingsView: View {
                     .disabled(self.model.isReadingUsage)
                 }
             }
-            Text("Rates are USD per 1M tokens. Costs are estimates at API list prices.")
+            Text(self.footerText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
+    }
+
+    private var footerText: String {
+        let estimate = "Rates are USD per 1M tokens. Costs are estimates at API list prices."
+        guard self.model.modelsDevEnabled else {
+            return "\(estimate) models.dev prices are off."
+        }
+        guard let fetchedAt = self.model.modelsDevFetchedAt else {
+            return "\(estimate) models.dev prices have not been downloaded yet."
+        }
+        return "\(estimate) models.dev prices updated \(Formatters.relativeAge(since: fetchedAt))."
     }
 
     // MARK: - Sources

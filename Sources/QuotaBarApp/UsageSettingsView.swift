@@ -100,12 +100,7 @@ struct UsageSettingsView: View {
                     self.noHostsRow
                 }
                 Divider()
-                SettingsRow(
-                    title: "Sync automatically",
-                    detail: self.settings.remoteAutoSync
-                        ? "Every 15 minutes and when QuotaBar starts"
-                        : "Only when you press Sync now"
-                ) {
+                SettingsRow(title: "Sync automatically") {
                     Toggle("Sync automatically", isOn: self.$settings.remoteAutoSync)
                         .toggleStyle(.switch)
                         .controlSize(.small)
@@ -230,13 +225,9 @@ struct UsageSettingsView: View {
             Button("Export…") { Task { await self.chooseExportDestination() } }
                 .disabled(self.backup.activity != nil || self.backup.summary?.records == 0)
         } content: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Export writes a consistent copy. Import merges a copy of the file and only adds.")
-                    .foregroundStyle(.secondary)
-                self.backupStatus
-            }
-            .font(.system(size: 11))
-            .padding(.horizontal, 2)
+            self.backupStatus
+                .font(.system(size: 11))
+                .padding(.horizontal, 2)
         }
     }
 
