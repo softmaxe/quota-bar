@@ -33,6 +33,26 @@ enum PricingModelFilterTests {
             "a models.dev model left the Others group"
         )
 
+        let makers = RateCard(thirdParty: ThirdPartyRates(
+            models: [:],
+            makers: ["muse-spark": "meta", "new-model": "black-forest-labs"],
+            fetchedAt: nil
+        ))
+        Harness.expectEqual(PricingVendor.name(for: "gpt-6-astra", group: .codex, rateCard: makers), "OpenAI",
+                            "a price book model takes its provider's vendor")
+        Harness.expectEqual(PricingVendor.name(for: "muse-spark", group: .others, rateCard: makers), "Meta",
+                            "the cached maker names the vendor")
+        Harness.expectEqual(PricingVendor.name(for: "muse-spark-sg", group: .others, rateCard: makers), "Meta",
+                            "a regional spelling takes the model's maker")
+        Harness.expectEqual(PricingVendor.name(for: "new-model", group: .others, rateCard: makers), "Black Forest Labs",
+                            "a maker without a set spelling reads from its slug")
+        Harness.expectEqual(PricingVendor.name(for: "glm-5.3-flash", group: .others, rateCard: makers), "Zhipu AI",
+                            "a cache without makers falls back to the model's name")
+        Harness.expectEqual(PricingVendor.name(for: "claude-next", group: .others, rateCard: makers), "Anthropic",
+                            "an unpriced Claude model is still Anthropic's")
+        Harness.expectEqual(PricingVendor.name(for: "local-thing", group: .others, rateCard: makers), PricingVendor.other,
+                            "an unrecognized model goes to Other")
+
         let codexSettingsModels = rateCard.settingsModels(for: .codex)
         let visibleCodex = PricingModelFilterPolicy.visibleModels(
             provider: .codex,
