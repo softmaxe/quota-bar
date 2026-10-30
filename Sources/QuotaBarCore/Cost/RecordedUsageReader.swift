@@ -259,6 +259,52 @@ package final class RecordedUsageReader {
         return (records, firstDay)
     }
 
+    /// How many records a host's logs hold, and how many of those no other log recorded first.
+    /// Codex rollouts are read once per session, so a mirrored rollout counts the rows stored for
+    /// its session, whichever copy holds them. Claude messages are counted by key for the same
+    /// reason. `logs` are the host's mirrored files.
+    package func mirroredRecords(of host: String, logs: [String]) throws -> (records: Int, new: Int) {
+        let marker = RemoteLogMirror.pathMarker(of: host)
+        var records = 0
+        var new = 0
+
+        if try self.tableExists("mirrored_message") {
+            try self.query(
+                "SELECT COUNT(*) FROM mirrored_message WHERE host = ?",
+                bindings: [host]
+            ) { records += Int(sqlite3_column_int64($0, 0)) }
+        }
+        try self.query(
+            "SELECT COUNT(*) FROM claude_message WHERE instr(path, ?) > 0",
+            bindings: [marker]
+        ) { new += Int(sqlite3_column_int64($0, 0)) }
+
+        let codex = CodexAdapter(env: [:])
+        var stored: [String: (rows: Int, isNew: Bool)] = [:]
+        try self.query("SELECT path, COUNT(*) FROM codex_day GROUP BY path") { statement in
+            guard let path = self.text(statement, column: 0, strict: false) else { return }
+            let rows = Int(sqlite3_column_int64(statement, 1))
+            stored[codex.sessionID(path: path) ?? path, default: (0, false)].rows += rows
+            if path.contains(marker) { stored[codex.sessionID(path: path) ?? path]?.isNew = true }
+        }
+        let sessions = Set(logs.map { codex.sessionID(path: $0) ?? $0 })
+        for session in sessions {
+            guard let rows = stored[session] else { continue }
+            records += rows.rows
+            if rows.isNew { new += rows.rows }
+        }
+        return (records, min(new, records))
+    }
+
+    private func tableExists(_ name: String) throws -> Bool {
+        var exists = false
+        try self.query(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            bindings: [name]
+        ) { _ in exists = true }
+        return exists
+    }
+
     /// Results stay local to the read until every contributing statement completes.
     func query(
         _ sql: String,

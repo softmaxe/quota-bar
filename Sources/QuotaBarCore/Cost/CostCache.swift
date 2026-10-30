@@ -136,6 +136,7 @@ final class CostCache {
         )
         """)
         try self.exec("CREATE INDEX IF NOT EXISTS pi_message_day ON pi_message(day)")
+        try self.createMirroredMessageTableIfNeeded()
 
         // The one-hour cache-write subset, split out once Anthropic's higher rate for it was
         // applied. Zero for Codex, which offers no choice of cache lifetime.
@@ -164,6 +165,33 @@ final class CostCache {
         do {
             for table in tables { try self.exec("DROP INDEX IF EXISTS \(table)_unpriced") }
             for item in pending { try self.exec("ALTER TABLE \(item.table) DROP COLUMN \(item.column)") }
+            try self.exec("COMMIT")
+        } catch {
+            try? self.exec("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Which messages each mirrored host's logs hold. `claude_message` keeps one path per message,
+    /// so a message another log recorded first would otherwise leave no trace of this host having
+    /// it too. Mirrored transcripts scanned before this table existed are reread once to fill it;
+    /// a reread is a replay, so their usage does not change.
+    private func createMirroredMessageTableIfNeeded() throws {
+        guard !(try self.tableNames(schema: "main").contains("mirrored_message")) else { return }
+        try self.exec("BEGIN IMMEDIATE")
+        do {
+            try self.exec("""
+            CREATE TABLE mirrored_message (
+                host TEXT NOT NULL,
+                key TEXT NOT NULL,
+                PRIMARY KEY (host, key)
+            ) WITHOUT ROWID
+            """)
+            try self.exec("""
+            DELETE FROM file_cursor
+            WHERE provider = '\(Provider.claude.rawValue)'
+                AND path LIKE '%/\(RemoteLogMirror.directoryName)/%'
+            """)
             try self.exec("COMMIT")
         } catch {
             try? self.exec("ROLLBACK")
@@ -368,6 +396,14 @@ final class CostCache {
         try self.step(stmt)
     }
 
+    func addMirroredMessage(host: String, key: String) throws {
+        let stmt = try self.reusable("INSERT OR IGNORE INTO mirrored_message (host, key) VALUES (?, ?)")
+        defer { sqlite3_reset(stmt) }
+        sqlite3_bind_text(stmt, 1, host, -1, sqliteTransient)
+        sqlite3_bind_text(stmt, 2, key, -1, sqliteTransient)
+        try self.step(stmt)
+    }
+
     func addOpenCodePart(
         key: String,
         included: Bool,
@@ -481,6 +517,10 @@ final class CostCache {
                     (path, provider, inode, size, offset, prefix_digest, resume_state)
                 SELECT path, provider, inode, size, offset, prefix_digest, resume_state
                 FROM backup.file_cursor WHERE provider != '\(Provider.codex.rawValue)'
+                """)
+            try self.exec("""
+                INSERT OR IGNORE INTO main.mirrored_message (host, key)
+                SELECT host, key FROM backup.mirrored_message
                 """)
             try self.commit()
             return UsageImportResult(added: keyed.added + codex.added, updated: keyed.updated + codex.updated)

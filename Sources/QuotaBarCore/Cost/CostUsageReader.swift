@@ -37,4 +37,32 @@ public enum CostUsageReader {
         }
         return SavedUsageSummary(records: usage.records, firstDay: usage.firstDay, bytes: bytes)
     }
+
+    /// What each host's mirror holds. A host with no mirror yet has an entry of zeros, and an
+    /// absent cache means none of its usage has been recorded yet.
+    public static func remoteUsage(
+        hosts: [String],
+        remoteLogs: URL,
+        databaseURL: URL = CostService.defaultDatabaseURL
+    ) throws -> [String: RemoteHostUsage] {
+        let reader = FileManager.default.fileExists(atPath: databaseURL.path)
+            ? try RecordedUsageReader(databaseURL: databaseURL)
+            : nil
+        var usage: [String: RemoteHostUsage] = [:]
+        for host in hosts {
+            let logs = RemoteLogMirror.logs(of: host, under: remoteLogs)
+            let bytes = logs.reduce(Int64(0)) { total, log in
+                let size = try? log.resourceValues(forKeys: [.fileSizeKey]).fileSize
+                return total + Int64(size ?? 0)
+            }
+            let recorded = try reader?.mirroredRecords(of: host, logs: logs.map(\.path))
+            usage[host] = RemoteHostUsage(
+                files: logs.count,
+                bytes: bytes,
+                records: recorded?.records ?? 0,
+                newRecords: recorded?.new ?? 0
+            )
+        }
+        return usage
+    }
 }
