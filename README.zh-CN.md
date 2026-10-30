@@ -180,6 +180,14 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 对于 OpenCode 的 `openai` 用量和 Pi Agent 的 `openai-codex` 助手用量，QuotaBar 会将各应用当前的 OAuth 凭据与 Codex 账号匹配，匹配成功后计入 Codex 总计。其他供应商、API key 凭据和账号不匹配的数据不计入。这些总计不会改变额度条。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
 
+### 远程机器
+
+如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。刷新频率设为 **Manual** 时，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因。机器关机只会推迟它自己的同步。
+
+主机需要支持免交互的 SSH 密钥登录，并已安装 `rsync`。QuotaBar 读取这台机器上的 `~/.claude/projects`、`~/.config/claude/projects`、`~/.codex/sessions` 和 `~/.codex/archived_sessions`，不读取自定义的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME` 路径。OpenCode 和 Pi Agent 仅统计本机数据。
+
+远程用量与本机用量合并到同一总计中，不按机器拆分。两边都有的会话只计一次。移除主机后不再同步，已记录的用量会保留。
+
 ### 历史记录
 
 首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存 token 数量、日期、模型、来源和计价档位，以及记录 ID 和扫描位置。成本在读取用量时计算。
@@ -242,6 +250,8 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 
 统计会使用时间、模型、token 数量、记录 ID，以及匹配 OAuth 会话所需的账号 ID。QuotaBar 不会将提示词、回复和推理文本写入用量历史或上传。
 
+[远程机器](#远程机器)是只读本地数据这一规则的唯一例外：QuotaBar 会连接你添加的 SSH 主机，把完整的会话日志（可能包含提示词和回复）复制到只有当前用户可读的目录。不会向这些主机发送任何数据。移除主机后副本仍会保留，如需清除，请删除 `cost-usage/remote-logs`，已记录的用量不受影响。
+
 <details>
 <summary>本地存储路径</summary>
 
@@ -250,6 +260,7 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 ~/Library/Application Support/QuotaBar/third-party-rates.json
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite
 ~/Library/Application Support/QuotaBar/cost-usage/cost-usage.sqlite.pre-import   # 最近一次导入之前的数据库
+~/Library/Application Support/QuotaBar/cost-usage/remote-logs/   # 从远程机器复制的日志
 ~/Library/Preferences/com.quotabar.app.plist
 ~/Library/WebKit/com.quotabar.app        # 用量报告的视图设置
 ```

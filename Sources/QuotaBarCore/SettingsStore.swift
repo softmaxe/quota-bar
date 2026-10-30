@@ -65,6 +65,7 @@ public final class SettingsStore: ObservableObject {
         static let quotaResetDisplayMode = "quotaResetDisplayMode"
         static let modelsDevPricing = "modelsDevPricing"
         static let lastUsageExport = "lastUsageExport"
+        static let remoteHosts = "remoteHosts"
     }
 
     private let defaults: UserDefaults
@@ -114,6 +115,14 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// The SSH hosts whose Claude Code and Codex logs count toward this Mac's usage.
+    @Published public var remoteHosts: [String] {
+        didSet {
+            guard oldValue != self.remoteHosts else { return }
+            self.defaults.set(self.remoteHosts, forKey: Key.remoteHosts)
+        }
+    }
+
     /// When a usage backup was last exported, so Settings can show how old the newest one is.
     @Published public var lastUsageExport: Date? {
         didSet {
@@ -139,5 +148,6 @@ public final class SettingsStore: ObservableObject {
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
         self.modelsDevPricing = Self.isModelsDevPricingEnabled(defaults)
         self.lastUsageExport = defaults.object(forKey: Key.lastUsageExport) as? Date
+        self.remoteHosts = defaults.stringArray(forKey: Key.remoteHosts) ?? []
     }
 }

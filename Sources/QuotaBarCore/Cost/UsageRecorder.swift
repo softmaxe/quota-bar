@@ -75,17 +75,19 @@ package final class UsageRecorder {
 
     /// Records every Usage source whose usage counts toward `provider`. A source that fails
     /// keeps what was recorded before and reports the failure in its scan status, so it never
-    /// hides the others. Returns the number of files and snapshot requests that were read.
+    /// hides the others. `remoteLogs` is the `RemoteLogMirror` directory, whose logs count as this
+    /// Mac's own. Returns the number of files and snapshot requests that were read.
     @discardableResult
     package func record(
         _ provider: Provider,
         rateCard: RateCard,
-        env: [String: String] = ProcessInfo.processInfo.environment
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        remoteLogs: URL? = nil
     ) -> Int {
         // `CostUsageSource.provider` alone decides which sources count toward a provider.
         var touched = 0
         for source in CostUsageSource.all where source.provider == provider {
-            touched += self.record(source, rateCard: rateCard, env: env)
+            touched += self.record(source, rateCard: rateCard, env: env, remoteLogs: remoteLogs)
         }
         return touched
     }
@@ -174,12 +176,21 @@ private struct RecordedRow {
 
 extension UsageRecorder {
     /// Which adapter reads each Usage source's logs.
-    private func record(_ source: CostUsageSource, rateCard: RateCard, env: [String: String]) -> Int {
+    private func record(
+        _ source: CostUsageSource,
+        rateCard: RateCard,
+        env: [String: String],
+        remoteLogs: URL?
+    ) -> Int {
         switch source {
-        case .claude: self.record(ClaudeCodeAdapter(env: env), rateCard: rateCard)
-        case .codex: self.record(CodexAdapter(env: env), rateCard: rateCard)
-        case .openCode: self.record(OpenCodeAdapter(env: env), rateCard: rateCard)
-        case .piAgent: self.record(PiAgentAdapter(env: env), rateCard: rateCard)
+        case .claude:
+            let mirrored = remoteLogs.map(RemoteLogMirror.claudeRoots(under:)) ?? []
+            return self.record(ClaudeCodeAdapter(env: env, mirroredRoots: mirrored), rateCard: rateCard)
+        case .codex:
+            let mirrored = remoteLogs.map(RemoteLogMirror.codexRoots(under:)) ?? []
+            return self.record(CodexAdapter(env: env, mirroredRoots: mirrored), rateCard: rateCard)
+        case .openCode: return self.record(OpenCodeAdapter(env: env), rateCard: rateCard)
+        case .piAgent: return self.record(PiAgentAdapter(env: env), rateCard: rateCard)
         }
     }
 

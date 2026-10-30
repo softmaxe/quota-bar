@@ -242,5 +242,6 @@ await MenuLifecycleTests.run()
 await RelativeTimeTests.run()
 await RefreshRowTests.run()
 await MenuCommandTests.run()
+await RemoteLogMirrorTests.run()
 
 Harness.finish()

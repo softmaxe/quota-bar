@@ -68,6 +68,9 @@ struct SettingsView: View {
                     reload: self.selection.pricingReloads
                 )
             }
+            self.pane(.remote) {
+                RemoteSettingsView(settings: self.settings, remote: self.store.remoteSync)
+            }
             self.pane(.data) {
                 // Zero while the pane is out of view, so only opening it reads the database.
                 DataSettingsView(

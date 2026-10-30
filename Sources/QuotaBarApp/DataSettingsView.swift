@@ -60,7 +60,7 @@ final class UsageBackupModel: ObservableObject {
         defer { self.activity = nil }
         do {
             self.outcome = .imported(try await self.store.costService.importBackup(from: url))
-            self.store.refreshAllLocalUsageAfterImport()
+            self.store.refreshAllLocalUsageAfterChange()
             await self.loadSummary()
         } catch {
             self.outcome = .failed(error.localizedDescription)
