@@ -370,12 +370,6 @@ struct MenuBarPreview: View {
                 Spacer(minLength: 8)
                 Image(nsImage: self.icon(now: context.date))
                     .foregroundStyle(.primary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color.primary.opacity(0.12))
-                    )
                 Text(context.date, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day()
                     .hour().minute())
                     .font(.system(size: 12))
