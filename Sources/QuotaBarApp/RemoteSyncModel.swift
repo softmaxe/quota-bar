@@ -101,7 +101,7 @@ final class RemoteSyncModel: ObservableObject {
     }
 
     /// A sync already running for this host covers this request too.
-    private func sync(_ host: String) {
+    func sync(_ host: String) {
         guard self.tasks[host] == nil else { return }
         self.states[host] = .syncing
         self.tasks[host] = Task(priority: .utility) { [weak self, mirror] in

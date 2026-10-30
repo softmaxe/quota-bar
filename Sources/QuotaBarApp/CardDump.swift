@@ -60,10 +60,12 @@ enum CardDump {
             recoveryDefaults: defaults
         )
         for provider in Provider.allCases {
-            store.debugSetDisplay(ProviderDisplay(snapshot: Self.loadedSnapshot(provider)), for: provider)
+            var display = ProviderDisplay(snapshot: Self.loadedSnapshot(provider))
+            display.localScanStatus = .completed(Date().addingTimeInterval(-60))
+            store.debugSetDisplay(display, for: provider)
         }
 
-        // The data pane shows the size of what is saved, which the throwaway database does not have.
+        // The usage pane shows the size of what is saved, which the throwaway database does not have.
         let backup = UsageBackupModel(
             store: store,
             fixture: SavedUsageSummary(records: 56_412, firstDay: "2025-11-03", bytes: 27_400_000)
@@ -75,8 +77,13 @@ enum CardDump {
             into: root
         )
         Self.captureSettings(
-            AnyView(DataSettingsView(model: backup)),
-            named: "settings-data",
+            AnyView(UsageSettingsView(settings: settings, store: store, remote: store.remoteSync, backup: backup)),
+            named: "settings-usage-empty",
+            into: root
+        )
+        Self.captureSettings(
+            AnyView(AddHostSheet(hosts: ["build-server", "old-laptop", "mac-mini"]) { _ in }),
+            named: "settings-add-host",
             into: root
         )
         // The pricing pane again on its own. The rows only load when the pane appears, and the
@@ -94,8 +101,15 @@ enum CardDump {
         RunLoop.current.run(until: Date().addingTimeInterval(3))
         _ = loading
         Self.captureSettings(
-            AnyView(PricingSettingsView(model: pricing)),
+            AnyView(PricingSettingsView(settings: settings, model: pricing)),
             named: "settings-pricing",
+            into: root
+        )
+        // Folded, so every source's heading and the models.dev switch fit in one capture.
+        pricing.foldAll()
+        Self.captureSettings(
+            AnyView(PricingSettingsView(settings: settings, model: pricing)),
+            named: "settings-pricing-folded",
             into: root
         )
 
@@ -119,8 +133,8 @@ enum CardDump {
             for: "old-laptop"
         )
         Self.captureSettings(
-            AnyView(RemoteSettingsView(settings: settings, remote: store.remoteSync)),
-            named: "settings-remote",
+            AnyView(UsageSettingsView(settings: settings, store: store, remote: store.remoteSync, backup: backup)),
+            named: "settings-usage",
             into: root
         )
     }
