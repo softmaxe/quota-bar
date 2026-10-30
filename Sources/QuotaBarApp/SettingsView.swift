@@ -95,8 +95,8 @@ struct SettingsView: View {
 }
 
 /// General shows each choice as what it changes: the menu bar item as it is drawn now, each
-/// provider with its live quota, the refresh cadences with the risky ones marked on the track,
-/// and the price sources with what each one covers.
+/// provider with its live quota, the refresh cadences with a warning for the risky ones, and the
+/// price sources with what each one covers.
 struct GeneralSettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var pricing: PricingTableModel
@@ -130,7 +130,13 @@ struct GeneralSettingsView: View {
 
             SettingsSectionTitle("Refresh")
             VStack(alignment: .leading, spacing: 8) {
-                RefreshStopSlider(selection: self.$settings.refreshFrequency)
+                Picker("Refresh", selection: self.$settings.refreshFrequency) {
+                    ForEach(RefreshFrequency.allCases) { frequency in
+                        Text(frequency.shortLabel).tag(frequency)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 Text(self.refreshHint)
                     .font(.system(size: 11))
                     .foregroundStyle(self.settings.refreshFrequency.risksRateLimit ? Color.orange : Color.secondary)
@@ -208,8 +214,8 @@ extension RefreshFrequency {
         self == .oneMinute || self == .twoMinutes
     }
 
-    /// The label under the cadence's stop on the slider.
-    var stopLabel: String {
+    /// The label on the cadence's segment.
+    var shortLabel: String {
         switch self {
         case .manual: "Manual"
         case .oneMinute: "1m"
@@ -431,115 +437,5 @@ struct ProviderChoiceCard: View {
             return ("Weekly \(Formatters.percent(weekly.remainingPercent)) left", weekly.remainingPercent / 100)
         }
         return (snapshot.sessionIsUnlimited ? "Session has no limit" : "No reading yet", nil)
-    }
-}
-
-/// The refresh cadences as stops along a track. The span between the stops that poll often
-/// enough to risk the CLIs' shared rate limit is drawn orange, so the risk shows where the
-/// choice is made rather than in a paragraph under it.
-struct RefreshStopSlider: View {
-    @Binding var selection: RefreshFrequency
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @FocusState private var isFocused: Bool
-
-    private static let stops = RefreshFrequency.allCases
-    private static let knobSize: CGFloat = 16
-    private static let trackHeight: CGFloat = 4
-
-    var body: some View {
-        VStack(spacing: 6) {
-            GeometryReader { geometry in
-                self.track(width: geometry.size.width)
-            }
-            .frame(height: Self.knobSize + 2)
-            // Each label sits in an equal slice of the width; the stops are the slices' centers.
-            HStack(spacing: 0) {
-                ForEach(Self.stops) { stop in
-                    Text(stop.stopLabel)
-                        .font(.system(size: 10, weight: stop == self.selection ? .semibold : .regular))
-                        .foregroundStyle(stop == self.selection ? Color.primary : Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
-                        .onTapGesture { self.choose(stop) }
-                }
-            }
-        }
-        .focusable()
-        .focused(self.$isFocused)
-        .focusEffectDisabled()
-        .onMoveCommand { direction in
-            switch direction {
-            case .left, .down: self.step(by: -1)
-            case .right, .up: self.step(by: 1)
-            default: break
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Refresh")
-        .accessibilityValue(self.selection.label)
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: self.step(by: 1)
-            case .decrement: self.step(by: -1)
-            @unknown default: break
-            }
-        }
-    }
-
-    private func track(width: CGFloat) -> some View {
-        let slice = width / CGFloat(Self.stops.count)
-        let center = { (index: Int) in slice * (CGFloat(index) + 0.5) }
-        let riskIndices = Self.stops.indices.filter { Self.stops[$0].risksRateLimit }
-        let selectedIndex = Self.stops.firstIndex(of: self.selection) ?? 0
-
-        return ZStack(alignment: .leading) {
-            Capsule()
-                .fill(Theme.progressTrack)
-                .frame(width: center(Self.stops.count - 1) - center(0), height: Self.trackHeight)
-                .offset(x: center(0))
-            if let first = riskIndices.first, let last = riskIndices.last {
-                Rectangle()
-                    .fill(Color.orange.opacity(0.75))
-                    .frame(width: center(last) - center(first), height: Self.trackHeight)
-                    .offset(x: center(first))
-            }
-            ForEach(Self.stops.indices, id: \.self) { index in
-                Circle()
-                    .fill(Self.stops[index].risksRateLimit ? Color.orange : Color.secondary.opacity(0.6))
-                    .frame(width: 4, height: 4)
-                    .offset(x: center(index) - 2)
-            }
-            Circle()
-                .fill(Color.white)
-                .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
-                .overlay(
-                    Circle().strokeBorder(Color.accentColor, lineWidth: 2).opacity(self.isFocused ? 1 : 0)
-                )
-                .frame(width: Self.knobSize, height: Self.knobSize)
-                .offset(x: center(selectedIndex) - Self.knobSize / 2)
-        }
-        .frame(width: width, height: Self.knobSize + 2, alignment: .leading)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0).onChanged { value in
-                let index = Int((value.location.x / slice).rounded(.down))
-                self.choose(Self.stops[max(0, min(Self.stops.count - 1, index))])
-            }
-        )
-    }
-
-    private func step(by offset: Int) {
-        guard let index = Self.stops.firstIndex(of: self.selection) else { return }
-        let next = index + offset
-        guard Self.stops.indices.contains(next) else { return }
-        self.choose(Self.stops[next])
-    }
-
-    private func choose(_ stop: RefreshFrequency) {
-        guard stop != self.selection else { return }
-        withAnimation(self.reduceMotion ? nil : .easeOut(duration: 0.14)) {
-            self.selection = stop
-        }
     }
 }

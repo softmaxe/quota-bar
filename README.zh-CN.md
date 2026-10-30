@@ -84,7 +84,7 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，沿刷新轨道拖动选择刷新间隔（容易触发限流的档位标为橙色），在 **Price sources** 中开关 models.dev 计价，[查看模型费率](#模型费率)，或[备份已保存用量](#备份已保存用量)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，在 **Price sources** 中开关 models.dev 计价，[查看模型费率](#模型费率)，或[备份已保存用量](#备份已保存用量)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
@@ -182,7 +182,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 ### 远程机器
 
-如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。刷新频率设为 **Manual** 时，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因。机器关机只会推迟它自己的同步。
+如需统计其他机器上的 Claude Code 和 Codex 会话，在 **Settings → Remote** 中添加它的 SSH 主机，或从 **From SSH config** 中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因。机器关机只会推迟它自己的同步。
 
 主机需要支持免交互的 SSH 密钥登录，并已安装 `rsync`。QuotaBar 读取这台机器上的 `~/.claude/projects`、`~/.config/claude/projects`、`~/.codex/sessions` 和 `~/.codex/archived_sessions`，不读取自定义的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME` 路径。OpenCode 和 Pi Agent 仅统计本机数据。
 

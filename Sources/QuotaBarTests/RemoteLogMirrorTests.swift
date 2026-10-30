@@ -1,4 +1,5 @@
 import QuotaBarCore
+@testable import QuotaBarApp
 import Foundation
 
 /// Mirroring other machines' logs: what reaches ssh and rsync, how a failure surfaces, and that
@@ -7,6 +8,7 @@ enum RemoteLogMirrorTests {
     static func run() async {
         Self.hostNamesCannotReadAsOptions()
         Self.configHostsLeaveOutPatterns()
+        await Self.manualRefreshKeepsHostsManualUntilChanged()
         await Self.syncCopiesOnlyTheDirectoriesTheMachineHas()
         await Self.unreachableMachineCopiesNothing()
         await Self.machineWithoutLogsIsReported()
@@ -40,6 +42,20 @@ enum RemoteLogMirrorTests {
             ["ubuntu-tailscale", "vmiss", "vmiss-tailscale"],
             "only named hosts are offered, once each"
         )
+    }
+
+    /// Hosts used to follow the refresh cadence, so someone on Manual must not start connecting.
+    @MainActor
+    private static func manualRefreshKeepsHostsManualUntilChanged() {
+        let defaults = EphemeralDefaults.make("QuotaBarRemoteAutoSyncTests")
+        Harness.expect(SettingsStore(defaults: defaults).remoteAutoSync, "hosts sync on their own by default")
+
+        defaults.set(RefreshFrequency.manual.rawValue, forKey: "refreshFrequency")
+        let manual = SettingsStore(defaults: defaults)
+        Harness.expect(!manual.remoteAutoSync, "Manual refresh starts with automatic sync off")
+
+        manual.remoteAutoSync = true
+        Harness.expect(SettingsStore(defaults: defaults).remoteAutoSync, "the saved choice outlives Manual refresh")
     }
 
     /// `ls` lists what exists and exits nonzero for the rest, which is not a failure.
