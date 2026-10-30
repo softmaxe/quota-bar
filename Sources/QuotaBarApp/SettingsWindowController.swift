@@ -16,7 +16,7 @@ final class SettingsWindowController {
         self.settings = settings
         self.pricing = pricing
         self.store = store
-        self.backup = UsageBackupModel(settings: settings, store: store)
+        self.backup = UsageBackupModel(store: store)
     }
 
     func show() {
