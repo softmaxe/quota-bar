@@ -236,10 +236,10 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ## 模型费率
 
-打开 **Settings → Pricing**，可以查看所有估算使用的费率，单位为美元/百万 token。左侧列表包含价格表中当前的 Claude 和 OpenAI API 模型，以及本地发现的其他模型，后者由 models.dev 计价或未计价。本机用过的模型排在前面，用量最大的在最上方，并带有记录 token 数的用量条；搜索框可按名称筛选。选中模型后，右侧显示四项主要费率、一小时缓存写入费率、长上下文阈值及超过阈值后的费率、费率来源，以及来源官方价格页的链接。可用上下方向键在列表中移动。
+打开 **Settings → Pricing**，可以查看所有估算使用的费率，单位为美元/百万 token。表格包含价格表中当前的 Claude 和 OpenAI API 模型，以及本地发现的其他模型，后者由 models.dev 计价或未计价，每行列出四项主要费率。本机用过的模型排在前面，用量最大的在最上方；搜索框可按名称筛选。点击某一行可展开一小时缓存写入费率、长上下文阈值及超过阈值后的费率、记录的 token 数、费率来源，以及来源官方价格页的链接。可用上下方向键在表格中移动。
 
 <p align="center">
-  <img src="docs/images/settings-pricing.png" width="620" alt="只读价格面板：左侧为按本地用量排序的模型列表，右侧为所选模型的费率，包括长上下文费率">
+  <img src="docs/images/settings-pricing.png" width="620" alt="按本地用量排序的只读价格表，其中一个模型已展开并显示长上下文费率">
 </p>
 
 费率不可编辑。如需修改 Claude 或 OpenAI 的费率，请更新价格表（见[维护价格表](docs/pricing.md)）。旧版本把自定义费率保存在 `pricing-overrides.json`，此版本启动时会删除该文件。

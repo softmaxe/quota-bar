@@ -27,17 +27,25 @@ struct SettingsView: View {
     @State private var pricingWasOpened = false
 
     static let paneWidth: CGFloat = 620
-    static let paneHeight: CGFloat = 460
+    static let paneHeight: CGFloat = 540
+    /// The sidebar, the one-point divider, and a pane.
+    static let windowSize = NSSize(width: SettingsSidebar.width + 1 + paneWidth, height: paneHeight)
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsTabBar(selection: Binding(
-                get: { self.selection.tab },
-                set: { self.selection.tab = $0 }
-            ))
+        HStack(spacing: 0) {
+            SettingsSidebar(
+                selection: Binding(
+                    get: { self.selection.tab },
+                    set: { self.selection.tab = $0 }
+                ),
+                status: self.sidebarStatus
+            )
+            Divider()
             self.panes
         }
-        .frame(width: Self.paneWidth)
+        .frame(height: Self.paneHeight)
+        // The sidebar runs up behind the transparent title bar.
+        .ignoresSafeArea(.container, edges: .top)
         .onChange(of: self.selection.tab) { _, newValue in
             if newValue == .pricing {
                 self.pricingWasOpened = true
@@ -47,6 +55,14 @@ struct SettingsView: View {
         .onAppear {
             if self.selection.tab == .pricing { self.pricingWasOpened = true }
         }
+    }
+
+    /// Which provider the menu bar shows and what it has left.
+    private var sidebarStatus: String {
+        let provider = self.settings.menuBarProvider
+        let display = self.store.displays[provider] ?? ProviderDisplay()
+        let name = [provider.displayName, display.snapshot?.planLabel].compactMap { $0 }.joined(separator: " ")
+        return "\(name) · \(display.quotaReading.text)"
     }
 
     /// All panes stay mounted; what changes is which one is opaque. Each hidden pane is disabled
@@ -107,7 +123,7 @@ struct GeneralSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        SettingsPane("General") {
             MenuBarPreview(
                 provider: self.settings.menuBarProvider,
                 display: self.display(self.settings.menuBarProvider)
@@ -172,9 +188,6 @@ struct GeneralSettingsView: View {
             }
             .settingsGroup()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .top)
         .task(id: [self.reload, self.settings.modelsDevPricing ? 1 : 0]) {
             self.pricing.loadSources()
         }
@@ -224,6 +237,47 @@ extension RefreshFrequency {
         case .fifteenMinutes: "15m"
         case .thirtyMinutes: "30m"
         }
+    }
+}
+
+/// One pane of the settings window: its name, whatever acts on the whole pane beside that, and
+/// what it holds.
+struct SettingsPane<Accessory: View, Content: View>: View {
+    let title: String
+    @ViewBuilder let accessory: () -> Accessory
+    @ViewBuilder let content: () -> Content
+
+    init(
+        _ title: String,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.accessory = accessory
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(self.title)
+                    .font(.system(size: 17, weight: .semibold))
+                Spacer(minLength: 8)
+                self.accessory()
+            }
+            .frame(height: 24)
+            .padding(.bottom, 12)
+            self.content()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 18)
+        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .topLeading)
+    }
+}
+
+extension SettingsPane where Accessory == EmptyView {
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.init(title, accessory: { EmptyView() }, content: content)
     }
 }
 
@@ -387,7 +441,7 @@ struct ProviderChoiceCard: View {
                         .foregroundStyle(accent)
                         .opacity(self.isSelected ? 1 : 0)
                 }
-                Text(self.reading.text)
+                Text(self.display.quotaReading.text)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -398,7 +452,7 @@ struct ProviderChoiceCard: View {
                         GeometryReader { geometry in
                             Capsule()
                                 .fill(accent)
-                                .frame(width: geometry.size.width * (self.reading.fraction ?? 0))
+                                .frame(width: geometry.size.width * (self.display.quotaReading.fraction ?? 0))
                         }
                     }
                     .padding(.top, 4)
@@ -421,15 +475,17 @@ struct ProviderChoiceCard: View {
         }
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .onHover { self.isHovered = $0 }
-        .accessibilityLabel("\(self.provider.displayName), \(self.reading.text)")
+        .accessibilityLabel("\(self.provider.displayName), \(self.display.quotaReading.text)")
         .accessibilityAddTraits(self.isSelected ? [.isSelected] : [])
     }
+}
 
-    /// The window the card reads from: the session one, or the weekly one when the plan has
-    /// no session limit or the response left it out.
-    private var reading: (text: String, fraction: Double?) {
-        if self.display.isSignedOut { return ("Not signed in", nil) }
-        guard let snapshot = self.display.snapshot else { return ("No reading yet", nil) }
+extension ProviderDisplay {
+    /// The window Settings reads from: the session one, or the weekly one when the plan has no
+    /// session limit or the response left it out.
+    var quotaReading: (text: String, fraction: Double?) {
+        if self.isSignedOut { return ("Not signed in", nil) }
+        guard let snapshot = self.snapshot else { return ("No reading yet", nil) }
         if let session = snapshot.session {
             return ("Session \(Formatters.percent(session.remainingPercent)) left", session.remainingPercent / 100)
         }

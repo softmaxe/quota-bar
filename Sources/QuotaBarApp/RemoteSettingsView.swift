@@ -11,19 +11,11 @@ struct RemoteSettingsView: View {
     @State private var configHosts: [String] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Remote machines")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Button("Sync now") { self.remote.syncAll() }
-                    .controlSize(.small)
-                    .disabled(self.settings.remoteHosts.isEmpty || self.remote.isSyncing)
-            }
-            .padding(.leading, 2)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
+        SettingsPane("Remote") {
+            Button("Sync now") { self.remote.syncAll() }
+                .controlSize(.small)
+                .disabled(self.settings.remoteHosts.isEmpty || self.remote.isSyncing)
+        } content: {
             if !self.settings.remoteHosts.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -33,7 +25,7 @@ struct RemoteSettingsView: View {
                         }
                     }
                 }
-                .frame(maxHeight: 200)
+                .frame(maxHeight: 280)
                 .fixedSize(horizontal: false, vertical: true)
                 .settingsGroup()
                 .padding(.bottom, 10)
@@ -56,9 +48,6 @@ struct RemoteSettingsView: View {
             .settingsGroup()
             .padding(.top, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .frame(width: SettingsView.paneWidth, height: SettingsView.paneHeight, alignment: .top)
         .onAppear { self.configHosts = SSHConfigHosts.userHosts() }
     }
 
