@@ -1,7 +1,7 @@
 import QuotaBarCore
 import Foundation
 
-/// What the provider switch and red icon read off each provider's last snapshot.
+/// What the provider switch and gauge read off each provider's last snapshot.
 enum MenuBarProviderPolicyTests {
     static func run() {
         let now = Date(timeIntervalSince1970: 10_000)
@@ -66,26 +66,35 @@ enum MenuBarProviderPolicyTests {
             "a window past its reset counts as refilled"
         )
 
-        let low = snapshot(
+        Harness.expectEqual(
+            MenuBarProviderPolicy.gaugeRemaining(claude, now: now),
+            29,
+            "the gauge shows the session window"
+        )
+        let weeklyIsTighter = snapshot(
             .claude,
-            session: UsageWindow(usedPercent: 90, resetsAt: later, windowSeconds: 18_000),
-            weekly: UsageWindow(usedPercent: 40, resetsAt: later, windowSeconds: 604_800)
+            session: UsageWindow(usedPercent: 36, resetsAt: later, windowSeconds: 18_000),
+            weekly: UsageWindow(usedPercent: 72, resetsAt: later, windowSeconds: 604_800)
         )
-        Harness.expect(
-            MenuBarProviderPolicy.runningLow(low, now: now),
-            "ninety percent used in either window counts as running low"
+        Harness.expectEqual(
+            MenuBarProviderPolicy.gaugeRemaining(weeklyIsTighter, now: now),
+            64,
+            "the gauge stays on the session window when the weekly one is tighter"
         )
-        Harness.expect(
-            !MenuBarProviderPolicy.runningLow(claude, now: now),
-            "a provider with more than ten percent left is not running low"
+        Harness.expectEqual(
+            MenuBarProviderPolicy.gaugeRemaining(unlimited, now: now),
+            72,
+            "the gauge falls back to the weekly window without a session window"
         )
-        Harness.expect(
-            !MenuBarProviderPolicy.runningLow(drainedThenReset, now: now),
-            "a window past its reset no longer counts as running low"
+        Harness.expectEqual(
+            MenuBarProviderPolicy.gaugeRemaining(drainedThenReset, now: now),
+            100,
+            "the gauge counts a session window past its reset as refilled"
         )
-        Harness.expect(
-            !MenuBarProviderPolicy.runningLow(snapshot(.codex, session: nil, weekly: nil), now: now),
-            "a snapshot with no windows is not running low"
+        Harness.expectEqual(
+            MenuBarProviderPolicy.gaugeRemaining(snapshot(.codex, session: nil, weekly: nil), now: now),
+            nil,
+            "the gauge has nothing to show without windows"
         )
     }
 }
