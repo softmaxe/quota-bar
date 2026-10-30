@@ -16,7 +16,7 @@ struct PricingSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isTableFocused: Bool
 
-    private static let rateColumnWidth: CGFloat = 62
+    private static let rateColumnWidth: CGFloat = 56
     private static let detailLabelWidth: CGFloat = 132
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
@@ -38,20 +38,22 @@ struct PricingSettingsView: View {
             guard self.isLoadEnabled else { return }
             await self.model.load()
         }
+        .onChange(of: self.reload) { self.model.foldAll() }
     }
 
     // MARK: - Table
 
-    /// Stays pinned while its card scrolls, so the columns and the source stay in view.
-    private func sectionHeader(_ section: PricingSectionGroup) -> some View {
+    private func sectionTitle(_ section: PricingSectionGroup) -> some View {
+        Text(section.section.rawValue)
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.leading, 2)
+    }
+
+    /// Names the rates of a vendor's rows, so a folded list carries no empty columns.
+    private var columnCaptions: some View {
         HStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(section.section.rawValue)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                Text(section.modelCountText)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Model")
+                .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(["Input", "Output", "Cache w", "Cache r"], id: \.self) { title in
                 Text(title)
                     .frame(width: Self.rateColumnWidth, alignment: .leading)
@@ -61,7 +63,6 @@ struct PricingSettingsView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func placeholder(@ViewBuilder content: () -> some View) -> some View {
@@ -88,14 +89,12 @@ struct PricingSettingsView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         // Inside the scroll view so a classic scroll bar narrows both alike.
-                        LazyVStack(spacing: 0, pinnedViews: .sectionHeaders) {
-                            ForEach(sections) { section in
-                                Section {
-                                    self.sectionCard(section)
-                                        .padding(.bottom, 14)
-                                } header: {
-                                    self.sectionHeader(section)
-                                }
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                                self.sectionTitle(section)
+                                    .padding(.top, index == 0 ? 0 : 18)
+                                    .padding(.bottom, 8)
+                                self.sectionCard(section)
                             }
                         }
                     }
@@ -125,6 +124,8 @@ struct PricingSettingsView: View {
                 if index > 0 { Divider() }
                 self.vendorHeader(vendor)
                 if self.model.isOpen(vendor) {
+                    Divider()
+                    self.columnCaptions
                     ForEach(vendor.rows) { row in
                         Divider()
                         self.tableRow(row)
@@ -143,26 +144,28 @@ struct PricingSettingsView: View {
             self.model.toggle(vendor)
             self.isTableFocused = true
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
                     .animation(DisclosureMotion.open(reduceMotion: self.reduceMotion), value: isOpen)
+                    .frame(width: 10)
                 Text(vendor.vendor)
-                    .fontWeight(.medium)
-                Text("\(vendor.rows.count)")
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-                Spacer(minLength: 0)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if vendor.usageTokens > 0 {
+                    Text("\(Formatters.tokens(vendor.usageTokens)) tokens")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
-            .padding(.vertical, 5)
+            .frame(height: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
-        .background(Color.primary.opacity(0.03))
         .disabled(self.model.isSearching)
         .accessibilityLabel("\(vendor.vendor), \(vendor.rows.count == 1 ? "1 model" : "\(vendor.rows.count) models")")
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
@@ -200,7 +203,7 @@ struct PricingSettingsView: View {
                 }
                 .font(.system(size: 13))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.vertical, 8)
                 .contentShape(Rectangle())
             }
             .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))

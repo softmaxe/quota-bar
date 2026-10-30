@@ -87,6 +87,9 @@ enum CardDump {
             let row = pricing.listRows.first { $0.rates?.thresholdTokens != nil && $0.usageTokens > 0 }
                 ?? pricing.listRows.first
             pricing.selectedRowID = row?.id
+            if let vendor = pricing.listSections.flatMap(\.vendors).first(where: { $0.rows.contains { $0.id == row?.id } }) {
+                pricing.toggle(vendor)
+            }
         }
         RunLoop.current.run(until: Date().addingTimeInterval(3))
         _ = loading

@@ -153,8 +153,6 @@ struct PricingSectionGroup: Identifiable, Equatable {
     let vendors: [PricingVendorGroup]
 
     var id: String { self.section.id }
-    var modelCount: Int { self.vendors.reduce(0) { $0 + $1.rows.count } }
-    var modelCountText: String { self.modelCount == 1 ? "1 model" : "\(self.modelCount) models" }
 }
 
 /// The order of the pricing list: within a vendor, the models the local logs spend tokens on,
@@ -220,8 +218,8 @@ final class PricingTableModel: ObservableObject {
     @Published var selectedRowID: String?
     /// Narrows the list by model name.
     @Published var searchText = ""
-    /// The vendors folded away, by `PricingVendorGroup.id`.
-    @Published private(set) var collapsedVendorIDs: Set<String> = []
+    /// The vendors opened, by `PricingVendorGroup.id`. Every vendor starts folded.
+    @Published private(set) var openVendorIDs: Set<String> = []
 
     private let costService: CostService
     private var rateCard = RateCard()
@@ -374,13 +372,19 @@ final class PricingTableModel: ObservableObject {
 
     /// A search opens every vendor, so a match is never folded away.
     func isOpen(_ vendor: PricingVendorGroup) -> Bool {
-        self.isSearching || !self.collapsedVendorIDs.contains(vendor.id)
+        self.isSearching || self.openVendorIDs.contains(vendor.id)
     }
 
     func toggle(_ vendor: PricingVendorGroup) {
-        if self.collapsedVendorIDs.remove(vendor.id) != nil { return }
-        self.collapsedVendorIDs.insert(vendor.id)
+        if self.openVendorIDs.insert(vendor.id).inserted { return }
+        self.openVendorIDs.remove(vendor.id)
         if vendor.rows.contains(where: { $0.id == self.selectedRowID }) { self.selectedRowID = nil }
+    }
+
+    /// Folds every vendor, which is how the pane opens.
+    func foldAll() {
+        self.openVendorIDs = []
+        self.selectedRowID = nil
     }
 
     /// The row the detail side shows: the one picked, or the top of the list until one is, or
