@@ -293,6 +293,24 @@ final class CostCache {
     func commit() throws { try self.exec("COMMIT") }
     func rollback() { try? self.exec("ROLLBACK") }
 
+    private static let claudeConflict = """
+        ON CONFLICT(key) DO UPDATE SET
+            path = excluded.path,
+            day = excluded.day,
+            model = excluded.model,
+            long_context = excluded.long_context,
+            is_fast = excluded.is_fast,
+            input = excluded.input,
+            output = excluded.output,
+            cache_write = excluded.cache_write,
+            cache_write_1h = excluded.cache_write_1h,
+            cache_read = excluded.cache_read
+        -- Streaming writes the same message several times as it completes; only the chunk
+        -- that grew the reply supersedes what is already stored. Everything else is a replay
+        -- of a message this cache already has, and must not overwrite the finished figure.
+        WHERE excluded.output > claude_message.output
+        """
+
     func addCodexTokens(
         path: String,
         day: String,
@@ -337,21 +355,7 @@ final class CostCache {
                 (key, path, day, model, long_context, is_fast, input, output, cache_write,
                  cache_write_1h, cache_read)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET
-                path = excluded.path,
-                day = excluded.day,
-                model = excluded.model,
-                long_context = excluded.long_context,
-                is_fast = excluded.is_fast,
-                input = excluded.input,
-                output = excluded.output,
-                cache_write = excluded.cache_write,
-                cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read
-            -- Streaming writes the same message several times as it completes; only the chunk
-            -- that grew the reply supersedes what is already stored. Everything else is a replay
-            -- of a message this cache already has, and must not overwrite the finished figure.
-            WHERE excluded.output > claude_message.output
+            \(Self.claudeConflict)
             """)
         defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
@@ -444,6 +448,169 @@ final class CostCache {
         try self.step(stmt)
     }
 
+    // MARK: - Backups
+
+    /// Writes one consistent copy of the database, WAL included, to a path that does not exist.
+    func writeSnapshot(to url: URL) throws {
+        let stmt = try self.prepared("VACUUM main INTO ?")
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, url.path, -1, sqliteTransient)
+        try self.step(stmt)
+    }
+
+    /// Folds a backup, already upgraded to this schema, into this database in one transaction.
+    /// A snapshot of the database as it stood replaces `undoCopy` first.
+    func merge(backup url: URL, undoCopy: URL) throws -> UsageImportResult {
+        do {
+            let attach = try self.prepared("ATTACH DATABASE ? AS backup")
+            defer { sqlite3_finalize(attach) }
+            sqlite3_bind_text(attach, 1, url.path, -1, sqliteTransient)
+            try self.step(attach)
+        }
+        defer { try? self.exec("DETACH DATABASE backup") }
+        try self.requireKnownSchema()
+        try? FileManager.default.removeItem(at: undoCopy)
+        try self.writeSnapshot(to: undoCopy)
+
+        try self.beginTransaction()
+        do {
+            let keyed = try self.mergeKeyedRows()
+            let codex = try self.mergeCodexRows()
+            try self.exec("""
+                INSERT OR IGNORE INTO file_cursor
+                    (path, provider, inode, size, offset, prefix_digest, resume_state)
+                SELECT path, provider, inode, size, offset, prefix_digest, resume_state
+                FROM backup.file_cursor WHERE provider != '\(Provider.codex.rawValue)'
+                """)
+            try self.commit()
+            return UsageImportResult(added: keyed.added + codex.added, updated: keyed.updated + codex.updated)
+        } catch {
+            self.rollback()
+            throw error
+        }
+    }
+
+    /// A backup from a newer version may hold what this one would silently leave behind. Tables
+    /// earlier versions stopped using stay in their databases, so a backup can carry them.
+    private func requireKnownSchema() throws {
+        let known = try self.tableNames(schema: "main")
+        for table in try self.tableNames(schema: "backup").subtracting(["opencode_state"]) {
+            guard known.contains(table),
+                  try self.columnNames(table: table, schema: "backup")
+                  .isSubset(of: self.columnNames(table: table, schema: "main")) else {
+                throw UsageBackupError.newerVersion
+            }
+        }
+    }
+
+    /// Messages and parts have an identity, so both sides' rows meet by key. Claude keeps its
+    /// recording rule. OpenCode and Pi Agent keep this database's row, which the next scan rewrites
+    /// if its source changed, except that a row either side counted stays counted: eligibility
+    /// was settled when the row was first seen, possibly under another sign-in.
+    private func mergeKeyedRows() throws -> (added: Int, updated: Int) {
+        let openCodeColumns = """
+            key, included, day, model, long_context, is_fast, input, output, cache_write,
+            cache_write_1h, cache_read
+            """
+        let piColumns = """
+            key, included, day, model, long_context, input, output, cache_write, cache_write_1h,
+            cache_read
+            """
+        let claudeColumns = """
+            key, path, day, model, long_context, is_fast, input, output, cache_write,
+            cache_write_1h, cache_read
+            """
+        let merges = [
+            ("claude_message", """
+                INSERT INTO claude_message (\(claudeColumns))
+                SELECT \(claudeColumns) FROM backup.claude_message WHERE TRUE
+                \(Self.claudeConflict)
+                """),
+            ("opencode_part", """
+                INSERT INTO opencode_part (legacy_inferred, \(openCodeColumns))
+                SELECT 0, \(openCodeColumns) FROM backup.opencode_part WHERE TRUE
+                ON CONFLICT(key) DO UPDATE SET included = 1
+                WHERE excluded.included = 1 AND opencode_part.included = 0
+                """),
+            ("pi_message", """
+                INSERT INTO pi_message (\(piColumns))
+                SELECT \(piColumns) FROM backup.pi_message WHERE TRUE
+                ON CONFLICT(key) DO UPDATE SET included = 1
+                WHERE excluded.included = 1 AND pi_message.included = 0
+                """),
+        ]
+        var added = 0
+        var updated = 0
+        for (table, sql) in merges {
+            let before = try self.rowCount(table)
+            try self.exec(sql)
+            let changed = Int(sqlite3_changes(self.db))
+            let gained = try self.rowCount(table) - before
+            added += gained
+            updated += changed - gained
+        }
+        return (added, updated)
+    }
+
+    /// Codex rows have no identity and accumulate per path, so rows of the same rollout cannot be
+    /// added together: whichever side scanned it further supplies all of them. Each copied cursor
+    /// is marked as a deleted file's, so a rollout still on disk resumes rather than rereads, and
+    /// a session this database holds under another path is settled by the next scan, which keeps
+    /// the copy scanned furthest.
+    private func mergeCodexRows() throws -> (added: Int, updated: Int) {
+        let columns = """
+            path, day, model, long_context, is_fast, input, output, cache_write, cache_write_1h,
+            cache_read
+            """
+        try self.exec("""
+            CREATE TEMP TABLE imported_codex_path AS
+            SELECT paths.path
+            FROM (
+                SELECT path FROM backup.codex_day
+                UNION
+                SELECT path FROM backup.file_cursor WHERE provider = '\(Provider.codex.rawValue)'
+            ) AS paths
+            LEFT JOIN backup.file_cursor AS theirs ON theirs.path = paths.path
+            LEFT JOIN main.file_cursor AS ours ON ours.path = paths.path
+            WHERE COALESCE(theirs.offset, 0) > COALESCE(ours.offset, -1)
+            """)
+        let before = try self.rowCount("codex_day")
+        let replaced = try self.scalarInt("""
+            SELECT COUNT(DISTINCT path) FROM main.codex_day
+            WHERE path IN (SELECT path FROM temp.imported_codex_path)
+            """)
+        try self.exec("""
+            DELETE FROM main.codex_day WHERE path IN (SELECT path FROM temp.imported_codex_path)
+            """)
+        try self.exec("""
+            INSERT INTO main.codex_day (\(columns))
+            SELECT \(columns) FROM backup.codex_day
+            WHERE path IN (SELECT path FROM temp.imported_codex_path)
+            """)
+        try self.exec("""
+            INSERT OR REPLACE INTO main.file_cursor
+                (path, provider, inode, size, offset, prefix_digest, resume_state)
+            SELECT path, provider, 0, size, offset, prefix_digest, resume_state
+            FROM backup.file_cursor
+            WHERE path IN (SELECT path FROM temp.imported_codex_path)
+            """)
+        try self.exec("DROP TABLE temp.imported_codex_path")
+        return (max(0, try self.rowCount("codex_day") - before), replaced)
+    }
+
+    private func rowCount(_ table: String) throws -> Int {
+        try self.scalarInt("SELECT COUNT(*) FROM main.\(table)")
+    }
+
+    private func scalarInt(_ sql: String) throws -> Int {
+        let stmt = try self.prepared(sql)
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
     // MARK: - Reads
 
     /// Borrows the writer connection after its scan has finished.
@@ -510,12 +677,29 @@ final class CostCache {
     }
 
     private func columnExists(table: String, name: String) throws -> Bool {
-        let stmt = try self.prepared("PRAGMA table_info(\(table))")
+        try self.columnNames(table: table, schema: "main").contains(name)
+    }
+
+    private func columnNames(table: String, schema: String) throws -> Set<String> {
+        let stmt = try self.prepared("PRAGMA \(schema).table_info(\(table))")
         defer { sqlite3_finalize(stmt) }
+        var names: Set<String> = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            if String(cString: sqlite3_column_text(stmt, 1)) == name { return true }
+            names.insert(String(cString: sqlite3_column_text(stmt, 1)))
         }
-        return false
+        return names
+    }
+
+    private func tableNames(schema: String) throws -> Set<String> {
+        let stmt = try self.prepared("""
+            SELECT name FROM \(schema).sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+            """)
+        defer { sqlite3_finalize(stmt) }
+        var names: Set<String> = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            names.insert(String(cString: sqlite3_column_text(stmt, 0)))
+        }
+        return names
     }
 
     private var lastErrorMessage: String {

@@ -35,6 +35,8 @@ final class UsageStore: ObservableObject {
     /// Downloads models.dev when it is due; true when the rates changed.
     private let updateThirdPartyRates: () async -> Bool
     private let invalidatePricing: () async -> Void
+    /// The cost service every local scan goes through.
+    let costService: CostService
 
     init(
         settings: SettingsStore,
@@ -48,6 +50,7 @@ final class UsageStore: ObservableObject {
         recoveryDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.costService = costService
         self.historyStore = historyStore ?? UsageHistoryStore()
         self.recovery = QuotaRecoveryTracker(defaults: recoveryDefaults)
         self.clock = clock
@@ -247,6 +250,12 @@ final class UsageStore: ObservableObject {
     /// once. Each scan shares its provider's task with every other path, so calls coalesce.
     func refreshAllLocalUsage() {
         for provider in Provider.allCases { self.refreshCosts(for: provider) }
+    }
+
+    /// Scans every provider after an import changed Recorded usage. A scan already running may
+    /// have read the old rows, so it gets a follow-up rather than coalescing with this one.
+    func refreshAllLocalUsageAfterImport() {
+        for provider in Provider.allCases { self.refreshCosts(for: provider, afterPricingChange: true) }
     }
 
     func cooldownRemaining(for provider: Provider) -> TimeInterval {

@@ -46,7 +46,11 @@ enum InterfacePreview {
             let settings = SettingsStore(defaults: defaults)
             settings.refreshFrequency = .manual
             settings.menuBarProvider = state == "loaded" || state == "motion" ? .codex : .claude
-            let service = CostService(rateCard: RateCard())
+            // Its own database, so an import tried in the preview cannot reach real usage.
+            let service = CostService(
+                databaseURL: scratch.appendingPathComponent("cost-usage.sqlite"),
+                rateCard: RateCard()
+            )
             let motion = state == "motion" ? MotionPreviewSession() : nil
             let store = UsageStore(
                 settings: settings,

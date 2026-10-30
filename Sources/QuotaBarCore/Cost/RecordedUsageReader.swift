@@ -241,6 +241,24 @@ package final class RecordedUsageReader {
             .sorted { $0.tokens > $1.tokens }
     }
 
+    /// How many records count toward usage, and the first day any of them falls on.
+    package func savedUsage() throws -> (records: Int, firstDay: String?) {
+        var records = 0
+        var firstDay: String?
+        for source in try self.supportedTables() {
+            try self.query("""
+                SELECT COUNT(*), MIN(day) FROM \(source.table)
+                \(source.includedOnly ? "WHERE included = 1" : "")
+                """) { statement in
+                records += Int(sqlite3_column_int64(statement, 0))
+                if let day = self.text(statement, column: 1, strict: false) {
+                    firstDay = min(firstDay ?? day, day)
+                }
+            }
+        }
+        return (records, firstDay)
+    }
+
     /// Results stay local to the read until every contributing statement completes.
     func query(
         _ sql: String,

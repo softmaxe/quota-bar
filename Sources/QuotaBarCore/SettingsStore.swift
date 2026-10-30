@@ -64,6 +64,7 @@ public final class SettingsStore: ObservableObject {
         static let costChartLabelMode = "costChartLabelMode"
         static let quotaResetDisplayMode = "quotaResetDisplayMode"
         static let modelsDevPricing = "modelsDevPricing"
+        static let lastUsageExport = "lastUsageExport"
     }
 
     private let defaults: UserDefaults
@@ -113,6 +114,14 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    /// When a usage backup was last exported, so Settings can show how old the newest one is.
+    @Published public var lastUsageExport: Date? {
+        didSet {
+            guard oldValue != self.lastUsageExport else { return }
+            self.defaults.set(self.lastUsageExport, forKey: Key.lastUsageExport)
+        }
+    }
+
     /// The saved `modelsDevPricing`, readable off the main actor by the cost service.
     public nonisolated static func isModelsDevPricingEnabled(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.modelsDevPricing) as? Bool ?? true
@@ -129,5 +138,6 @@ public final class SettingsStore: ObservableObject {
         self.quotaResetDisplayMode = (defaults.string(forKey: Key.quotaResetDisplayMode))
             .flatMap(QuotaResetDisplayMode.init(rawValue:)) ?? .countdown
         self.modelsDevPricing = Self.isModelsDevPricingEnabled(defaults)
+        self.lastUsageExport = defaults.object(forKey: Key.lastUsageExport) as? Date
     }
 }
