@@ -37,8 +37,7 @@ struct SettingsView: View {
                 selection: Binding(
                     get: { self.selection.tab },
                     set: { self.selection.tab = $0 }
-                ),
-                status: self.sidebarStatus
+                )
             )
             Divider()
             self.panes
@@ -55,14 +54,6 @@ struct SettingsView: View {
         .onAppear {
             if self.selection.tab == .pricing { self.pricingWasOpened = true }
         }
-    }
-
-    /// Which provider the menu bar shows and what it has left.
-    private var sidebarStatus: String {
-        let provider = self.settings.menuBarProvider
-        let display = self.store.displays[provider] ?? ProviderDisplay()
-        let name = [provider.displayName, display.snapshot?.planLabel].compactMap { $0 }.joined(separator: " ")
-        return "\(name) · \(display.quotaReading.text)"
     }
 
     /// All panes stay mounted; what changes is which one is opaque. Each hidden pane is disabled
