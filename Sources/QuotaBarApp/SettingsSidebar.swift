@@ -34,11 +34,9 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
 }
 
 /// The panes as a list down the window's side, under the close button. The window has no title
-/// bar of its own, so the app's name sits here, and the provider the menu bar shows stays in
-/// view from every pane.
+/// bar of its own, so the app's name sits here.
 struct SettingsSidebar: View {
     @Binding var selection: SettingsTab
-    let status: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var pillSpace
@@ -61,12 +59,6 @@ struct SettingsSidebar: View {
             ForEach(SettingsTab.allCases) { tab in
                 self.row(tab)
             }
-            Spacer(minLength: 8)
-            Text(self.status)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
         }
         .padding(.horizontal, 10)
         .padding(.top, Self.topInset)
