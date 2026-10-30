@@ -91,7 +91,6 @@ struct SettingsView: View {
                 // Zero while the pane is out of view, so only opening it reads the database.
                 DataSettingsView(
                     model: self.backup,
-                    settings: self.settings,
                     reload: self.selection.tab == .data ? self.selection.windowShows + 1 : 0
                 )
             }
@@ -302,7 +301,7 @@ struct SettingsSectionTitle: View {
 struct SettingsRow<Trailing: View>: View {
     let symbol: String
     let title: String
-    let detail: String
+    var detail: String?
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
@@ -318,10 +317,12 @@ struct SettingsRow<Trailing: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(self.title)
                     .font(.system(size: 13))
-                Text(self.detail)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let detail = self.detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             self.trailing()
