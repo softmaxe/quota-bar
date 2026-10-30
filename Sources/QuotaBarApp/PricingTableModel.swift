@@ -18,6 +18,79 @@ enum PricingGroup: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// The blocks of the pricing list, one per place a price can come from.
+enum PricingSection: String, CaseIterable, Identifiable, Hashable {
+    case builtIn = "Built-in"
+    case modelsDev = "models.dev"
+    case unpriced = "Unpriced"
+
+    var id: String { self.rawValue }
+
+    init(source: RateCard.Source?) {
+        switch source {
+        case .priceBook?: self = .builtIn
+        case .modelsDev?: self = .modelsDev
+        case nil: self = .unpriced
+        }
+    }
+}
+
+/// Names the company behind a model. The price book's models are its two providers' own; for the
+/// rest, models.dev says who makes most models, and the name tells for the others, including a
+/// cache written before it kept makers and models nothing prices.
+enum PricingVendor {
+    static let other = "Other"
+
+    /// A models.dev maker to the name shown, where a plain capitalized slug would misspell it.
+    private static let displayNames = [
+        "anthropic": "Anthropic",
+        "bytedance-seed": "ByteDance",
+        "deepseek": "DeepSeek",
+        "minimax": "MiniMax",
+        "moonshotai": "Moonshot AI",
+        "nvidia": "NVIDIA",
+        "openai": "OpenAI",
+        "stepfun": "StepFun",
+        "xai": "xAI",
+        "zhipuai": "Zhipu AI",
+    ]
+
+    private static let makerPrefixes = [
+        ("claude", "anthropic"),
+        ("gpt-", "openai"),
+        ("deepseek", "deepseek"),
+        ("doubao", "bytedance-seed"),
+        ("gemini", "google"),
+        ("gemma", "google"),
+        ("glm", "zhipuai"),
+        ("grok", "xai"),
+        ("hunyuan", "tencent"),
+        ("kimi", "moonshotai"),
+        ("llama", "meta"),
+        ("mimo", "xiaomi"),
+        ("minimax", "minimax"),
+        ("mistral", "mistral"),
+        ("muse", "meta"),
+        ("qwen", "alibaba"),
+    ]
+
+    static func name(for model: String, group: PricingGroup, rateCard: RateCard) -> String {
+        switch group {
+        case .claude: return "Anthropic"
+        case .codex: return "OpenAI"
+        case .others:
+            let key = model.lowercased()
+            let maker = rateCard.thirdParty.maker(for: model)
+                ?? Self.makerPrefixes.first { key.hasPrefix($0.0) }?.1
+            return maker.map(Self.displayName) ?? Self.other
+        }
+    }
+
+    private static func displayName(_ maker: String) -> String {
+        Self.displayNames[maker] ?? maker.replacingOccurrences(of: "-", with: " ").capitalized
+    }
+}
+
 /// The settings pane lists the current API models whether or not they were used, and every other
 /// model the local logs name.
 enum PricingModelFilterPolicy {
@@ -39,6 +112,8 @@ enum PricingModelFilterPolicy {
 struct PricingRow: Identifiable, Equatable {
     let group: PricingGroup
     let model: String
+    /// The company behind the model, which the list groups by.
+    let vendor: String
     /// True when the model appears in the local logs.
     var seenInLogs: Bool
     /// Total tokens seen in local logs. The settings list uses this to put active models first.
@@ -53,6 +128,7 @@ struct PricingRow: Identifiable, Equatable {
     /// depend on the provider.
     var id: String { "\(self.group.rawValue)|\(self.model)" }
 
+    var section: PricingSection { PricingSection(source: self.source) }
     var isPriced: Bool { self.rates != nil }
 
     var input: Double? { self.rates?.input }
@@ -61,8 +137,28 @@ struct PricingRow: Identifiable, Equatable {
     var cacheRead: Double? { self.rates?.cacheRead }
 }
 
-/// The order of the pricing list: the models the local logs spend tokens on, busiest first,
-/// whichever source prices them; then the rest in their provider's configured order.
+/// One vendor's models within a section of the pricing list.
+struct PricingVendorGroup: Identifiable, Equatable {
+    let section: PricingSection
+    let vendor: String
+    let rows: [PricingRow]
+
+    var id: String { "\(self.section.rawValue)|\(self.vendor)" }
+    var usageTokens: Int { self.rows.reduce(0) { $0 + $1.usageTokens } }
+}
+
+/// One source's block of the pricing list.
+struct PricingSectionGroup: Identifiable, Equatable {
+    let section: PricingSection
+    let vendors: [PricingVendorGroup]
+
+    var id: String { self.section.id }
+    var modelCount: Int { self.vendors.reduce(0) { $0 + $1.rows.count } }
+    var modelCountText: String { self.modelCount == 1 ? "1 model" : "\(self.modelCount) models" }
+}
+
+/// The order of the pricing list: within a vendor, the models the local logs spend tokens on,
+/// busiest first; then the rest in their provider's configured order.
 enum PricingListPolicy {
     static func precedes(_ lhs: PricingRow, _ rhs: PricingRow) -> Bool {
         if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
@@ -76,6 +172,25 @@ enum PricingListPolicy {
         let rhsRank = rhs.settingsRank ?? .max
         if lhsRank != rhsRank { return lhsRank < rhsRank }
         return lhs.model < rhs.model
+    }
+
+    /// Rows split by source, then by vendor: the busiest vendor first, Other last. Sources and
+    /// vendors with no rows are left out, and each vendor keeps the rows in the order given.
+    static func grouped(_ rows: [PricingRow]) -> [PricingSectionGroup] {
+        PricingSection.allCases.compactMap { section in
+            let sectionRows = rows.filter { $0.section == section }
+            guard !sectionRows.isEmpty else { return nil }
+            let vendors = Dictionary(grouping: sectionRows, by: \.vendor)
+                .map { PricingVendorGroup(section: section, vendor: $0.key, rows: $0.value) }
+                .sorted { lhs, rhs in
+                    if (lhs.vendor == PricingVendor.other) != (rhs.vendor == PricingVendor.other) {
+                        return rhs.vendor == PricingVendor.other
+                    }
+                    if lhs.usageTokens != rhs.usageTokens { return lhs.usageTokens > rhs.usageTokens }
+                    return lhs.vendor < rhs.vendor
+                }
+            return PricingSectionGroup(section: section, vendors: vendors)
+        }
     }
 
     /// The rows a search keeps, in list order. Matching ignores case, so "GLM" finds "glm-5.3".
@@ -109,6 +224,8 @@ final class PricingTableModel: ObservableObject {
     @Published var selectedRowID: String?
     /// Narrows the list by model name.
     @Published var searchText = ""
+    /// The vendors folded away, by `PricingVendorGroup.id`.
+    @Published private(set) var collapsedVendorIDs: Set<String> = []
 
     private let costService: CostService
     private var rateCard = RateCard()
@@ -227,9 +344,11 @@ final class PricingTableModel: ObservableObject {
 
             for name in PricingModelFilterPolicy.visibleModels(provider: provider, usage: usage, rateCard: rateCard) {
                 let tokens = usageTokens[name] ?? 0
+                let group = PricingGroup.classify(model: name, provider: provider, rateCard: rateCard)
                 let row = PricingRow(
-                    group: PricingGroup.classify(model: name, provider: provider, rateCard: rateCard),
+                    group: group,
                     model: name,
+                    vendor: PricingVendor.name(for: name, group: group, rateCard: rateCard),
                     seenInLogs: usageTokens[name] != nil,
                     usageTokens: tokens,
                     settingsRank: settingsModels.firstIndex(of: name),
@@ -248,9 +367,34 @@ final class PricingTableModel: ObservableObject {
         return rows.values.sorted(by: PricingListPolicy.precedes)
     }
 
-    /// The list as the search leaves it.
+    /// The list as the search leaves it, split by source and vendor.
+    var listSections: [PricingSectionGroup] {
+        PricingListPolicy.grouped(PricingListPolicy.filtered(self.rows, matching: self.searchText))
+    }
+
+    /// Every row the search keeps, top to bottom.
     var listRows: [PricingRow] {
-        PricingListPolicy.filtered(self.rows, matching: self.searchText)
+        self.listSections.flatMap { $0.vendors.flatMap(\.rows) }
+    }
+
+    /// The rows on screen, which the arrow keys move through.
+    var visibleRows: [PricingRow] {
+        self.listSections.flatMap { $0.vendors.filter(self.isOpen).flatMap(\.rows) }
+    }
+
+    var isSearching: Bool {
+        !self.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A search opens every vendor, so a match is never folded away.
+    func isOpen(_ vendor: PricingVendorGroup) -> Bool {
+        self.isSearching || !self.collapsedVendorIDs.contains(vendor.id)
+    }
+
+    func toggle(_ vendor: PricingVendorGroup) {
+        if self.collapsedVendorIDs.remove(vendor.id) != nil { return }
+        self.collapsedVendorIDs.insert(vendor.id)
+        if vendor.rows.contains(where: { $0.id == self.selectedRowID }) { self.selectedRowID = nil }
     }
 
     /// The row the detail side shows: the one picked, or the top of the list until one is, or

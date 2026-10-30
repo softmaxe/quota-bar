@@ -75,6 +75,11 @@ enum ThirdPartyRatesTests {
             "only Claude and OpenAI names are refused"
         )
         Harness.expect(rates["unpriced"] == nil, "a listing without a cost is skipped")
+        let models = try? ModelsDevCatalog.models(from: Data(Self.catalogJSON.utf8))
+        Harness.expectEqual(models?["kimi-k3"]?.maker, "moonshotai", "the maker comes from the canonical id")
+        Harness.expectEqual(models?["deepseek-flash"]?.maker, "deepseek", "a short name keeps its maker")
+        Harness.expect(models?["gemini-9-pro"] != nil && models?["gemini-9-pro"]?.maker == nil,
+                       "a listing without a canonical id names no maker")
         Harness.expectEqual(rates["kimi-k3:tee"]?.input, 9, "a tagged offer keeps its own price")
         Harness.expectEqual(
             rates["gemini-9-pro"],
@@ -113,6 +118,13 @@ enum ThirdPartyRatesTests {
         let sameDay = changed.merging(["glm-5.3": ModelPricing(input: 3, output: 6)], on: "2026-10-09", at: Date())
         Harness.expectEqual(sameDay.models["glm-5.3"]?.count, 2, "a second change on one day replaces the first")
         Harness.expectEqual(sameDay.rates(for: "glm-5.3", day: "2026-10-09")?.input, 3, "the day's last rates apply")
+
+        let made = sameDay.merging(["glm-5.3": ModelPricing(input: 3, output: 6)], makers: ["GLM-5.3": "zhipuai"],
+                                   on: "2026-10-09", at: Date())
+        Harness.expectEqual(made.maker(for: "glm-5.3"), "zhipuai", "a fetch records the maker under the model's key")
+        Harness.expectEqual(made.maker(for: "glm-5.3-eu"), "zhipuai", "a regional spelling takes the model's maker")
+        let remade = made.merging(["glm-5.3": ModelPricing(input: 3, output: 6)], on: "2026-10-10", at: Date())
+        Harness.expectEqual(remade.maker(for: "glm-5.3"), "zhipuai", "a fetch that names no maker keeps the old one")
 
         let dropped = sameDay.merging(["kimi-k3": ModelPricing(input: 2, output: 10)], on: "2026-10-10", at: Date())
         Harness.expectEqual(
@@ -171,6 +183,7 @@ enum ThirdPartyRatesTests {
                     )),
                 ],
             ],
+            makers: ["glm-5.3": "zhipuai"],
             fetchedAt: Date(timeIntervalSince1970: 1_790_000_000)
         )
         do {
@@ -179,6 +192,14 @@ enum ThirdPartyRatesTests {
             Harness.expect(false, "saving the cache threw: \(error)")
         }
         Harness.expectEqual(modelsDev.cached(), rates, "the cache reads back what was saved")
+
+        // A cache from before makers were kept must not lose its rates history.
+        try? FileManager.default.removeItem(at: modelsDev.cacheURL)
+        try? Data(#"{"schemaVersion":1,"models":{"glm-5.3":[{"rates":{"input":1,"output":4}}]}}"#.utf8)
+            .write(to: modelsDev.cacheURL)
+        Harness.expectEqual(modelsDev.cached().rates(for: "glm-5.3", day: "2026-10-09")?.input, 1,
+                            "a cache without makers still reads")
+        try? modelsDev.save(rates)
 
         let disabled = ModelsDevPricing(cacheURL: modelsDev.cacheURL, isEnabled: { false })
         Harness.expectEqual(disabled.rates(), .empty, "nothing is priced from the cache while the setting is off")
