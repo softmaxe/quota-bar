@@ -7,6 +7,9 @@ import SwiftUI
 /// Exercises quota and local-scan state without reading credentials, logs, or the network.
 @MainActor
 enum ProviderStateTests {
+    /// Main-actor isolated because the checks read and clear these fields while a fetch writes
+    /// them. A nonisolated async method runs off the main actor and would race them.
+    @MainActor
     private final class Fetches {
         var quotaCalls = 0
         var costCalls = 0
