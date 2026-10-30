@@ -43,10 +43,22 @@ public enum ModelsDevCatalog {
         let rates: ModelPricing
     }
 
-    /// One set of rates per model, keyed as `ThirdPartyRates.key(for:)` spells it. A model every
-    /// listing gives away free is left out, so its usage stays unpriced rather than costing
-    /// nothing.
+    /// A model as the catalog settles it: one set of rates, and who makes it when a listing says.
+    package struct Model: Sendable, Equatable {
+        package let rates: ModelPricing
+        /// The vendor part of `canonical_model_id`, such as `deepseek`.
+        package let maker: String?
+    }
+
+    /// One set of rates per model, keyed as `ThirdPartyRates.key(for:)` spells it.
     package static func rates(from data: Data) throws -> [String: ModelPricing] {
+        try Self.models(from: data).mapValues(\.rates)
+    }
+
+    /// Every model the catalog prices, keyed as `ThirdPartyRates.key(for:)` spells it. A model
+    /// every listing gives away free is left out, so its usage stays unpriced rather than costing
+    /// nothing.
+    package static func models(from data: Data) throws -> [String: Model] {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Error.notACatalog
         }
@@ -75,13 +87,15 @@ public enum ModelsDevCatalog {
         }
         if listings.isEmpty { throw Error.notACatalog }
 
-        var result: [String: ModelPricing] = [:]
+        var result: [String: Model] = [:]
         for (name, candidates) in listings where ThirdPartyRates.isThirdParty(name) {
             let maker = Self.mostCommon(candidates.compactMap(\.maker))
             if let maker, Self.bookMakers.contains(maker) { continue }
             let paid = candidates.filter { $0.rates.input > 0 || $0.rates.output > 0 }
             let own = paid.filter { $0.provider == maker }
-            if let chosen = Self.middle(own.isEmpty ? paid : own) { result[name] = chosen.rates }
+            if let chosen = Self.middle(own.isEmpty ? paid : own) {
+                result[name] = Model(rates: chosen.rates, maker: maker)
+            }
         }
         return result
     }
