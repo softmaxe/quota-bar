@@ -30,30 +30,15 @@ public struct UsagePace: Sendable, Equatable {
     /// Actual minus expected usage, in percentage points. Positive is a deficit.
     public let deltaPercent: Double
     public let expectedUsedPercent: Double
-    public let actualUsedPercent: Double
     /// Seconds until the window is projected to empty, if it empties before the reset.
     public let etaSeconds: TimeInterval?
     public let willLastToReset: Bool
-    /// How much faster than the current rate the remaining budget allows.
-    public let speedMultiplierToReset: Double?
-    /// Share of comparable past weeks that ran the window dry. Only the historical model
-    /// produces this, and only once enough weeks have been recorded.
-    public let runOutProbability: Double?
     /// The window is valid, but elapsed time and actual usage are both too small to project a rate.
     public let isWarmingUp: Bool
     /// Set while a session has stopped moving but would still run dry at its earlier pace. The
     /// clock is no longer spending the budget, so this is how much working time is left rather
     /// than a moment it empties.
     public let activeTimeLeftSeconds: TimeInterval?
-    /// What the headroom multiplier compares the remaining budget against.
-    public let basis: Basis
-
-    public enum Basis: Sendable, Equatable {
-        /// The rate measured in this window.
-        case currentPace
-        /// What past weeks still went on to use from the same point.
-        case usualWeek
-    }
 
     public var isIdle: Bool { self.activeTimeLeftSeconds != nil }
 
@@ -61,53 +46,35 @@ public struct UsagePace: Sendable, Equatable {
         stage: Stage,
         deltaPercent: Double,
         expectedUsedPercent: Double,
-        actualUsedPercent: Double,
         etaSeconds: TimeInterval?,
         willLastToReset: Bool,
-        speedMultiplierToReset: Double?,
-        runOutProbability: Double? = nil,
         isWarmingUp: Bool = false,
-        activeTimeLeftSeconds: TimeInterval? = nil,
-        basis: Basis = .currentPace
+        activeTimeLeftSeconds: TimeInterval? = nil
     ) {
         self.stage = stage
         self.deltaPercent = deltaPercent
         self.expectedUsedPercent = expectedUsedPercent
-        self.actualUsedPercent = actualUsedPercent
         self.etaSeconds = etaSeconds
         self.willLastToReset = willLastToReset
-        self.speedMultiplierToReset = speedMultiplierToReset
-        self.runOutProbability = runOutProbability
         self.isWarmingUp = isWarmingUp
         self.activeTimeLeftSeconds = activeTimeLeftSeconds
-        self.basis = basis
     }
 
     /// Built from the historical model, where expected usage comes from past weeks rather than
-    /// from the clock. The stage is derived the same way; the headroom multiplier compares the
-    /// remaining budget with what past weeks still used from this point.
+    /// from the clock. The stage is derived the same way.
     public static func historical(
         expectedUsedPercent: Double,
         actualUsedPercent: Double,
         etaSeconds: TimeInterval?,
-        willLastToReset: Bool,
-        runOutProbability: Double?,
-        projectedRemainingUsage: Double
+        willLastToReset: Bool
     ) -> UsagePace {
         let delta = actualUsedPercent - expectedUsedPercent
         return UsagePace(
             stage: Self.stage(for: delta),
             deltaPercent: delta,
             expectedUsedPercent: expectedUsedPercent,
-            actualUsedPercent: actualUsedPercent,
             etaSeconds: etaSeconds,
-            willLastToReset: willLastToReset,
-            speedMultiplierToReset: Self.speedMultiplier(
-                remainingCapacity: 100 - actualUsedPercent,
-                projectedRemainingUsage: projectedRemainingUsage
-            ),
-            runOutProbability: runOutProbability,
-            basis: .usualWeek
+            willLastToReset: willLastToReset
         )
     }
 
@@ -172,10 +139,8 @@ public struct UsagePace: Sendable, Equatable {
                 stage: Self.stage(for: actual - expected),
                 deltaPercent: actual - expected,
                 expectedUsedPercent: expected,
-                actualUsedPercent: actual,
                 etaSeconds: nil,
                 willLastToReset: false,
-                speedMultiplierToReset: nil,
                 isWarmingUp: true
             )
         }
@@ -202,11 +167,6 @@ public struct UsagePace: Sendable, Equatable {
         var etaSeconds: TimeInterval?
         var willLastToReset = false
 
-        let speedMultiplier = Self.speedMultiplier(
-            remainingCapacity: left,
-            projectedRemainingUsage: rate * activeRemaining
-        )
-
         if actual >= 100 {
             etaSeconds = 0
         } else if activeTimeLeft != nil {
@@ -232,11 +192,8 @@ public struct UsagePace: Sendable, Equatable {
             stage: Self.stage(for: delta),
             deltaPercent: delta,
             expectedUsedPercent: expected,
-            actualUsedPercent: actual,
             etaSeconds: etaSeconds,
             willLastToReset: willLastToReset,
-            speedMultiplierToReset: speedMultiplier,
-            runOutProbability: nil,
             activeTimeLeftSeconds: activeTimeLeft
         )
     }
@@ -287,60 +244,12 @@ public struct UsagePace: Sendable, Equatable {
         return delta >= 0 ? .farAhead : .farBehind
     }
 
-    private static func speedMultiplier(
-        remainingCapacity: Double,
-        projectedRemainingUsage: Double
-    ) -> Double? {
-        guard remainingCapacity > 0, projectedRemainingUsage > 0 else { return nil }
-        let multiplier = remainingCapacity / projectedRemainingUsage
-        return multiplier.isFinite ? multiplier : nil
-    }
-
     // MARK: - Labels
 
-    /// Left half of the pace line: "On pace", "4% in deficit", "8% in reserve".
+    /// How far off pace the window is: "On pace", "4% in deficit", "8% in reserve".
     public var deltaLabel: String {
         let value = Int(abs(self.deltaPercent).rounded())
         if value == 0 || self.stage == .onTrack { return "On pace" }
         return self.stage.isAhead ? "\(value)% in deficit" : "\(value)% in reserve"
-    }
-
-    /// Right half: whether the budget survives to the reset, or when it is projected to empty.
-    /// `durationText` renders a seconds value the way the reset countdowns do.
-    public func etaLabel(context: QuotaWindowKind, durationText: (TimeInterval) -> String) -> String? {
-        if self.isWarmingUp { return "Estimating usage pace…" }
-        let base: String?
-        if let activeTimeLeftSeconds {
-            base = "Paused · about \(durationText(activeTimeLeftSeconds)) of use left"
-        } else if self.willLastToReset {
-            base = "Lasts until reset"
-        } else if let etaSeconds {
-            let text = durationText(etaSeconds)
-            switch context {
-            case .session:
-                base = etaSeconds <= 0 ? "Projected empty now" : "Projected empty in \(text)"
-            case .weekly:
-                base = etaSeconds <= 0 ? "Runs out now" : "Runs out in \(text)"
-            }
-        } else {
-            base = nil
-        }
-
-        guard let runOutProbability else { return base }
-        // Rounded to the nearest 5 so it reads as an estimate, not a measurement.
-        let risk = Int((min(1, max(0, runOutProbability)) * 100 / 5).rounded() * 5)
-        guard let base else { return "(\(risk)% risk)" }
-        return "\(base) (\(risk)% risk)"
-    }
-
-    /// "1.8× headroom at current pace": how much faster than the comparison pace the remaining
-    /// budget could be spent and still last to the reset.
-    public var headroomLabel: String? {
-        guard let multiplier = self.speedMultiplierToReset else { return nil }
-        let value = String(format: "%.1f×", multiplier)
-        switch self.basis {
-        case .currentPace: return "\(value) headroom at current pace"
-        case .usualWeek: return "\(value) headroom over a usual week"
-        }
     }
 }

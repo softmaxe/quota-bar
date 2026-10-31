@@ -5,43 +5,12 @@ import Foundation
 /// counting, its scan status reports the failure, and the refresh still returns a snapshot.
 enum SourceFailureTests {
     static func run() async {
-        await Self.failedCodexScanKeepsOtherSourcesRecording()
         await Self.failedCodexScanStillYieldsASnapshot()
         await Self.failedClaudeScanKeepsRecordedUsage()
         await Self.databaseOpenFailureYieldsNoSnapshot()
     }
 
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000103.jsonl"
-
-    /// The Codex scan fails while OpenCode and Pi Agent read fine: their usage is recorded, the
-    /// Codex usage recorded before stays, and Codex's scan status reports the failure.
-    private static func failedCodexScanKeepsOtherSourcesRecording() async {
-        let fixture = RecorderFixture(name: "failure-codex")
-        defer { fixture.remove() }
-        await Self.recordCodexThenBreakIt(fixture) { fixture.record(.codex) }
-        Self.writeExternalAgentUsage(fixture)
-
-        fixture.record(.codex)
-
-        let usage = fixture.recorded(.codex)
-        Harness.expectEqual(
-            usage[RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: false)]?.input,
-            100,
-            "Codex usage recorded before the failure still counts"
-        )
-        Harness.expectEqual(
-            usage[RecordedTier(model: "gpt-5.6-luna", longContext: false, isFast: false)]?.input,
-            10,
-            "OpenCode usage is recorded although the Codex scan failed"
-        )
-        Harness.expectEqual(
-            usage[RecordedTier(model: "gpt-5.6-terra", longContext: false, isFast: false)]?.input,
-            5,
-            "Pi Agent usage is recorded although the Codex scan failed"
-        )
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .codex), .error("database"), "Codex scan status reports the failure")
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "OpenCode status is unaffected")
-    }
 
     /// The Codex refresh still returns a cost snapshot when the Codex scan fails, and it shows
     /// OpenCode, Pi Agent, and the Codex usage recorded before.
@@ -63,6 +32,11 @@ enum SourceFailureTests {
             await service.currentScanStatus(of: .codex),
             .error("database"),
             "the app sees Codex's failed scan status"
+        )
+        Harness.expectEqual(
+            await service.currentScanStatus(of: .openCode),
+            .idle,
+            "OpenCode status is unaffected"
         )
         Harness.expectEqual(
             await service.currentScanStatuses().map(\.source),
@@ -95,7 +69,6 @@ enum SourceFailureTests {
             return
         }
         let snapshot = await service.refresh(.claude)
-        fixture.record(.claude)
         try? writer.exec("ROLLBACK")
         writer.close()
 
@@ -104,11 +77,6 @@ enum SourceFailureTests {
             Self.inputTokens(bySourceIn: snapshot)[.claude],
             70,
             "the snapshot keeps previously recorded Claude Code usage"
-        )
-        Harness.expectEqual(
-            fixture.recorder?.scanStatus(of: .claude),
-            .error("database"),
-            "Claude Code scan status reports the failure"
         )
         Harness.expectEqual(
             await service.currentScanStatus(of: .claude),

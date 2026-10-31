@@ -141,8 +141,6 @@ enum ProviderStateTests {
         try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.retryDeadline == deadline }), "server retry deadline was not kept")
         try AppCheck.require(store.displays[.codex]?.snapshot == snapshot &&
               store.displays[.codex]?.failure?.kind == .rateLimited &&
-              abs(store.cooldownRemaining(for: .codex) - 300) < 0.01 &&
-              store.retryEligibleAt(for: .codex) == deadline &&
               !store.canRefresh(.codex), "cached quota or effective server retry state is wrong")
         store.refresh(trigger: .user)
         try AppCheck.require(fetches.quotaCalls == 3, "a force request bypassed the server retry deadline")

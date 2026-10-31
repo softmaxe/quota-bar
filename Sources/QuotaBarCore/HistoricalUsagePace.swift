@@ -11,8 +11,6 @@ import Foundation
 public enum HistoricalUsagePace {
     /// Below this the weighted median is noise, so the linear model stays in charge.
     public static let minimumWeeks = 3
-    /// Risk needs more evidence than the expected curve does.
-    static let minimumWeeksForRisk = 5
     /// Older weeks fade with a three-week time constant.
     static let recencyTauWeeks: Double = 3
     static let epsilon: Double = 1e-9
@@ -88,13 +86,9 @@ public enum HistoricalUsagePace {
         // current usage, and see whether the shifted curve reaches the cap before the reset.
         var runOutMass = 0.0
         var crossings: [(eta: TimeInterval, weight: Double)] = []
-        // What each past week still went on to use from this point, including demand a capped
-        // week would have spent had the cap not stopped it.
-        var remainingDemand: [Double] = []
         for entry in weighted {
             let extended = Self.extendPastCap(entry.week.curve)
             let weekNow = Self.interpolate(curve: extended, at: uNow)
-            remainingDemand.append(max(0, (extended.last ?? weekNow) - weekNow))
             let shift = actual - weekNow
             guard (extended.last ?? 0) + shift >= 100 - Self.epsilon else { continue }
 
@@ -111,14 +105,12 @@ public enum HistoricalUsagePace {
 
         // Laplace-smoothed so a handful of weeks never reports 0% or 100% certainty.
         let probability = Self.clamp((runOutMass + 0.5) / (totalWeight + 1), 0, 1)
-        var runOutProbability: Double? = weeks.count >= Self.minimumWeeksForRisk ? probability : nil
         var willLastToReset = probability < 0.5
         var etaSeconds: TimeInterval?
 
         if actual >= 100 {
             willLastToReset = false
             etaSeconds = 0
-            runOutProbability = 1
         } else if !willLastToReset {
             if crossings.isEmpty {
                 willLastToReset = true
@@ -134,14 +126,7 @@ public enum HistoricalUsagePace {
             expectedUsedPercent: expectedNow,
             actualUsedPercent: actual,
             etaSeconds: etaSeconds,
-            willLastToReset: willLastToReset,
-            runOutProbability: runOutProbability,
-            // Not the expected curve: that is capped at the linear line, so it understates what
-            // a heavy week goes on to use and inflates the headroom.
-            projectedRemainingUsage: Self.weightedMedian(
-                values: remainingDemand,
-                weights: weighted.map(\.weight)
-            )
+            willLastToReset: willLastToReset
         )
     }
 

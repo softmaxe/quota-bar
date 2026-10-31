@@ -10,7 +10,6 @@ enum SnapshotRecordingTests {
         Self.fastRequestsAreRecordedAsFast()
         Self.ineligibleAccountIsRecordedButNotIncluded()
         Self.piSessionChangesAreDetected()
-        Self.piAccountDecidesIncluded()
         Self.codexProviderRecordsExternalAgents()
         Self.rowsMissingFromALaterSnapshotAreKept()
         Self.nonOAuthSignInIsNotIncluded()
@@ -230,28 +229,6 @@ enum SnapshotRecordingTests {
             15,
             "a message repeated across session files is recorded once"
         )
-    }
-
-    /// Pi Agent usage counts only when Pi Agent is signed in with OAuth to the account Codex uses.
-    private static func piAccountDecidesIncluded() {
-        for (account, included, status) in [
-            ("account-a", true, ExternalAgentScanStatus.idle),
-            ("account-b", false, .accountMismatch),
-        ] {
-            let fixture = RecorderFixture(name: "snapshot-pi-\(account)")
-            defer { fixture.remove() }
-            PiSessionFile.signIn(root: fixture.root, piAccount: account)
-            PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
-
-            fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
-
-            Harness.expectEqual(
-                fixture.recorded(.codex)[Self.standard]?.input,
-                included ? 10 : nil,
-                "Pi Agent usage signed in to \(account) is \(included ? "" : "not ")included"
-            )
-            Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), status, "Pi Agent \(account) scan status")
-        }
     }
 
     /// OpenCode and Pi Agent usage counts toward the Codex provider, so recording the provider

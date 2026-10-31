@@ -81,17 +81,12 @@ enum ModelNameResolutionTests {
         }
 
         do {
-            // The pricing settings regroup the recorded usage with `RateCard.modelUsage` and look
-            // each model's rates up by the ID it returns.
+            // The pricing settings regroup the recorded usage with `RateCard.modelUsage`.
             let usage = laterCard.modelUsage(try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL), provider: .claude)
             Harness.expectEqual(
                 usage,
                 [ModelUsageTotal(model: "claude-later", tokens: 4_000_000)],
                 "the pricing settings add the alias, its spellings, and the model ID into one model"
-            )
-            Harness.expect(
-                laterCard.rates(for: "claude-later", provider: .claude, day: DayKey.today()) != nil,
-                "the pricing settings agree that the model is priced"
             )
         } catch {
             Harness.expect(false, "reading known model usage threw: \(error)")

@@ -77,8 +77,7 @@ enum CostChartHighlightTests {
         )
         Harness.expect(!(snapshot.windowCostAvailability.state != .partial
             || snapshot.windowCostAvailability.knownUSD != 13
-            || snapshot.windowCostAvailability.unpricedTokens != 90
-            || snapshot.costAvailability(forDayKey: "2026-09-14") != .zero), "window availability expected the known subtotal and unpriced count")
+            || snapshot.windowCostAvailability.unpricedTokens != 90), "window availability expected the known subtotal and unpriced count")
         let allUnpriced = CostAvailability(knownUSD: 0, totalTokens: 40, unpricedTokens: 40)
         Harness.expect(!(allUnpriced.state != .unpriced || allUnpriced.knownUSD != nil), "fully unpriced usage expected no false $0.00 amount")
 

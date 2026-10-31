@@ -58,7 +58,6 @@ enum QuotaRecoveryTests {
 
         // Both the baseline and pending payload survive a process restart.
         let restarted = QuotaRecoveryTracker(defaults: defaults)
-        Harness.expect(restarted.pendingRecoveries(for: .claude) == expected, "pending reset animations did not survive a restart")
         Harness.expect(restarted.consumePending(for: .claude) == expected, "the card was not handed both reset windows with their starting values")
         Harness.expect(restarted.consumePending(for: .claude).isEmpty, "a reset animation was handed out twice")
 

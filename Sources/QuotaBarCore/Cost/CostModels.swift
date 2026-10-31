@@ -218,10 +218,6 @@ public struct CostSnapshot: Sendable, Equatable {
             unpricedTokens: self.days.reduce(0) { $0 + $1.unpricedTokens }
         )
     }
-
-    public func costAvailability(forDayKey dayKey: String) -> CostAvailability {
-        self.days.first(where: { $0.dayKey == dayKey })?.costAvailability ?? .zero
-    }
 }
 
 /// Distinguishes a known zero, a partial estimate, and usage with no known price.

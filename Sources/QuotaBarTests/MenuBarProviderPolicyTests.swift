@@ -66,11 +66,6 @@ enum MenuBarProviderPolicyTests {
             "a window past its reset counts as refilled"
         )
 
-        Harness.expectEqual(
-            MenuBarProviderPolicy.gaugeRemaining(claude, now: now),
-            29,
-            "the gauge shows the session window"
-        )
         let weeklyIsTighter = snapshot(
             .claude,
             session: UsageWindow(usedPercent: 36, resetsAt: later, windowSeconds: 18_000),

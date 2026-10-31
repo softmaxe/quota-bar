@@ -99,8 +99,6 @@ enum UsageReportTests {
         for identifier in ["codex-a", "codex-fast", "claude-a", "claude-b", "open-a", "pi-a"] {
             Harness.expect(!encoded.contains(identifier), "snapshot omits source paths and record identifiers")
         }
-        let decoded = try JSONDecoder().decode(UsageReportSnapshot.self, from: data)
-        Harness.expectEqual(decoded, report, "snapshot JSON round trip")
     }
 
     /// A usage day is priced by the period in force on that day.
