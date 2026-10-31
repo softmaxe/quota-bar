@@ -34,12 +34,10 @@ enum QuotaPaceTests {
     private static func weeklyPrefersPastWeeksOnceThereAreEnough() {
         let window = Self.weekly(used: 50)
         let linear = QuotaPace(history: Self.history(weeks: 2)).pace(for: .weekly, window: window, now: Self.now)
-        Harness.expectEqual(linear?.basis, .currentPace, "two past weeks leave the weekly pace on the clock")
-        Harness.expectEqual(linear?.stage, .onTrack, "half the budget at half time is on pace by the clock")
+        Harness.expectEqual(linear?.stage, .onTrack, "two past weeks leave the weekly pace on the clock")
 
         let learned = QuotaPace(history: Self.history(weeks: 4)).pace(for: .weekly, window: window, now: Self.now)
-        Harness.expectEqual(learned?.basis, .usualWeek, "four past weeks take over the weekly pace")
-        Harness.expect(learned?.stage.isAhead == true, "and read the same spend as a deficit against those weeks")
+        Harness.expect(learned?.stage.isAhead == true, "four past weeks read the same spend as a deficit")
 
         var pace = QuotaPace(history: Self.history(weeks: 4))
         pace.observe(UsageSnapshot(provider: .codex, session: nil, weekly: window, planLabel: nil,
@@ -66,25 +64,24 @@ enum QuotaPaceTests {
     private static func summaryLines() {
         let minutes: (TimeInterval) -> String = { "\(Int($0 / 60))m" }
         func pace(eta: TimeInterval?, lasts: Bool = false, warming: Bool = false,
-                  activeLeft: TimeInterval? = nil, risk: Double? = nil, delta: Double = 10) -> UsagePace {
+                  activeLeft: TimeInterval? = nil, delta: Double = 10) -> UsagePace {
             UsagePace(stage: UsagePace.stage(for: delta), deltaPercent: delta, expectedUsedPercent: 40,
-                      actualUsedPercent: 40 + delta, etaSeconds: eta, willLastToReset: lasts,
-                      speedMultiplierToReset: nil, runOutProbability: risk, isWarmingUp: warming,
+                      etaSeconds: eta, willLastToReset: lasts, isWarmingUp: warming,
                       activeTimeLeftSeconds: activeLeft)
         }
         Harness.expectEqual(pace(eta: 1_800).summary(kind: .session, durationText: minutes), "Empty in about 30m",
                             "a session names when it empties")
         Harness.expectEqual(pace(eta: 0).summary(kind: .session, durationText: minutes), "Projected empty now",
                             "a session already at its projected end says so")
-        Harness.expectEqual(pace(eta: 7_200, risk: 0.4).summary(kind: .weekly, durationText: minutes), "Runs out in 120m",
-                            "a week names when it runs out, without the risk figure")
+        Harness.expectEqual(pace(eta: 7_200).summary(kind: .weekly, durationText: minutes), "Runs out in 120m",
+                            "a week names when it runs out")
         Harness.expectEqual(pace(eta: nil, lasts: true).summary(kind: .weekly, durationText: minutes), "Lasts until reset",
                             "a budget that lasts says so")
         Harness.expectEqual(pace(eta: nil, activeLeft: 2_400).summary(kind: .session, durationText: minutes), "40m of use left",
                             "a paused session counts working time")
         Harness.expectEqual(pace(eta: nil, warming: true).summary(kind: .weekly, durationText: minutes), "Estimating usage pace…",
                             "a fresh window says it is still estimating")
-        Harness.expectEqual(pace(eta: nil, risk: 0.4).summary(kind: .weekly, durationText: minutes), "10% in deficit",
+        Harness.expectEqual(pace(eta: nil).summary(kind: .weekly, durationText: minutes), "10% in deficit",
                             "with nothing to project, the line falls back to the delta")
     }
 }

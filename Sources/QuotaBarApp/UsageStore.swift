@@ -279,17 +279,6 @@ final class UsageStore: ObservableObject {
         for provider in Provider.allCases { self.refreshCosts(for: provider) }
     }
 
-    func cooldownRemaining(for provider: Provider) -> TimeInterval {
-        self.eligibility.remaining(provider, given: self.conditions(for: provider),
-                                   uptime: self.clock(), now: self.dateClock())
-    }
-
-    /// The same effective eligibility used by refresh(), expressed as a wall-clock date for UI.
-    func retryEligibleAt(for provider: Provider) -> Date? {
-        let remaining = self.cooldownRemaining(for: provider)
-        return remaining > 0 ? self.dateClock().addingTimeInterval(remaining) : nil
-    }
-
     /// Whether a user click on the Refresh row would start a refresh now.
     func canRefresh(_ provider: Provider) -> Bool {
         self.refreshRow(for: provider).isEnabled

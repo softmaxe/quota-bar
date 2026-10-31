@@ -855,11 +855,9 @@ enum PaceTests {
             now: now
         )
         Harness.expectEqual(weekly?.isWarmingUp, true, "first weekly hour is still estimating")
-        Harness.expectClose(weekly?.actualUsedPercent, 1, "fresh weekly pace uses the reset reading")
         Harness.expectClose(weekly?.expectedRemainingPercent, 100 * 167 / 168,
                             "fresh weekly pace keeps the expected marker")
-        Harness.expect(weekly?.etaSeconds == nil && weekly?.speedMultiplierToReset == nil,
-                       "fresh weekly pace avoids rounded-usage projections")
+        Harness.expect(weekly?.etaSeconds == nil, "fresh weekly pace avoids rounded-usage projections")
         Harness.expectEqual(weekly?.willLastToReset, false, "fresh quota does not promise to last until reset")
 
         // A reset with no consumption has a valid starting position even at zero elapsed time.
@@ -888,8 +886,6 @@ enum PaceTests {
                 let isEarly = elapsedFraction < 0.03
                 Harness.expectEqual(pace?.isWarmingUp, isEarly,
                                     "\(context) estimating state at \(elapsedFraction) elapsed")
-                Harness.expect((pace?.speedMultiplierToReset != nil) == !isEarly,
-                               "\(context) headroom waits for sufficient elapsed time")
             }
         }
     }
@@ -906,8 +902,6 @@ enum PaceTests {
                             "early consumption keeps the expected marker")
         Harness.expectClose(weekly?.etaSeconds, 22.5 * 3600, "early weekly usage projects the remaining 90%")
         Harness.expectEqual(weekly?.willLastToReset, false, "early heavy usage cannot last until reset")
-        Harness.expectClose(weekly?.speedMultiplierToReset, 22.5 / 165.5,
-                            "early weekly usage includes remaining headroom")
 
         // Check the consumption boundary and one session projection without an explicit duration.
         let cases: [(QuotaWindowKind, Double)] = [(.weekly, 2.99), (.weekly, 3), (.session, 3)]
@@ -924,8 +918,7 @@ enum PaceTests {
             Harness.expectEqual(pace?.isWarmingUp, isWarmingUp,
                                 "\(context) early projection at \(used)% consumed")
             if isWarmingUp {
-                Harness.expect(pace?.etaSeconds == nil && pace?.speedMultiplierToReset == nil,
-                               "\(context) low early usage keeps projections pending")
+                Harness.expect(pace?.etaSeconds == nil, "\(context) low early usage keeps projections pending")
             } else {
                 Harness.expectClose(pace?.etaSeconds, elapsed * (100 - used) / used,
                                     "\(context) early ETA uses elapsed time and actual consumption")
@@ -1128,11 +1121,6 @@ enum HistoricalPaceTests {
         // linear model would have called this exactly on pace.
         Harness.expect(pace.expectedUsedPercent < 50, "history lowers the expectation below linear")
         Harness.expect(pace.stage.isAhead, "spending at the linear rate reads as a deficit here")
-        Harness.expect(pace.runOutProbability == nil, "risk needs five weeks, not four")
-        // Headroom compares against what those weeks still used from here (80 points), not
-        // against the expected curve, which is capped at the linear line.
-        Harness.expectClose(pace.speedMultiplierToReset, 50.0 / 80.0, "historical headroom uses replayed demand",
-                            tolerance: 1e-6)
 
         let freshWindow = UsageWindow(
             usedPercent: 1,
@@ -1146,14 +1134,12 @@ enum HistoricalPaceTests {
                        "fresh historical pace retains its projection")
 
         guard let five = UsageHistoryStore.buildDataset(from: (1...5).flatMap(backLoaded)),
-              let withRisk = HistoricalUsagePace.evaluate(window: current, dataset: five, now: now) else {
+              let fiveWeekPace = HistoricalUsagePace.evaluate(window: current, dataset: five, now: now) else {
             Harness.expect(false, "five weeks of history should produce a pace")
             return
         }
-        Harness.expect(withRisk.runOutProbability != nil, "five weeks unlocks the risk figure")
-
         // Every past week ran the window dry from here, so this one is projected to as well.
-        Harness.expect(!withRisk.willLastToReset, "a history of running dry projects running dry")
-        Harness.expect(withRisk.etaSeconds != nil, "a projected run-out carries an ETA")
+        Harness.expect(!fiveWeekPace.willLastToReset, "a history of running dry projects running dry")
+        Harness.expect(fiveWeekPace.etaSeconds != nil, "a projected run-out carries an ETA")
     }
 }

@@ -38,7 +38,7 @@ struct ProviderDisplay: Equatable {
     /// Lets the existing Refresh row bypass the API cooldown for one explicit delegated repair.
     var canAttemptCredentialRecovery = false
 
-    /// The server's retry date; use UsageStore.retryEligibleAt for the effective server/local date.
+    /// The server's retry date.
     var retryDeadline: Date? { self.failure?.serverRetryAfter }
 
     /// Dim the menu bar icon when the newest attempt failed.

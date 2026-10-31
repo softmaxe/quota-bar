@@ -116,10 +116,9 @@ public struct RefreshEligibility {
                 isInProgress: true
             )
         }
-        let server = Self.serverRemaining(conditions, now: now)
         let wait = conditions.allowsCredentialRecovery
-            ? server
-            : max(self.gate(provider).remaining(at: uptime), server)
+            ? Self.serverRemaining(conditions, now: now)
+            : self.remaining(provider, given: conditions, uptime: uptime, now: now)
         guard wait > 0 else { return Row(title: title, trailingText: nil, isEnabled: true) }
         // Rounded up: the row must never read "0s" while a click is still refused.
         return Row(title: title, trailingText: "\(Int(wait.rounded(.up)))s", isEnabled: false)

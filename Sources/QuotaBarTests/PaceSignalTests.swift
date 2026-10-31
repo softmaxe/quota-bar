@@ -110,11 +110,8 @@ enum PaceSignalTests {
         let recent = 20.0 / (35 * 60)
         let average = 40.0 / (120 * 60)
         let rate = 0.65 * recent + 0.35 * average
-        let remaining = 180.0 * 60
         Harness.expect(pace?.isIdle == false, "a moving session is not paused")
         Harness.expectClose(pace?.etaSeconds, 60 / rate, "the ETA blends recent and average rates", tolerance: 1e-6)
-        Harness.expectClose(pace?.speedMultiplierToReset, 60 / (rate * remaining),
-                            "headroom uses the same blended rate", tolerance: 1e-9)
 
         // An anchor older than an hour describes an earlier burst, not this one.
         let stale = Self.trail(window, [(90, 0), (5, 40)], now: now)
