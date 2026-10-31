@@ -18,8 +18,6 @@ public struct PriceBook: Sendable {
         public let aliases: [String]
         /// Listed in the pricing settings even before it appears in local logs.
         public let showInSettings: Bool
-        /// No longer on the provider's price list; kept so older usage stays priced.
-        public let retired: Bool
         public let source: String?
         public let checkedAt: String?
         public let note: String?
@@ -153,7 +151,7 @@ public struct PriceBook: Sendable {
         let object = try Self.object(
             value,
             at: path,
-            allowed: ["id", "aliases", "showInSettings", "retired", "source", "checkedAt", "note", "periods"]
+            allowed: ["id", "aliases", "showInSettings", "source", "checkedAt", "note", "periods"]
         )
         let id = try Self.name(object["id"], at: "\(path).id")
         let path = "\(path) (\(id))"
@@ -182,7 +180,6 @@ public struct PriceBook: Sendable {
             id: id,
             aliases: aliases,
             showInSettings: try Self.flag(object["showInSettings"], at: "\(path).showInSettings"),
-            retired: try Self.flag(object["retired"], at: "\(path).retired"),
             source: try object["source"].map { try Self.string($0, at: "\(path).source") },
             checkedAt: try object["checkedAt"].map { try Self.day($0, at: "\(path).checkedAt") },
             note: try object["note"].map { try Self.string($0, at: "\(path).note") },

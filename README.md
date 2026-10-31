@@ -19,7 +19,7 @@ Screenshots use sample data. The app is in English; the usage window supports Ch
 
 - Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
 - View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
-- Estimate Standard, Fast, and long-context costs: Claude and OpenAI models from the bundled price book, other models such as DeepSeek or GLM from models.dev.
+- Estimate Standard, Fast, and long-context costs: current Claude and OpenAI models from the bundled price book, other models such as DeepSeek, GLM, or retired Claude and OpenAI models from models.dev.
 - View saved usage in a live window that switches between 7 days, 30 days, or any custom period, in Chinese or English.
 
 ## Install
@@ -215,8 +215,8 @@ A backup holds token counts, dates, models, pricing tiers, record IDs, scan posi
 ### Pricing rules
 
 - Every cost is an estimate at API list prices.
-- Claude and OpenAI models use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
-- Other models use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off with the **models.dev** switch in **Settings → Pricing**.
+- Claude and OpenAI models on their makers' current price lists use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
+- Other models, including retired Claude and OpenAI models, use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off with the **models.dev** switch in **Settings → Pricing**.
 - Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. Without a Fast multiplier, and for models priced from models.dev, Fast usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
 - Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
 
@@ -349,7 +349,7 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast third-party usage stays unpriced. For other models, confirm the **models.dev** switch in **Settings → Pricing** is on and that models.dev lists the model. |
+| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast usage of models outside the price book stays unpriced. For other models, confirm the **models.dev** switch in **Settings → Pricing** is on and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
 | Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |

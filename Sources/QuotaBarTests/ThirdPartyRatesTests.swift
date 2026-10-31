@@ -62,18 +62,8 @@ enum ThirdPartyRatesTests {
             "without the maker's listing the middle reseller price is used"
         )
         Harness.expect(rates["free-model"] == nil, "a model listed only for free is left unpriced")
-        Harness.expect(rates["gpt-oss-20b"] == nil, "an OpenAI model is left to the price book")
-        Harness.expect(rates["claude-opus-5"] == nil, "a Claude model is left to the price book")
-        Harness.expect(
-            rates["openai-o3"] == nil && rates["anthropic--claude-3-opus"] == nil
-                && rates["us.anthropic.claude-opus-4-7"] == nil,
-            "a reseller's spelling of a Claude or OpenAI model is left to the price book"
-        )
-        Harness.expect(
-            ThirdPartyRates.isThirdParty("glm-5.3") && ThirdPartyRates.isThirdParty("ollama-qwen3")
-                && !ThirdPartyRates.isThirdParty("azure/gpt-5.5") && !ThirdPartyRates.isThirdParty("o4-mini"),
-            "only Claude and OpenAI names are refused"
-        )
+        Harness.expectEqual(rates["gpt-oss-20b"]?.input, 0.1, "an OpenAI model is read like any other")
+        Harness.expectEqual(rates["claude-opus-5"]?.input, 1, "a Claude model is read like any other")
         Harness.expect(rates["unpriced"] == nil, "a listing without a cost is skipped")
         let models = try? ModelsDevCatalog.models(from: Data(Self.catalogJSON.utf8))
         Harness.expectEqual(models?["kimi-k3"]?.maker, "moonshotai", "the maker comes from the canonical id")
@@ -160,8 +150,8 @@ enum ThirdPartyRatesTests {
         )
         Harness.expect(!rates.prices("sg"), "a bare region tag is not a model")
         Harness.expect(
-            !ThirdPartyRates(current: ["gpt-5.5": ModelPricing(input: 1, output: 2)]).prices("gpt-5.5-us"),
-            "a regional OpenAI name is still left to the price book"
+            ThirdPartyRates(current: ["gpt-5.5": ModelPricing(input: 1, output: 2)]).prices("gpt-5.5-us"),
+            "a regional OpenAI name is priced as the model it decorates"
         )
     }
 

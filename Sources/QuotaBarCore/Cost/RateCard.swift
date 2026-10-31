@@ -7,9 +7,9 @@ import Foundation
 public struct RateCard: Sendable {
     /// Where a model's rates come from.
     public enum Source: Sendable, Equatable {
-        /// The bundled price book, kept by hand for Claude and OpenAI models.
+        /// The bundled price book, kept by hand for current Claude and OpenAI models.
         case priceBook
-        /// The local cache of models.dev rates, for every other model.
+        /// The local cache of models.dev rates, for every model the book does not list.
         case modelsDev
     }
 
@@ -85,9 +85,10 @@ public struct RateCard: Sendable {
     /// Whether one request's input and cache tokens cross the model's long-context threshold.
     /// Scanners settle this per request, since rows are aggregated per day afterwards.
     ///
-    /// models.dev only ever describes a tier above 200K tokens, so a third-party request is
-    /// classified against that threshold whether or not its rates have been downloaded yet, or
-    /// models.dev pricing is on. A model without long-context rates bills the tier at its base rates.
+    /// models.dev only ever describes a tier above 200K tokens, so a request for a model the book
+    /// does not list is classified against that threshold whether or not its rates have been
+    /// downloaded yet, or models.dev pricing is on. A model without long-context rates bills the
+    /// tier at its base rates.
     public func isLongContext(
         _ request: TokenTotals,
         model: String,
@@ -97,7 +98,7 @@ public struct RateCard: Sendable {
     ) -> Bool {
         let id = self.modelID(for: model, provider: provider)
         let threshold: Int?
-        if Self.isKnown(id), self.book.model(id, provider: provider) == nil, ThirdPartyRates.isThirdParty(id) {
+        if Self.isKnown(id), self.book.model(id, provider: provider) == nil {
             threshold = fast ? nil : ModelsDevCatalog.longContextThreshold
         } else {
             threshold = self.rates(for: id, provider: provider, day: day, fast: fast)?.thresholdTokens

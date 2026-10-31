@@ -143,9 +143,9 @@ enum RateCardTests {
             "a regional endpoint's name is priced as the model it serves"
         )
         Harness.expect(
-            card.rates(for: "claude-reseller", provider: .claude, day: "2026-11-22") == nil
-                && card.source(for: "claude-reseller", provider: .claude) == nil,
-            "models.dev never prices a Claude or OpenAI model"
+            card.rates(for: "claude-reseller", provider: .claude, day: "2026-11-22")?.input == 1
+                && card.source(for: "claude-reseller", provider: .claude) == .modelsDev,
+            "models.dev prices a Claude or OpenAI model the book does not list"
         )
         Harness.expect(
             card.rates(for: "glm-dated", provider: .codex, day: "2026-11-22", fast: true) == nil,
@@ -210,9 +210,12 @@ enum RateCardTests {
             "a third-party request is classified before its rates are downloaded"
         )
         Harness.expect(
-            !thirdParty.isLongContext(TokenTotals(input: 200_001), model: "glm-tiered", provider: .codex, day: "2026-11-22", fast: true)
-                && !RateCard(book: book).isLongContext(TokenTotals(input: 200_001), model: "claude-unlisted", provider: .claude, day: "2026-11-22"),
-            "Fast usage and unlisted Claude or OpenAI models are not classified against the third-party threshold"
+            !thirdParty.isLongContext(TokenTotals(input: 200_001), model: "glm-tiered", provider: .codex, day: "2026-11-22", fast: true),
+            "Fast usage is not classified against the third-party threshold"
+        )
+        Harness.expect(
+            RateCard(book: book).isLongContext(TokenTotals(input: 200_001), model: "claude-unlisted", provider: .claude, day: "2026-11-22"),
+            "a Claude or OpenAI model the book does not list is classified like any third-party model"
         )
         Harness.expectEqual(
             thirdParty.cost(of: Self.million, model: "glm-tiered", provider: .codex, day: "2026-11-22", longContext: true),

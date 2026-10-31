@@ -32,7 +32,7 @@ The snapshot holds, for every calendar day from the first saved record through t
 
 The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. The reader itself does not scan session files or reassess eligibility; the window's scans go through the same `UsageStore` path as the menu.
 
-The page uses the same pricing rules as the menu. Claude and OpenAI models use the price book's rates for each recorded day. Other models use the third-party rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every third-party model, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
+The page uses the same pricing rules as the menu. Models the price book lists use its rates for each recorded day. Other models use the rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every model outside the book, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
 
 Rows without a usable price contribute tokens but no cost. The page labels a fully unpriced total or model as **Unpriced**, and an info mark beside the total gives the share of unpriced tokens. Cost by token type prices each token type of a row alone at that row's rates, so the types add up to the row's cost.
 

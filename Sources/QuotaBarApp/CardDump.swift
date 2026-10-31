@@ -229,7 +229,7 @@ enum CardDump {
                 (.claude, "claude-sonnet-5"),
                 (.claude, "claude-fable-5"),
                 (.claude, "claude-haiku-4-5"),
-                (.claude, "claude-opus-4-1"),
+                (.claude, "claude-opus-4-8"),
                 (.claude, "claude-sonnet-4-5"),
             ]
         let shares = [0.47, 0.24, 0.13, 0.08, 0.05, 0.03]
