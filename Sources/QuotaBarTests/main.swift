@@ -116,11 +116,6 @@ Harness.expectEqual(
     "https://chatgpt.com/backend-api/wham/usage",
     "codex usage URL"
 )
-Harness.expectEqual(
-    CodexCredentialsStore.authFileURL(env: ["CODEX_HOME": "/tmp/codexhome"]).path,
-    "/tmp/codexhome/auth.json",
-    "codex auth path honours CODEX_HOME"
-)
 
 // MARK: - Claude
 

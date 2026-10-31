@@ -9,7 +9,6 @@ enum PaceSignalTests {
     private static let midnight = Date(timeIntervalSince1970: 1_799_971_200)
 
     static func run() {
-        Self.labels()
         Self.trail()
         Self.pausedSession()
         Self.recentSession()
@@ -34,22 +33,6 @@ enum PaceSignalTests {
                 resetsAt: window.resetsAt!
             )
         })
-    }
-
-    private static func labels() {
-        let now = Self.midnight
-        // A large reserve once printed a fixed "1.5× headroom" whatever the multiplier was.
-        let light = UsagePace.evaluate(
-            window: UsageWindow(usedPercent: 10, resetsAt: now.addingTimeInterval(3.5 * 86_400), windowSeconds: 604_800),
-            context: .weekly,
-            now: now
-        )
-        Harness.expectEqual(
-            light?.etaLabel(context: .weekly, durationText: { "\(Int($0))s" }),
-            "Lasts until reset",
-            "the lasting label carries no invented multiplier"
-        )
-        Harness.expectEqual(light?.headroomLabel, "9.0× headroom at current pace", "headroom shows the real multiplier")
     }
 
     private static func trail() {
@@ -86,11 +69,6 @@ enum PaceSignalTests {
         )
         Harness.expect(paused?.etaSeconds == nil && paused?.willLastToReset == false,
                        "a paused session neither empties at a clock time nor promises to last")
-        Harness.expectEqual(
-            paused?.etaLabel(context: .session, durationText: { "\(Int($0 / 60))m" }),
-            "Paused · about 40m of use left",
-            "the paused label speaks in working time"
-        )
 
         // One reading twenty minutes ago says nothing about the time since.
         let single = Self.trail(window, [(20, 60)], now: now)

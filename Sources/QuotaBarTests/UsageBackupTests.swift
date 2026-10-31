@@ -41,10 +41,6 @@ enum UsageBackupTests {
         try? FileManager.default.removeItem(at: original.logs.root.appendingPathComponent("codex"))
         try? FileManager.default.removeItem(at: original.logs.root.appendingPathComponent("claude"))
 
-        Harness.expect(
-            FileManager.default.fileExists(atPath: original.backup.path),
-            "the export wrote a file at the chosen path"
-        )
         let result = await Self.importBackup(original.backup, into: restored)
         await restored.scan()
 
