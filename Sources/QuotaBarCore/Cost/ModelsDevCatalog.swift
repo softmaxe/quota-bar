@@ -1,4 +1,4 @@
-// Reads `models.dev/api.json` into one set of rates per third-party model. The catalog lists the
+// Reads `models.dev/api.json` into one set of rates per model. The catalog lists the
 // same model under every provider that serves it, at prices that differ by reseller, so this
 // settles on one: the model maker's own listing when there is one, otherwise the middle price.
 
@@ -32,10 +32,6 @@ public enum ModelsDevCatalog {
         }
         return data
     }
-
-    /// The models whose makers are behind the price book. Their listings are skipped whatever
-    /// they are named.
-    private static let bookMakers: Set<String> = ["openai", "anthropic"]
 
     private struct Listing {
         let provider: String
@@ -88,9 +84,8 @@ public enum ModelsDevCatalog {
         if listings.isEmpty { throw Error.notACatalog }
 
         var result: [String: Model] = [:]
-        for (name, candidates) in listings where ThirdPartyRates.isThirdParty(name) {
+        for (name, candidates) in listings {
             let maker = Self.mostCommon(candidates.compactMap(\.maker))
-            if let maker, Self.bookMakers.contains(maker) { continue }
             let paid = candidates.filter { $0.rates.input > 0 || $0.rates.output > 0 }
             let own = paid.filter { $0.provider == maker }
             if let chosen = Self.middle(own.isEmpty ? paid : own) {

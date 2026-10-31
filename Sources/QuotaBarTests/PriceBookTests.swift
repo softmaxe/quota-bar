@@ -11,7 +11,7 @@ enum PriceBookTests {
         Self.rejectsMalformedBooks()
     }
 
-    /// Every model the shipped book lists, retired ones included, has to price today's usage.
+    /// Every model the shipped book lists has to price today's usage.
     private static let today = DayKey.today()
 
     private static func bundledBookIsComplete() {
@@ -22,9 +22,6 @@ enum PriceBookTests {
             Harness.expect(!models.isEmpty, "the bundled price book lists \(provider.rawValue) models")
             let listed = models.filter(\.showInSettings)
             Harness.expect(!listed.isEmpty, "\(provider.rawValue) lists models in the pricing settings")
-            for model in listed {
-                Harness.expect(!model.retired, "\(model.id) is listed in settings but marked retired")
-            }
             for model in models {
                 Harness.expect(
                     book.rates(for: model.id, provider: provider, day: Self.today) != nil,
@@ -88,6 +85,16 @@ enum PriceBookTests {
                 thresholdTokens: 272_000,
                 inputAbove: 4, outputAbove: 15, cacheWriteAbove: 5, cacheReadAbove: 0.2
             )),
+            ("gpt-6.1-terra", false, ModelPricing(
+                input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.05,
+                thresholdTokens: 272_000,
+                inputAbove: 2, outputAbove: 7.5, cacheWriteAbove: 2.5, cacheReadAbove: 0.1
+            )),
+            ("gpt-6.1-terra", true, ModelPricing(
+                input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1,
+                thresholdTokens: 272_000,
+                inputAbove: 4, outputAbove: 15, cacheWriteAbove: 5, cacheReadAbove: 0.2
+            )),
             ("gpt-6-sol", false, ModelPricing(
                 input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2,
                 thresholdTokens: 272_000,
@@ -119,17 +126,14 @@ enum PriceBookTests {
                 inputAbove: 0.8, outputAbove: 3.6, cacheWriteAbove: 1, cacheReadAbove: 0.08
             )),
             ("gpt-5.3-codex", true, ModelPricing(input: 3.5, output: 28, cacheRead: 0.35)),
-            // GPT-5.5 Fast is 2.5x Standard, the one Codex model off the usual 2x.
-            ("gpt-5.5", true, ModelPricing(
-                input: 12.5, output: 75, cacheRead: 1.25,
-                thresholdTokens: 272_000, inputAbove: 25, outputAbove: 112.5, cacheReadAbove: 2.5
+            ("gpt-5.5-cyber", false, ModelPricing(input: 12.5, output: 75, cacheRead: 1.25)),
+            ("gpt-6-rosalind", false, ModelPricing(
+                input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5,
+                thresholdTokens: 272_000,
+                inputAbove: 30, outputAbove: 112.5, cacheWriteAbove: 37.5, cacheReadAbove: 3
             )),
-            ("gpt-5.4", true, ModelPricing(
-                input: 5, output: 30, cacheRead: 0.5,
-                thresholdTokens: 272_000, inputAbove: 10, outputAbove: 45, cacheReadAbove: 1
-            )),
-            ("gpt-5.4-mini", true, ModelPricing(input: 1.5, output: 9, cacheRead: 0.15)),
-            ("codex-mini-latest", false, ModelPricing(input: 1.5, output: 6, cacheRead: 0.375)),
+            ("gpt-rosalind-research", false, ModelPricing(input: 5, output: 25, cacheRead: 0.5)),
+            ("gpt-rosalind-discovery", false, ModelPricing(input: 5, output: 25, cacheRead: 0.5)),
         ]
         for entry in codex {
             Harness.expectEqual(
@@ -138,7 +142,7 @@ enum PriceBookTests {
                 "\(entry.id) \(entry.fast ? "Fast" : "Standard") rates match the published table"
             )
         }
-        for id in ["gpt-5.6-cyber", "codex-mini-latest"] {
+        for id in ["gpt-5.6-cyber", "gpt-5.5-cyber", "gpt-6-rosalind"] {
             Harness.expect(rates(id, .codex, fast: true) == nil, "\(id) has no Fast price")
         }
 
@@ -205,12 +209,6 @@ enum PriceBookTests {
             RateCard().isLongContext(atThreshold + TokenTotals(cacheRead: 1), model: "claude-haiku-5-5", provider: .claude, day: "2026-09-25"),
             "cache reads count toward the claude-haiku-5-5 prompt length"
         )
-        let haiku = rates("claude-3-5-haiku", .claude)
-        Harness.expectClose(haiku?.input, 0.8, "claude-3-5-haiku input rate")
-        Harness.expectClose(haiku?.output, 4, "claude-3-5-haiku output rate")
-        Harness.expectClose(haiku?.cacheWrite, 1, "claude-3-5-haiku five-minute cache-write rate")
-        Harness.expectClose(haiku?.cacheRead, 0.08, "claude-3-5-haiku cache-read rate")
-        Harness.expectClose(haiku?.cacheWrite1hRate(longContext: false), 1.6, "claude-3-5-haiku one-hour cache-write rate is derived")
 
         // The 5.1 pair is the one Anthropic family that breaks the 0.1x cache-read ratio, so
         // its read rate is worth pinning rather than left to look like a typo.

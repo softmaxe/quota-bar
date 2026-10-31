@@ -1,5 +1,6 @@
-// Rates for the models the price book does not cover. The book is kept by hand for Claude and
-// OpenAI models only; every other model a Usage source reports is estimated from models.dev.
+// Rates for the models the price book does not cover. The book is kept by hand for the Claude and
+// OpenAI models on their makers' current price lists; every other model a Usage source reports,
+// retired Claude and OpenAI models included, is estimated from models.dev.
 //
 // models.dev publishes today's rates only, so the history comes from this machine: each fetch is
 // folded into a local cache, and a model whose rates changed opens a new period on the day the
@@ -45,8 +46,7 @@ public struct ThirdPartyRates: Sendable, Equatable {
         )
     }
 
-    /// Rates in force for a model on `day`, or nil when models.dev never priced it or the model
-    /// is one the price book is kept for.
+    /// Rates in force for a model on `day`, or nil when models.dev never priced it.
     public func rates(for name: String, day: String) -> ModelPricing? {
         self.periods(for: name)?.last(where: { ($0.from ?? "") <= day })?.rates
     }
@@ -67,7 +67,6 @@ public struct ThirdPartyRates: Sendable, Equatable {
     /// falls back to the model a region suffix decorates, so `deepseek-v4.1-flash-sg` is priced as
     /// `deepseek-v4.1-flash`. A listing under the full name wins, since it may be a regional price.
     private func periods(for name: String) -> [Period]? {
-        guard Self.isThirdParty(name) else { return nil }
         let key = Self.key(for: name)
         if let periods = self.models[key] { return periods }
         return Self.strippingRegion(key).flatMap { self.models[$0] }
@@ -125,19 +124,6 @@ public struct ThirdPartyRates: Sendable, Equatable {
         let lowered = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let slash = lowered.lastIndex(of: "/") else { return lowered }
         return String(lowered[lowered.index(after: slash)...])
-    }
-
-    /// Claude and OpenAI models are priced by the price book alone. A copy of one on a reseller's
-    /// list is not the vendor's price, so models.dev never prices them, even before the book
-    /// lists a new one. Resellers spell them many ways (`openai-o3`, `anthropic--claude-3-opus`,
-    /// `us.anthropic.claude-…`), so any name mentioning `claude` or `gpt-` is refused, along with
-    /// the vendor prefixes and OpenAI's bare `o<digit>` and `codex-` names.
-    package static func isThirdParty(_ name: String) -> Bool {
-        let key = Self.key(for: name)
-        if key.contains("claude") || key.contains("gpt-") { return false }
-        if ["chatgpt-", "codex-"].contains(where: key.hasPrefix) { return false }
-        let official = #"^((us|eu|apac|global|jp|au)\.)?(openai|anthropic)[-._]|^o\d+(-|$)"#
-        return key.range(of: official, options: .regularExpression) == nil
     }
 }
 
