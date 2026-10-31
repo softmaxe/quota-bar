@@ -1,6 +1,6 @@
 # Maintaining the price book
 
-Claude and OpenAI models are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model is priced from models.dev through a local cache (see [Third-party models](#third-party-models)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs.
+Claude and OpenAI models that are on their makers' current price lists and still supported are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model, retired Claude and OpenAI models included, is priced from models.dev through a local cache (see [Models outside the book](#models-outside-the-book)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs.
 
 ## Layout
 
@@ -32,14 +32,13 @@ Claude and OpenAI models are priced from [`price-book.json`](../Sources/QuotaBar
 }
 ```
 
-Providers are `codex` (OpenAI models, including OpenCode and Pi Agent usage) and `claude`. Do not add other vendors' models here: models.dev prices them, and a model the book lists is never priced from models.dev.
+Providers are `codex` (OpenAI models, including OpenCode and Pi Agent usage) and `claude`. Do not add other vendors' models or retired models here: models.dev prices them, and a model the book lists is never priced from models.dev.
 
 A model has these keys:
 
 - `id` is the name scanners store: lowercase, with no date suffix or vendor prefix. `RateCard.modelID(for:provider:)` must return it unchanged.
 - `aliases` lists other names for the same model. They resolve to `id` before usage is stored.
 - `showInSettings` lists the model in the pricing settings before it appears in local logs.
-- `retired` marks a model that is no longer on the provider's price list. Keep retired models so older usage stays priced.
 - `source`, `checkedAt` and `note` are optional. Use them when a model's price comes from a different page than the provider's, or when the numbers need explaining.
 
 A period has these keys:
@@ -58,7 +57,7 @@ A period has these keys:
 
 **Wrong rate.** Fix it in place. Every recorded day it covered is repriced.
 
-**Model leaves the price list.** Set `retired` and remove `showInSettings`. Do not delete the entry.
+**Model is retired.** Delete its entry. All of its recorded usage is then priced from models.dev, whose rates cover no Fast tier, and stays unpriced if models.dev does not list it.
 
 After any edit, update `checkedAt` for the provider or model you compared, then run:
 
@@ -68,17 +67,17 @@ make test
 
 `PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It also pins the published rates of the current models on 2026-09-25, so editing an old period fails; a new period does not. It prints a note when a provider was last checked more than 45 days ago.
 
-## Third-party models
+## Models outside the book
 
-Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex or Claude Code, are priced from [models.dev](https://models.dev). Nothing about them is maintained in this repository.
+Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex or Claude Code and retired or not-yet-listed Claude and OpenAI models, are priced from [models.dev](https://models.dev). Nothing about them is maintained in this repository.
 
 - The app downloads `https://models.dev/api.json` at most once a day, alongside a cost refresh, and folds it into `~/Library/Application Support/QuotaBar/third-party-rates.json`. A failed download is retried after an hour and leaves the cache alone.
 - For each model it uses the maker's own listing when `canonical_model_id` names one, otherwise the middle price across every provider that lists it. A model listed only at zero stays unpriced.
 - A model is matched by its name after the last `/`, ignoring case. A name models.dev does not list falls back to the same name without a trailing region tag (`-sg`, `-us`, `-eu`, `-cn`, `-global`, `@eu`, and so on; the list is in `ThirdPartyRates.regionSuffix`), so `deepseek-v4.1-flash-sg` is priced as `deepseek-v4.1-flash`. A listing under the regional name wins. Other suffixes, such as `-fast`, `-flex`, or `:thinking`, name different offers and do not fall back.
 - The vendor part of `canonical_model_id` is cached beside the rates as the model's maker, and **Settings → Pricing** groups the model under it. A model with no canonical ID is grouped by the start of its name; the list is in `PricingVendor`, and anything else goes under **Other**.
-- `context_over_200k` becomes a 200K long-context tier. Third-party requests are classified against 200K at scan time even before their rates are downloaded. There is no Fast tier.
+- `context_over_200k` becomes a 200K long-context tier. Requests for models outside the book are classified against 200K at scan time even before their rates are downloaded. There is no Fast tier.
 - A model whose rates changed since the last fetch gets a new period starting that day, so earlier days keep their rates.
-- Names containing `claude` or `gpt-`, starting with `chatgpt-`, `codex-`, `o<digit>`, or a vendor prefix such as `openai-` or `us.anthropic.`, and models whose maker is OpenAI or Anthropic, are never priced from models.dev. A new Claude or OpenAI model stays unpriced until the book lists it.
-- The **models.dev** switch in **Settings → Pricing** turns this off. Third-party usage is then unpriced and nothing is downloaded.
+- A new Claude or OpenAI model is priced from models.dev until the book lists it. The book's rates replace models.dev for all of its usage from then on.
+- The **models.dev** switch in **Settings → Pricing** turns this off. Usage of models outside the book is then unpriced and nothing is downloaded.
 
 `ThirdPartyRatesTests` covers the parsing, the choice between listings, and the dated cache.
