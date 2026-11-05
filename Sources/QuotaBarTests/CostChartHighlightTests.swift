@@ -20,7 +20,7 @@ enum CostChartHighlightTests {
         let keys = days.map(\.dayKey)
         let expectedKeys = (5...14).map { String(format: "2026-09-%02d", $0) }
         Harness.expectEqual(keys, expectedKeys, "ten calendar slots expected Sep 5–14, got \(keys)")
-        Harness.expect(!(days.count != 10 || days[1].tokens.total != 0 || days[1].costAvailability != .zero), "an empty completed-scan date expected a known zero")
+        Harness.expect(!(days.count != 10 || days[1].tokens.total != 0 || days[1].costAvailability != CostAvailability(knownUSD: 0, totalTokens: 0, unpricedTokens: 0)), "an empty completed-scan date expected a known zero")
         let staleScan = calendar.date(from: DateComponents(year: 2026, month: 9, day: 10))!
         let staleKeys = CostChartHighlightPolicy.unobservedDayKeys(
             visibleDays: days,
@@ -45,7 +45,7 @@ enum CostChartHighlightTests {
             scannedAt: completedScan,
             calendar: calendar
         )
-        Harness.expect(!(!completedKeys.isEmpty || days.last?.costAvailability != .zero), "a completed same-day scan expected a known zero for missing today")
+        Harness.expect(!(!completedKeys.isEmpty || days.last?.costAvailability != CostAvailability(knownUSD: 0, totalTokens: 0, unpricedTokens: 0)), "a completed same-day scan expected a known zero for missing today")
         let crossingMonth = CostChartHighlightPolicy.visibleDays(
             from: [],
             todayDayKey: "2026-10-03",

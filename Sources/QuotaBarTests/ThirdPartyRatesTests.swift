@@ -45,7 +45,7 @@ enum ThirdPartyRatesTests {
     private static func catalog() {
         let rates: [String: ModelPricing]
         do {
-            rates = try ModelsDevCatalog.rates(from: Data(Self.catalogJSON.utf8))
+            rates = try ModelsDevCatalog.models(from: Data(Self.catalogJSON.utf8)).mapValues(\.rates)
         } catch {
             Harness.expect(false, "the catalog fixture threw: \(error)")
             return
@@ -78,7 +78,7 @@ enum ThirdPartyRatesTests {
             "rates above 200K tokens become the long-context tier"
         )
         Harness.expect(
-            (try? ModelsDevCatalog.rates(from: Data("[]".utf8))) == nil,
+            (try? ModelsDevCatalog.models(from: Data("[]".utf8))) == nil,
             "something other than a provider catalog is refused"
         )
     }

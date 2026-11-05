@@ -192,7 +192,7 @@ enum ScannerRegressionTests {
         )
         let initial = await service?.refresh(.codex)
         Harness.expectEqual(initial?.windowTokens, 1, "the initial Codex turn is scanned")
-        Harness.expectEqual(initial?.days.first?.rankedModels.first?.key.isFast, true, "the initial Fast tier is scanned")
+        Harness.expectEqual(initial?.days.first?.rankedModels(by: .cost).first?.key.isFast, true, "the initial Fast tier is scanned")
         service = nil
         Harness.expect(Self.hasStoredResumeState(database: database), "the Codex cursor stores its resume state")
 
@@ -205,7 +205,7 @@ enum ScannerRegressionTests {
             .refresh(.codex)
         Harness.expectEqual(restored?.windowTokens, 1, "a persisted cursor filters a replayed token count")
         Harness.expectEqual(restored?.topModel, "gpt-5.6-sol", "a persisted cursor keeps the active model")
-        Harness.expectEqual(restored?.days.first?.rankedModels.first?.key.isFast, true, "a persisted cursor keeps the Fast tier")
+        Harness.expectEqual(restored?.days.first?.rankedModels(by: .cost).first?.key.isFast, true, "a persisted cursor keeps the Fast tier")
 
         Harness.expect(
             Self.updateResumeState(database: database, value: "not-json"),
@@ -220,7 +220,7 @@ enum ScannerRegressionTests {
             .refresh(.codex)
         Harness.expectEqual(resumed?.windowTokens, 2, "a corrupt resume state falls back to prefix replay")
         Harness.expectEqual(resumed?.topModel, "gpt-5.6-sol", "prefix replay recovers the active model")
-        Harness.expectEqual(resumed?.days.first?.rankedModels.first?.key.isFast, true, "prefix replay recovers the Fast tier")
+        Harness.expectEqual(resumed?.days.first?.rankedModels(by: .cost).first?.key.isFast, true, "prefix replay recovers the Fast tier")
 
         Harness.expect(
             Self.updateResumeState(database: database, value: nil),
@@ -242,7 +242,7 @@ enum ScannerRegressionTests {
             .refresh(.codex)
         Harness.expectEqual(rewritten?.windowTokens, 3, "a rewritten file drops usage derived from its old cursor")
         Harness.expectEqual(rewritten?.topModel, "gpt-5.6-luna", "a rewritten file drops its persisted model")
-        Harness.expectEqual(rewritten?.days.first?.rankedModels.first?.key.isFast, false, "a rewritten file drops its Fast tier")
+        Harness.expectEqual(rewritten?.days.first?.rankedModels(by: .cost).first?.key.isFast, false, "a rewritten file drops its Fast tier")
     }
 
     private static func hasStoredResumeState(database: URL) -> Bool {

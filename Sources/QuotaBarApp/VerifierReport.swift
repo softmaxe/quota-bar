@@ -11,19 +11,6 @@ enum VerifierReport {
     }
 }
 
-/// Polls from async code until `ready` holds. The deadline only turns a state that never arrives
-/// into a failure instead of a hang.
-@MainActor
-enum AsyncWait {
-    static func wait(until ready: () -> Bool, timeout: Duration = .seconds(3)) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while !ready(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(1))
-        }
-        return ready()
-    }
-}
-
 /// A throwaway defaults domain, so a verifier never reads or writes the user's real preferences.
 /// The suite name is fixed rather than PID-stamped: a run that dies before its cleanup leaves one
 /// domain behind for the next run to clear, instead of one per crash.

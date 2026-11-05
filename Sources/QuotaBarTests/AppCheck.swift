@@ -44,3 +44,16 @@ enum AppCheck {
         }
     }
 }
+
+/// Polls from async code until `ready` holds. The deadline only turns a state that never arrives
+/// into a failure instead of a hang.
+@MainActor
+enum AsyncWait {
+    static func wait(until ready: () -> Bool, timeout: Duration = .seconds(3)) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !ready(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return ready()
+    }
+}

@@ -73,14 +73,14 @@ enum PaceSignalTests {
         // One reading twenty minutes ago says nothing about the time since.
         let single = Self.trail(window, [(20, 60)], now: now)
         let unobserved = UsagePace.evaluate(window: window, context: .session, now: now, trail: single)
-        Harness.expect(unobserved?.isIdle == false, "unobserved time is not a pause")
+        Harness.expect(unobserved.map { $0.activeTimeLeftSeconds == nil } == true, "unobserved time is not a pause")
         Harness.expectClose(unobserved?.etaSeconds, 40 * 60, "without recent readings the average pace applies")
 
         // A pause only matters while the earlier pace would still run dry.
         let lightWindow = Self.sessionWindow(used: 10, elapsedMinutes: 60, now: now)
         let lightStill = Self.trail(lightWindow, [(20, 10), (1, 10)], now: now)
         let light = UsagePace.evaluate(window: lightWindow, context: .session, now: now, trail: lightStill)
-        Harness.expect(light?.isIdle == false && light?.willLastToReset == true,
+        Harness.expect(light.map { $0.activeTimeLeftSeconds == nil } == true && light?.willLastToReset == true,
                        "a light session that stops is simply lasting")
 
         // Steady light use after an early burst: one point every fifteen minutes. The reading
@@ -88,7 +88,7 @@ enum PaceSignalTests {
         let steadyWindow = Self.sessionWindow(used: 54, elapsedMinutes: 120, now: now)
         let steps = Self.trail(steadyWindow, [(60, 50), (45, 51), (30, 52), (15, 53), (13, 54), (1, 54)], now: now)
         let steady = UsagePace.evaluate(window: steadyWindow, context: .session, now: now, trail: steps)
-        Harness.expect(steady?.isIdle == false, "stillness between slow steps is not a pause")
+        Harness.expect(steady.map { $0.activeTimeLeftSeconds == nil } == true, "stillness between slow steps is not a pause")
 
         // The weekly window has no session trail semantics.
         let weekly = UsagePace.evaluate(
@@ -97,7 +97,7 @@ enum PaceSignalTests {
             now: now,
             trail: still
         )
-        Harness.expect(weekly?.isIdle == false, "only sessions read the trail")
+        Harness.expect(weekly.map { $0.activeTimeLeftSeconds == nil } == true, "only sessions read the trail")
     }
 
     private static func recentSession() {
@@ -110,7 +110,7 @@ enum PaceSignalTests {
         let recent = 20.0 / (35 * 60)
         let average = 40.0 / (120 * 60)
         let rate = 0.65 * recent + 0.35 * average
-        Harness.expect(pace?.isIdle == false, "a moving session is not paused")
+        Harness.expect(pace.map { $0.activeTimeLeftSeconds == nil } == true, "a moving session is not paused")
         Harness.expectClose(pace?.etaSeconds, 60 / rate, "the ETA blends recent and average rates", tolerance: 1e-6)
 
         // An anchor older than an hour describes an earlier burst, not this one.

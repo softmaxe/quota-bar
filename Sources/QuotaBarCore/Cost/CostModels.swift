@@ -139,12 +139,6 @@ public struct CostDay: Sendable, Equatable {
         )
     }
 
-    /// Source/model/tier rows that ran that day. Unpriced rows sort by token count behind every
-    /// priced one.
-    public var rankedModels: [(key: ModelUsageKey, model: String, usage: ModelDayUsage)] {
-        self.rankedModels(by: .cost)
-    }
-
     /// Ranks the daily breakdown by the metric selected for the chart.
     public func rankedModels(
         by mode: CostChartLabelMode
@@ -251,8 +245,6 @@ public struct CostAvailability: Sendable, Equatable {
             self.knownUSD = knownUSD
         }
     }
-
-    public static let zero = CostAvailability(knownUSD: 0, totalTokens: 0, unpricedTokens: 0)
 }
 
 package enum DayKey {

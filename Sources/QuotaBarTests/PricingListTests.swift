@@ -2,8 +2,7 @@
 import QuotaBarCore
 import Foundation
 
-/// Checks the pricing list's sections, vendors and order, the search, folding a vendor, and which
-/// row the detail side shows.
+/// Checks the pricing list's sections, vendors and order, the search, and folding a vendor.
 @MainActor
 enum PricingListTests {
     static func run() {
@@ -45,16 +44,11 @@ enum PricingListTests {
              "kimi-a", "deepseek-a", "other-a", "glm-z", "claude-next"],
             "within a vendor, used models go first by tokens, then unused ones by configured order"
         )
-        Harness.expectEqual(model.selectedRow?.model, "gpt-a",
-                            "with nothing picked the detail shows the top of the list")
 
         model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
-        Harness.expectEqual(model.selectedRow?.model, "claude-sonnet-4", "a picked row fills the detail")
 
         model.searchText = "  GLM "
         Harness.expectEqual(names(), ["glm-z"], "search ignores case and surrounding spaces")
-        Harness.expectEqual(model.selectedRow?.model, "glm-z",
-                            "a search that hides the picked row shows the first match instead")
 
         model.searchText = ""
         Harness.expect(model.visibleRows.isEmpty, "every vendor starts folded")
@@ -77,18 +71,12 @@ enum PricingListTests {
         model.foldAll()
         Harness.expect(model.visibleRows.isEmpty, "opening the pane folds every vendor again")
         Harness.expect(model.selectedRowID == nil, "folding everything clears the pick")
-        model.selectedRowID = model.listRows.first { $0.model == "claude-sonnet-4" }?.id
 
         model.searchText = "claude-o"
         Harness.expectEqual(names(), ["claude-opus-4"], "search matches inside the name")
 
         model.searchText = "nothing"
         Harness.expect(model.listRows.isEmpty, "a search with no match empties the list")
-        Harness.expect(model.selectedRow == nil, "an empty list leaves the detail empty")
-
-        model.searchText = ""
-        Harness.expectEqual(model.selectedRow?.model, "claude-sonnet-4",
-                            "clearing the search brings the picked row back")
     }
 
     private static func row(

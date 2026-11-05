@@ -56,8 +56,8 @@ enum QuotaPaceTests {
         }
         Harness.expectEqual(pace.sessionTrail.readings.count, 3, "each reading of the session joins its trail")
         let session = pace.pace(for: .session, window: window, now: Self.now)
-        Harness.expect(session?.isIdle == true, "a still session reads as paused")
-        Harness.expect(QuotaPace().pace(for: .session, window: window, now: Self.now)?.isIdle == false,
+        Harness.expect(session?.activeTimeLeftSeconds != nil, "a still session reads as paused")
+        Harness.expect(QuotaPace().pace(for: .session, window: window, now: Self.now).map { $0.activeTimeLeftSeconds == nil } == true,
                        "without readings the same window cannot be called paused")
     }
 
