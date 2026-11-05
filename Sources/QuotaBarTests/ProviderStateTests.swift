@@ -122,7 +122,7 @@ enum ProviderStateTests {
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
         try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.snapshot == snapshot }), "quota success did not apply")
-        try AppCheck.require(store.displays[.codex]?.failure == nil &&
+        try AppCheck.require(store.displays[.codex]?.error == nil &&
               store.displays[.codex]?.signedOutReason == nil, "quota success left an old warning")
         fetches.cost?.resume(returning: Fetches.snapshot(at: origin.addingTimeInterval(59)))
         fetches.cost = nil
@@ -140,7 +140,7 @@ enum ProviderStateTests {
         fetches.quota = nil
         try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.retryDeadline == deadline }), "server retry deadline was not kept")
         try AppCheck.require(store.displays[.codex]?.snapshot == snapshot &&
-              store.displays[.codex]?.failure?.kind == .rateLimited &&
+              store.displays[.codex]?.error == "API limited" &&
               !store.canRefresh(.codex), "cached quota or effective server retry state is wrong")
         store.refresh(trigger: .user)
         try AppCheck.require(fetches.quotaCalls == 3, "a force request bypassed the server retry deadline")
@@ -157,7 +157,7 @@ enum ProviderStateTests {
         try AppCheck.require(await AsyncWait.wait(until: { fetches.quota != nil && fetches.cost != nil }), "post-limit refresh did not start")
         fetches.quota?.resume(returning: .loaded(snapshot))
         fetches.quota = nil
-        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.failure == nil }), "successful retry did not clear the warning")
+        try AppCheck.require(await AsyncWait.wait(until: { store.displays[.codex]?.error == nil && store.displays[.codex]?.retryDeadline == nil }), "successful retry did not clear the warning")
         fetches.cost?.resume(returning: nil)
         fetches.cost = nil
         try AppCheck.require(await AsyncWait.wait(until: {

@@ -32,7 +32,7 @@ enum CardDump {
         let failed = ProviderDisplay(
             snapshot: Self.loadedSnapshot(.claude), cost: Self.sampleCost(.claude),
             error: "The service is rate-limiting quota requests.",
-            failure: ProviderFailure(kind: .rateLimited, reason: "Rate limited", serverRetryAfter: now.addingTimeInterval(90))
+            retryDeadline: now.addingTimeInterval(90)
         )
         Self.capture(
             MenuCardView(provider: .claude, display: failed, isRefreshing: false, animatesFill: false)

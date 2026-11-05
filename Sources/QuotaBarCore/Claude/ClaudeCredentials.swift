@@ -11,22 +11,16 @@ import Foundation
 
 public struct ClaudeCredentials: Sendable, Equatable {
     public let accessToken: String
-    public let refreshToken: String?
     public let expiresAt: Date?
-    public let scopes: [String]
     public let subscriptionType: String?
 
     public init(
         accessToken: String,
-        refreshToken: String?,
         expiresAt: Date?,
-        scopes: [String],
         subscriptionType: String?
     ) {
         self.accessToken = accessToken
-        self.refreshToken = refreshToken
         self.expiresAt = expiresAt
-        self.scopes = scopes
         self.subscriptionType = subscriptionType
     }
 
@@ -82,10 +76,8 @@ public enum ClaudeCredentialsStore {
         }
         return ClaudeCredentials(
             accessToken: accessToken,
-            refreshToken: oauth.refreshToken,
             // Claude Code stores the expiry as epoch milliseconds.
             expiresAt: oauth.expiresAt.map { Date(timeIntervalSince1970: $0 / 1000.0) },
-            scopes: oauth.scopes ?? [],
             subscriptionType: oauth.subscriptionType
         )
     }
@@ -149,9 +141,7 @@ public enum ClaudeCredentialsStore {
 
     private struct OAuth: Decodable {
         let accessToken: String?
-        let refreshToken: String?
         let expiresAt: Double?
-        let scopes: [String]?
         let subscriptionType: String?
     }
 }
