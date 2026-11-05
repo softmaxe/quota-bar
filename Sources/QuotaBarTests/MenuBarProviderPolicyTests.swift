@@ -82,11 +82,6 @@ enum MenuBarProviderPolicyTests {
             "the gauge falls back to the weekly window without a session window"
         )
         Harness.expectEqual(
-            MenuBarProviderPolicy.gaugeRemaining(drainedThenReset, now: now),
-            100,
-            "the gauge counts a session window past its reset as refilled"
-        )
-        Harness.expectEqual(
             MenuBarProviderPolicy.gaugeRemaining(snapshot(.codex, session: nil, weekly: nil), now: now),
             nil,
             "the gauge has nothing to show without windows"

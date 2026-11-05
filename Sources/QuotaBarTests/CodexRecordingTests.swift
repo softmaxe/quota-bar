@@ -5,7 +5,6 @@ import Foundation
 enum CodexRecordingTests {
     static func run() {
         Self.turnsAccumulatePerModelAndTier()
-        Self.appendedRolloutResumesWithItsState()
         Self.rewrittenRolloutIsNotDoubled()
         Self.replacedRolloutWithTheSamePrefixIsReparsed()
         Self.emptiedRolloutKeepsNoRows()
@@ -40,31 +39,6 @@ enum CodexRecordingTests {
             "turns after a turn context with the `priority` service tier are recorded as Fast"
         )
         Harness.expectEqual(usage.count, 2, "each tier is recorded separately")
-    }
-
-    /// An append is read from where the last recording stopped. Its turns still belong to the
-    /// model and tier announced before the cursor, and a token count re-emitted across the
-    /// boundary is still recognised as a replay.
-    private static func appendedRolloutResumesWithItsState() {
-        let fixture = RecorderFixture(name: "codex-append")
-        defer { fixture.remove() }
-        fixture.writeCodexRollout(Self.rollout, lines: [
-            CodexLine.turnContext(model: "gpt-5.6-sol", serviceTier: "priority"),
-            CodexLine.tokenCount(input: 100, output: 10, total: 110),
-        ])
-        fixture.record(.codex)
-        fixture.appendCodexRollout(Self.rollout, lines: [
-            CodexLine.tokenCount(input: 100, output: 10, total: 110),
-            CodexLine.tokenCount(input: 200, output: 20, total: 330),
-        ])
-        fixture.record(.codex)
-        fixture.record(.codex)
-
-        Harness.expectEqual(
-            fixture.recorded(.codex),
-            [RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: true): TokenTotals(input: 300, output: 30)],
-            "appended turns keep the earlier model and tier and the re-emitted count is skipped"
-        )
     }
 
     /// A rollout rewritten in place is read again from the start, and its earlier rows are

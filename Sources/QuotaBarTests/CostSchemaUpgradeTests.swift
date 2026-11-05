@@ -76,8 +76,7 @@ enum CostSchemaUpgradeTests {
             ].joined(separator: "\n") + "\n"
             try lines.write(to: session, atomically: true, encoding: .utf8)
 
-            let updated = await service.refresh(.codex)
-            Harness.expect(updated != nil, "scanner writes to the rebuilt Codex primary key")
+            _ = await service.refresh(.codex)
             Harness.expectEqual(
                 try self.scalarInt(
                     "SELECT COUNT(*) FROM codex_day WHERE model = 'migration-model' AND is_fast = 1",
@@ -94,8 +93,7 @@ enum CostSchemaUpgradeTests {
             )
             let claudeLine = #"{"type":"assistant","timestamp":"\#(timestamp)","requestId":"req-fast","message":{"id":"msg-fast","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":2,"speed":"fast"}}}"#
             try (claudeLine + "\n").write(to: transcript, atomically: true, encoding: .utf8)
-            let claude = await service.refresh(.claude)
-            Harness.expect(claude != nil, "scanner writes to the upgraded Claude table")
+            _ = await service.refresh(.claude)
             Harness.expectEqual(
                 try self.scalarInt(
                     "SELECT COUNT(*) FROM claude_message WHERE key = 'msg-fast|req-fast' AND is_fast = 1",

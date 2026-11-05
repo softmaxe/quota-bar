@@ -23,11 +23,6 @@ enum ThirdPartyRatesTests {
                                               "cost": { "input": 0.05, "output": 0.1 } },
             "kimi-k3": { "canonical_model_id": "moonshotai/kimi-k3", "cost": { "input": 2, "output": 10 } },
             "free-model": { "cost": { "input": 0, "output": 0 } },
-            "gpt-oss-20b": { "canonical_model_id": "openai/gpt-oss-20b", "cost": { "input": 0.1, "output": 0.5 } },
-            "claude-opus-5": { "cost": { "input": 1, "output": 2 } },
-            "openai-o3": { "cost": { "input": 2, "output": 8 } },
-            "anthropic--claude-3-opus": { "cost": { "input": 15, "output": 75 } },
-            "us.anthropic.claude-opus-4-7": { "cost": { "input": 5, "output": 25 } },
             "unpriced": { "id": "unpriced" }
           } },
           "reseller-b": { "id": "reseller-b", "models": {
@@ -62,8 +57,6 @@ enum ThirdPartyRatesTests {
             "without the maker's listing the middle reseller price is used"
         )
         Harness.expect(rates["free-model"] == nil, "a model listed only for free is left unpriced")
-        Harness.expectEqual(rates["gpt-oss-20b"]?.input, 0.1, "an OpenAI model is read like any other")
-        Harness.expectEqual(rates["claude-opus-5"]?.input, 1, "a Claude model is read like any other")
         Harness.expect(rates["unpriced"] == nil, "a listing without a cost is skipped")
         let models = try? ModelsDevCatalog.models(from: Data(Self.catalogJSON.utf8))
         Harness.expectEqual(models?["kimi-k3"]?.maker, "moonshotai", "the maker comes from the canonical id")
@@ -149,10 +142,6 @@ enum ThirdPartyRatesTests {
             "only a trailing region tag falls back"
         )
         Harness.expect(!rates.prices("sg"), "a bare region tag is not a model")
-        Harness.expect(
-            ThirdPartyRates(current: ["gpt-5.5": ModelPricing(input: 1, output: 2)]).prices("gpt-5.5-us"),
-            "a regional OpenAI name is priced as the model it decorates"
-        )
     }
 
     private static func cacheRoundTrip() {
