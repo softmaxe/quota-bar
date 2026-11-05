@@ -50,7 +50,6 @@ async function checkLanguage(language){
 }
 
 // Synthetic history: one source per day so period sums are easy to check.
-const FIELDS=['input','output','cacheRead','cacheWrite','cacheWrite1h','cost','unpricedTokens','total'];
 function totals(v,{unpriced=false}={}){return {input:v/10,output:v/5,cacheRead:v*7/10,cacheWrite:0,cacheWrite1h:0,total:v,unpricedTokens:unpriced?v:0,cost:unpriced?0:v/100};}
 function fixture(values,{unpriced=false,long=false,window=values.length}={}){
   const name=long?'provider/'+('long-model-name-'.repeat(12)):'fixture-model';
@@ -61,11 +60,7 @@ function fixture(values,{unpriced=false,long=false,window=values.length}={}){
       costBreakdown:{input:t.cost*.1,output:t.cost*.4,cacheRead:t.cost*.5,cacheWrite:0,cacheSavings:t.cost,fast:0,fastPremium:0}};
   });
   const days=history.slice(-window);
-  const sum=rows=>Object.fromEntries(FIELDS.map(k=>[k,rows.reduce((n,d)=>n+d[k],0)]));
-  const t=sum(days),active=days.some(x=>x.recorded);
-  return {period:'Fixture period',capturedAt:'2026-09-15T12:00:00Z',timezone:'Asia/Shanghai',totals:t,
-    costBreakdown:{input:0,output:0,cacheRead:0,cacheWrite:0,cacheSavings:0,fast:0,fastPremium:0},days,history,
-    models:active?[{name,source:'codex',...t}]:[],sources:active?[{name:'Codex',source:'codex',...t}]:[],weekdays:[]};
+  return {days,history};
 }
 const usd=v=>'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 

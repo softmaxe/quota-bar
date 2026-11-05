@@ -19,10 +19,7 @@ func runUsageReportRendererTests() {
             return
         }
         let decoded = try JSONDecoder().decode(UsageReportSnapshot.self, from: Data(html[start..<end].utf8))
-        Harness.expectEqual(decoded.models.first?.name, hostile, "script-safe encoding preserves the original identifier")
-        Harness.expectEqual(decoded.totals.total, 1_000, "embedded snapshot matches displayed metrics")
-        Harness.expectEqual(decoded.totals.cost, 9, "the renderer embeds partial costs as read")
-        Harness.expectEqual(decoded.totals.unpricedTokens, 100, "unpriced usage reaches the bilingual runtime")
+        Harness.expectEqual(decoded, snapshot, "script-safe encoding preserves the snapshot, hostile identifier included")
         Harness.expectEqual(String(html[start..<end]), try UsageReportHTMLRenderer.scriptLiteral(snapshot),
                             "the usage window's live updates carry the same script-safe JSON the page embeds")
         Harness.expect(html.contains("window.updateReport="), "the runtime takes a newer snapshot without reloading")
@@ -43,11 +40,6 @@ private func rendererFixture(model: String, total: Int, unpriced: Int, cost: Dou
                                     "cacheSavings": 50, "fast": 0, "fastPremium": 0]
     let day = totals.merging(["day": "2026-09-15", "recorded": true, "sources": [source],
                               "models": [named], "costBreakdown": breakdown]) { _, new in new }
-    let data: [String: Any] = [
-        "period": "2026-09-15 至 2026-09-15", "capturedAt": "2026-09-15T12:00:00Z",
-        "timezone": "Asia/Shanghai", "totals": totals, "days": [day],
-        "costBreakdown": breakdown, "history": [day],
-        "models": [named], "sources": [source], "weekdays": [["name": "周二", "total": total]],
-    ]
+    let data: [String: Any] = ["days": [day], "history": [day]]
     return try JSONDecoder().decode(UsageReportSnapshot.self, from: JSONSerialization.data(withJSONObject: data))
 }
