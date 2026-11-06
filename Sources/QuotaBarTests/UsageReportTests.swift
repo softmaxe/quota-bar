@@ -50,26 +50,12 @@ enum UsageReportTests {
             rateCard: try RecordedUsageFixture.rateCard()
         )
 
-        Harness.expectEqual(report.period, "2026-09-13 至 2026-09-15", "report period")
-        Harness.expectEqual(report.capturedAt, "2026-09-15T04:34:56.789Z", "capture timestamp")
-        Harness.expectEqual(report.timezone, "Asia/Shanghai", "report timezone")
         Harness.expect(report.hasRecordedUsage, "report has recorded usage")
-        Harness.expectEqual(
-            report.totals,
-            UsageReportTotals(
-                input: 61,
-                output: 9,
-                cacheRead: 17,
-                cacheWrite: 15,
-                cacheWrite1h: 7,
-                cost: 695,
-                unpricedTokens: 34,
-                total: 102
-            ),
-            "all-source totals"
-        )
         Harness.expectEqual(report.days.map(\.day), ["2026-09-13", "2026-09-14", "2026-09-15"], "day order")
-        Harness.expectEqual(report.days[0].total, 43, "first recorded day total")
+        let first = report.days[0]
+        Harness.expectEqual([first.input, first.output, first.cacheRead, first.cacheWrite, first.cacheWrite1h],
+                            [22, 4, 9, 8, 4], "first recorded day token types")
+        Harness.expectEqual(first.total, 43, "first recorded day total")
         Harness.expectEqual(report.days[0].unpricedTokens, 15, "a model the book does not list is unpriced")
         Harness.expectClose(report.days[0].cost, 28, "Standard tokens cost $1 each")
         Harness.expect(!report.days[1].recorded, "missing day is not recorded")
@@ -79,13 +65,14 @@ enum UsageReportTests {
         // 7 Standard tokens at $1, then 33 long-context Fast tokens at $2 x 10.
         Harness.expectClose(report.days[2].cost, 667, "each tier is priced at its own rates")
 
-        Harness.expectEqual(report.models.first?.name, "priced-model", "models rank by derived cost")
-        Harness.expectEqual(report.models.first?.total, 68, "sources, long-context, and fast tiers combine by model")
-        Harness.expectEqual(report.models.first?.cacheWrite1h, 4, "one-hour cache writes sum as a subset")
-        Harness.expect(report.models.contains(where: { $0.name == riskyModel }), "HTML-risk model name remains intact")
-        Harness.expect(!report.models.contains(where: { $0.name == "excluded-model" }), "excluded OpenCode row stays out")
-        Harness.expect(!report.models.contains(where: { $0.name == "excluded-pi" }), "excluded Pi row stays out")
-        Harness.expectEqual(report.weekdays.map(\.total), [0, 59, 0, 0, 0, 0, 43], "weekday totals")
+        let lastModels = report.days[2].models
+        Harness.expectEqual(lastModels.first?.name, "priced-model", "models rank by derived cost")
+        Harness.expectEqual(lastModels.first?.source, "codex", "a day's models stay split by source")
+        Harness.expectEqual(lastModels.first?.total, 34, "long-context and fast tiers combine by model")
+        Harness.expectEqual(lastModels.first?.cacheWrite1h, 2, "one-hour cache writes sum as a subset")
+        Harness.expect(report.modelNames.contains(riskyModel), "HTML-risk model name remains intact")
+        Harness.expect(!report.modelNames.contains("excluded-model"), "excluded OpenCode row stays out")
+        Harness.expect(!report.modelNames.contains("excluded-pi"), "excluded Pi row stays out")
         Harness.expectEqual(Array(report.history.suffix(3)), report.days, "history ends with the selected window")
         Harness.expect(report.history.contains { $0.day == "2026-09-12" && $0.recorded },
                        "history keeps saved days before the window")
@@ -140,7 +127,7 @@ enum UsageReportTests {
             rateCard: RateCard(book: book)
         )
         Harness.expectEqual(report.days.map(\.cost), [1, 8], "each day uses its own period")
-        Harness.expectEqual(report.totals.unpricedTokens, 0, "every dated row is priced")
+        Harness.expectEqual(report.days.map(\.unpricedTokens), [0, 0], "every dated row is priced")
     }
 
     private static func handlesEmptyAndZeroUsage() throws {
@@ -153,15 +140,14 @@ enum UsageReportTests {
                 now: self.captureDate,
                 calendar: self.calendar
             )
-            Harness.expectEqual(empty.totals, UsageReportTotals(), "empty database totals")
             Harness.expectEqual(empty.days.count, 1, "requested one-day window")
             Harness.expect(!empty.days[0].recorded, "empty database has no recorded day")
             Harness.expect(!empty.hasRecordedUsage, "empty database has no usage")
-            Harness.expect(empty.models.isEmpty, "empty database has no models")
-            Harness.expect(empty.sources.isEmpty, "empty database has no sources")
+            Harness.expect(empty.days[0].models.isEmpty && empty.days[0].sources.isEmpty,
+                           "empty database has no models or sources")
 
             let zeroFixture = try RecordedUsageFixture(seed: false)
-        try zeroFixture.database.exec("""
+            try zeroFixture.database.exec("""
                 DROP TABLE codex_day;
                 DROP TABLE claude_message;
                 DROP TABLE opencode_part;
@@ -174,11 +160,11 @@ enum UsageReportTests {
                 now: self.captureDate,
                 calendar: self.calendar
             )
-            Harness.expectEqual(zero.totals, UsageReportTotals(), "recorded zero totals")
+            Harness.expectEqual(zero.windowTotal, 0, "recorded zero totals")
             Harness.expect(zero.days[0].recorded, "zero-valued row is recorded")
             Harness.expect(zero.hasRecordedUsage, "recorded zero counts as usage history")
-            Harness.expectEqual(zero.models.map(\.name), ["zero-model"], "zero model remains present")
-            Harness.expectEqual(zero.sources.map(\.name), ["Pi Agent"], "optional source table is readable alone")
+            Harness.expectEqual(zero.days[0].models.map(\.name), ["zero-model"], "zero model remains present")
+            Harness.expectEqual(zero.days[0].sources.map(\.name), ["Pi Agent"], "optional source table is readable alone")
         }
     }
 
@@ -228,10 +214,10 @@ enum UsageReportTests {
             INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES ('uncommitted', '\(fixture.day())', 'pending', 0, 0, 700, 0, 0, 0, 0);
             """)
         let report = try self.read(fixture)
-        Harness.expectEqual(report.totals.total, 102, "the report sees committed usage from the open writer's WAL")
-        Harness.expect(!report.models.contains { $0.name == "pending" }, "uncommitted writes remain invisible")
+        Harness.expectEqual(report.windowTotal, 102, "the report sees committed usage from the open writer's WAL")
+        Harness.expect(!report.modelNames.contains("pending"), "uncommitted writes remain invisible")
         try fixture.database.exec("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
-        Harness.expectEqual(try self.read(fixture).totals.total, 103,
+        Harness.expectEqual(try self.read(fixture).windowTotal, 103,
                             "the writer remains usable after the read-only report read")
     }
 
@@ -250,12 +236,12 @@ enum UsageReportTests {
                     """)
             }
         )
-        Harness.expectEqual(report.totals.total, 102, "one report retains the pre-commit values from every source")
-        Harness.expectEqual(report.sources.first { $0.name == "Pi Agent" }?.total, 6,
+        Harness.expectEqual(report.windowTotal, 102, "one report retains the pre-commit values from every source")
+        Harness.expectEqual(report.sourceTotal("Pi Agent"), 6,
                             "schema discovery and token queries see the same version of a dropped source")
         let next = try self.read(fixture)
-        Harness.expectEqual(next.totals.total, 196, "a later report read sees the complete new committed state")
-        Harness.expect(!next.sources.contains { $0.name == "Pi Agent" }, "a later report read sees the dropped source")
+        Harness.expectEqual(next.windowTotal, 196, "a later report read sees the complete new committed state")
+        Harness.expectEqual(next.sourceTotal("Pi Agent"), 0, "a later report read sees the dropped source")
     }
 
     private static func validatesRawAndAggregatedTokens() throws {
@@ -287,7 +273,7 @@ enum UsageReportTests {
             INSERT INTO opencode_part (\(RecordedUsageFixture.openCodeColumns)) VALUES
                 ('excluded-invalid', 0, 0, '\(fixture.day())', 'bad', 0, 0, -1, 0, 0, 0, 0);
             """)
-        Harness.expectEqual(try self.read(fixture).totals.total, 9_007_199_254_740_991,
+        Harness.expectEqual(try self.read(fixture).windowTotal, 9_007_199_254_740_991,
                             "the report validates only included rows in its bounded history")
         try fixture.database.exec("""
             INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES ('one-more', 1, '\(fixture.day())', 'other', 0, 1, 0, 0, 0, 0);
@@ -309,7 +295,7 @@ enum UsageReportTests {
             Harness.expect(message.contains("integer overflow"), "the report propagates the SQLite stepping error")
         }
         try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
-        Harness.expectEqual(try self.read(fixture).totals.total, 102, "the report recovers after the failed source is repaired")
+        Harness.expectEqual(try self.read(fixture).windowTotal, 102, "the report recovers after the failed source is repaired")
     }
 
     private static func read(_ fixture: RecordedUsageFixture) throws -> UsageReportSnapshot {
@@ -347,5 +333,17 @@ enum UsageReportTests {
 
     private static func sql(_ value: String) -> String {
         value.replacingOccurrences(of: "'", with: "''")
+    }
+}
+
+/// Window sums over `days`, the way the page adds up a period.
+extension UsageReportSnapshot {
+    var windowTotal: Int { self.days.reduce(0) { $0 + $1.total } }
+    var windowCost: Double { self.days.reduce(0) { $0 + $1.cost } }
+    var windowUnpricedTokens: Int { self.days.reduce(0) { $0 + $1.unpricedTokens } }
+    var modelNames: Set<String> { Set(self.days.flatMap { $0.models.map(\.name) }) }
+
+    func sourceTotal(_ name: String) -> Int {
+        self.days.flatMap(\.sources).filter { $0.name == name }.reduce(0) { $0 + $1.total }
     }
 }

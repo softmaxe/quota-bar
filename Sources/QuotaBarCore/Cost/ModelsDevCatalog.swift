@@ -46,11 +46,6 @@ public enum ModelsDevCatalog {
         package let maker: String?
     }
 
-    /// One set of rates per model, keyed as `ThirdPartyRates.key(for:)` spells it.
-    package static func rates(from data: Data) throws -> [String: ModelPricing] {
-        try Self.models(from: data).mapValues(\.rates)
-    }
-
     /// Every model the catalog prices, keyed as `ThirdPartyRates.key(for:)` spells it. A model
     /// every listing gives away free is left out, so its usage stays unpriced rather than costing
     /// nothing.

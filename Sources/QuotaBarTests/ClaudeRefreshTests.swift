@@ -147,14 +147,12 @@ enum ClaudeRefreshTests {
 
     private static func manualRefreshDelegatesAfterUnauthorized() async {
         let staleCredentials = ClaudeCredentials(
-            accessToken: "stale-token", refreshToken: "refresh-token",
-            expiresAt: Date(timeIntervalSinceNow: -60), scopes: [], subscriptionType: "pro"
+            accessToken: "stale-token",
+            expiresAt: Date(timeIntervalSinceNow: -60), subscriptionType: "pro"
         )
         let freshCredentials = ClaudeCredentials(
             accessToken: "fresh-token",
-            refreshToken: "fresh-refresh-token",
             expiresAt: Date(timeIntervalSinceNow: 3_600),
-            scopes: [],
             subscriptionType: "pro"
         )
         let fixture = ClaudeRefreshFixture(credentials: staleCredentials)
@@ -693,9 +691,7 @@ enum ClaudeRefreshTests {
     private static func credentials(accessToken: String, expiresIn: TimeInterval) -> ClaudeCredentials {
         ClaudeCredentials(
             accessToken: accessToken,
-            refreshToken: "refresh-token",
             expiresAt: Date(timeIntervalSinceNow: expiresIn),
-            scopes: [],
             subscriptionType: "pro"
         )
     }

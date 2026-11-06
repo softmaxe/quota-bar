@@ -133,7 +133,6 @@ do {
     """
     let credentials = try ClaudeCredentialsStore.parse(data: Data(json.utf8))
     Harness.expectEqual(credentials.accessToken, "token-123", "claude access token")
-    Harness.expectEqual(credentials.refreshToken, "refresh-456", "claude refresh token")
     // Claude Code stores the expiry in milliseconds.
     Harness.expectEqual(credentials.expiresAt, Date(timeIntervalSince1970: 1_700_000_000), "claude expiry")
     Harness.expectEqual(credentials.subscriptionType, "pro", "claude subscription")
@@ -155,9 +154,7 @@ do {
     let response = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data(json.utf8))
     let credentials = ClaudeCredentials(
         accessToken: "t",
-        refreshToken: nil,
         expiresAt: nil,
-        scopes: [],
         subscriptionType: "max"
     )
     let snapshot = ClaudeProvider.snapshot(from: response, credentials: credentials)
@@ -181,9 +178,7 @@ do {
     let response = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data(json.utf8))
     let credentials = ClaudeCredentials(
         accessToken: "t",
-        refreshToken: nil,
         expiresAt: nil,
-        scopes: [],
         subscriptionType: "pro"
     )
     let snapshot = ClaudeProvider.snapshot(from: response, credentials: credentials)

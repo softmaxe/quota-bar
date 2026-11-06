@@ -326,36 +326,32 @@ final class UsageStore: ObservableObject {
         case let .signedOut(reason):
             display.snapshot = nil
             display.error = nil
-            display.failure = nil
+            display.retryDeadline = nil
             display.signedOutReason = reason
             display.isSignedOut = true
             display.canAttemptCredentialRecovery = false
         case let .failed(reason):
             display.error = reason
-            display.failure = ProviderFailure(kind: .refresh, reason: reason)
+            display.retryDeadline = nil
             display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false
         case let .rateLimited(reason, retryAfter):
             display.error = reason
-            display.failure = ProviderFailure(
-                kind: .rateLimited,
-                reason: reason,
-                serverRetryAfter: retryAfter
-            )
+            display.retryDeadline = retryAfter
             display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false
         case let .recoveryRequired(reason):
             display.error = reason
-            display.failure = ProviderFailure(kind: .credentialRecovery, reason: reason)
+            display.retryDeadline = nil
             display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = true
         case let .loaded(snapshot):
             display.snapshot = snapshot
             display.error = nil
-            display.failure = nil
+            display.retryDeadline = nil
             display.signedOutReason = nil
             display.isSignedOut = false
             display.canAttemptCredentialRecovery = false

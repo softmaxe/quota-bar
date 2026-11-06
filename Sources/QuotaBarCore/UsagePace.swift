@@ -40,8 +40,6 @@ public struct UsagePace: Sendable, Equatable {
     /// than a moment it empties.
     public let activeTimeLeftSeconds: TimeInterval?
 
-    public var isIdle: Bool { self.activeTimeLeftSeconds != nil }
-
     public init(
         stage: Stage,
         deltaPercent: Double,

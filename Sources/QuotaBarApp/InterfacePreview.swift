@@ -102,13 +102,8 @@ enum InterfacePreview {
                 var display = ProviderDisplay(
                     snapshot: CardDump.loadedSnapshot(.claude), cost: CardDump.busyCost(.claude)
                 )
-                let reason = "Claude usage API is temporarily unavailable."
-                display.error = reason
-                display.failure = ProviderFailure(
-                    kind: .rateLimited,
-                    reason: reason,
-                    serverRetryAfter: Date().addingTimeInterval(90)
-                )
+                display.error = "Claude usage API is temporarily unavailable."
+                display.retryDeadline = Date().addingTimeInterval(90)
                 store.debugSetDisplay(display, for: .claude)
             }
             self.store = store

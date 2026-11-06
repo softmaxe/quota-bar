@@ -87,9 +87,8 @@
   let report,BY_DAY,FIRST_DAY,LAST_DAY,DEFAULT_PERIOD;
   function load(next){
     report=next;
-    const history=report.history??report.days;
-    BY_DAY=new Map(history.map(d=>[d.day,d]));
-    FIRST_DAY=history[0]?.day??'';LAST_DAY=history.at(-1)?.day??'';
+    BY_DAY=new Map(report.history.map(d=>[d.day,d]));
+    FIRST_DAY=report.history[0]?.day??'';LAST_DAY=report.history.at(-1)?.day??'';
     DEFAULT_PERIOD=String(report.days.length)==='7'?'7':'30';
   }
   load(REPORT);
@@ -112,7 +111,6 @@
       days.push(BY_DAY.get(key)??{day:key,recorded:false,...zero(FIELDS),sources:[],models:[]});
     }
     daySources=days.map(day=>new Map((day.sources??[]).map(row=>[sourceId(row),row])));
-    if(report.sources.length===1)days.forEach((day,i)=>{if(day.recorded&&!daySources[i].size)daySources[i].set(sourceId(report.sources[0]),day);});
     totals=days.reduce((sum,day)=>addInto(sum,day,FIELDS),zero(FIELDS));
     breakdownCost=days.reduce((sum,day)=>addInto(sum,day.costBreakdown,COST_FIELDS),zero(COST_FIELDS));
     recordedDays=days.filter(d=>d.recorded).length;

@@ -176,12 +176,12 @@ enum RecordedUsageTests {
         let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, windowDays: 30,
                                                now: fixture.now, calendar: fixture.calendar,
                                                rateCard: try RecordedUsageFixture.rateCard())
-        let codexSources = report.sources.filter { $0.name != CostUsageSource.claude.displayName }
+        let codexSources = report.days.flatMap(\.sources).filter { $0.name != CostUsageSource.claude.displayName }
         Harness.expectEqual(codexSources.reduce(0) { $0 + $1.total }, 82,
                             "the report's matching Codex sources exclude the menu's 1,000 future tokens")
         Harness.expectClose(codexSources.reduce(0) { $0 + $1.cost }, first?.windowCostUSD ?? -1,
                             "matching priced records use the same Rate card in menu and report")
-        Harness.expectEqual(report.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"],
+        Harness.expectEqual(report.days.last?.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"],
                             "shared source identities preserve report display order")
         for day in report.days {
             let matchingDays = [first, claude].compactMap { $0?.days.first { $0.dayKey == day.day } }

@@ -18,9 +18,6 @@ public struct PriceBook: Sendable {
         public let aliases: [String]
         /// Listed in the pricing settings even before it appears in local logs.
         public let showInSettings: Bool
-        public let source: String?
-        public let checkedAt: String?
-        public let note: String?
         /// Ascending by start day. The first period has no start and covers everything before
         /// the second.
         public let periods: [Period]
@@ -176,13 +173,14 @@ public struct PriceBook: Sendable {
                 throw PriceBookError.invalid("\(path).periods must be in ascending from order")
             }
         }
+        // Provenance for maintainers: validated, never read.
+        _ = try object["source"].map { try Self.string($0, at: "\(path).source") }
+        _ = try object["checkedAt"].map { try Self.day($0, at: "\(path).checkedAt") }
+        _ = try object["note"].map { try Self.string($0, at: "\(path).note") }
         return Model(
             id: id,
             aliases: aliases,
             showInSettings: try Self.flag(object["showInSettings"], at: "\(path).showInSettings"),
-            source: try object["source"].map { try Self.string($0, at: "\(path).source") },
-            checkedAt: try object["checkedAt"].map { try Self.day($0, at: "\(path).checkedAt") },
-            note: try object["note"].map { try Self.string($0, at: "\(path).note") },
             periods: periods
         )
     }

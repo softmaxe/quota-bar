@@ -66,7 +66,7 @@ enum RefreshEligibilityTests {
                                                      allowsCredentialRecovery: true)
         Harness.expect(!Self.claim(&eligibility, .codex, by: .user, given: recovery, at: 0),
                        "even a credential repair waits for the server")
-        Harness.expect(!eligibility.canRefresh(.codex, given: recovery, uptime: 0, now: Self.now),
+        Harness.expect(!eligibility.row(.codex, given: recovery, uptime: 0, now: Self.now).isEnabled,
                        "and the row says so")
         Harness.expect(Self.claim(&eligibility, .codex, given: limited, at: 0) == false
                            && eligibility.remaining(.codex, given: .init(), uptime: 0, now: Self.now) == 0,
@@ -83,7 +83,7 @@ enum RefreshEligibilityTests {
         let recovery = RefreshEligibility.Conditions(allowsCredentialRecovery: true)
         Harness.expect(!Self.claim(&eligibility, .claude, given: recovery, at: 1_010),
                        "an automatic refresh does not repair a credential early")
-        Harness.expect(eligibility.canRefresh(.claude, given: recovery, uptime: 1_010, now: Self.now),
+        Harness.expect(eligibility.row(.claude, given: recovery, uptime: 1_010, now: Self.now).isEnabled,
                        "the row offers the repair inside the minute")
         Harness.expect(Self.claim(&eligibility, .claude, by: .user, given: recovery, at: 1_010),
                        "a user click repairs it inside the minute")

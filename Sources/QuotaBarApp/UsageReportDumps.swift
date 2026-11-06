@@ -43,9 +43,6 @@ enum UsageReportDumps {
                                      fast: fast, fastPremium: fast / 2)
         }
         // Each day splits between Codex, on two models, and Claude, on one.
-        var modelTotals: [String: [UsageReportTotals]] = [:]
-        var sourceTotals: [String: [UsageReportTotals]] = [:]
-        var fastTotal = 0.0
         let days = series.prefix(dayCount).enumerated().map { index, value in
             let codexShare = 0.55 + 0.25 * sin(Double(index) / 4)
             let codex = Int(Double(value) * codexShare), claude = value - codex
@@ -56,12 +53,8 @@ enum UsageReportDumps {
             let models = rows.map { UsageReportNamedUsage(name: $0.0, source: $0.1, totals: $0.2) }
             let codexUsage = sum(rows.filter { $0.1 == "codex" }.map(\.2))
             let claudeUsage = sum(rows.filter { $0.1 == "claude" }.map(\.2))
-            for row in rows { modelTotals[row.0, default: []].append(row.2) }
-            sourceTotals["codex", default: []].append(codexUsage)
-            sourceTotals["claude", default: []].append(claudeUsage)
             let total = sum([codexUsage, claudeUsage])
             let fast = index.isMultiple(of: 3) ? codexUsage.cost * 0.4 : 0
-            fastTotal += fast
             return UsageReportDay(
                 day: String(format: "2026-09-%02d", index + 1), recorded: true, totals: total,
                 sources: [UsageReportNamedUsage(name: "Codex", source: "codex", totals: codexUsage),
@@ -70,21 +63,7 @@ enum UsageReportDumps {
                 costBreakdown: breakdown(total.cost, fast: fast)
             )
         }
-        let models = modelTotals.map { name, rows in
-            UsageReportNamedUsage(name: name, source: name.hasPrefix("claude") ? "claude" : "codex", totals: sum(rows))
-        }.sorted { $0.cost > $1.cost }
-        let codexTotals = sum(sourceTotals["codex", default: []])
-        let claudeTotals = sum(sourceTotals["claude", default: []])
-        let sources = [
-            UsageReportNamedUsage(name: "Codex", source: "codex", totals: codexTotals),
-            UsageReportNamedUsage(name: "Claude", source: "claude", totals: claudeTotals),
-        ]
-        let totals = sum([codexTotals, claudeTotals])
-        let lastDay = days.last?.day ?? "2026-09-01"
-        return UsageReportSnapshot(period: "2026-09-01 至 \(lastDay)", capturedAt: "\(lastDay)T18:00:00Z",
-                                   timezone: "UTC", totals: totals,
-                                   costBreakdown: breakdown(totals.cost, fast: fastTotal), days: days,
-                                   models: models, sources: sources, weekdays: [])
+        return UsageReportSnapshot(days: days)
     }
 
     /// Opens the usage window on 29 sample days, then hands it the thirtieth as a live update

@@ -387,13 +387,6 @@ final class PricingTableModel: ObservableObject {
         self.selectedRowID = nil
     }
 
-    /// The row the detail side shows: the one picked, or the top of the list until one is, or
-    /// when the search hides the one picked.
-    var selectedRow: PricingRow? {
-        let rows = self.listRows
-        return rows.first { $0.id == self.selectedRowID } ?? rows.first
-    }
-
 #if DEBUG
     /// Lets a headless run drive the table without reading the pricing files on disk.
     func debugSetRows(_ rows: [PricingRow]) {

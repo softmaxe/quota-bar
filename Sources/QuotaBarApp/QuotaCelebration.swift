@@ -219,8 +219,6 @@ enum QuotaCelebrationReplay {
 struct QuotaCelebrationFrame: Equatable {
     /// Seconds into the sequence.
     let elapsed: TimeInterval
-    /// The percentage the fill is showing at this instant.
-    let percent: Double
     /// The hidden replay returns to the live reading instead of stopping at 100%.
     let isReplay: Bool
 }

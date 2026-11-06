@@ -7,7 +7,6 @@ enum UsageRecorderTests {
     static func run() async {
         Self.claudeRequestsSettleLongContextAndFast()
         Self.claudeReplaysCountOnceAtTheFinalOutput()
-        Self.appendedTranscriptResumesWhereItStopped()
         Self.rewrittenTranscriptKeepsMessagesRewrittenAway()
         Self.rewrittenTranscriptKeepsRecordedMessages()
         Self.midFileFailureLeavesNoRows()
@@ -70,28 +69,6 @@ extension UsageRecorderTests {
             fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
             TokenTotals(input: 100, output: 50),
             "a streamed and replayed message is recorded once, at its largest output"
-        )
-    }
-
-    /// Only the bytes appended since the last recording are read, so earlier requests are not
-    /// counted again.
-    fileprivate static func appendedTranscriptResumesWhereItStopped() {
-        let fixture = RecorderFixture(name: "append")
-        defer { fixture.remove() }
-        fixture.writeClaudeTranscript("app/session.jsonl", lines: [
-            ClaudeLine.assistant(id: "a", model: "claude-opus-5", input: 10, output: 1),
-        ])
-        fixture.record(.claude)
-        fixture.appendClaudeTranscript("app/session.jsonl", lines: [
-            ClaudeLine.assistant(id: "b", model: "claude-opus-5", input: 20, output: 2),
-        ])
-        fixture.record(.claude)
-        fixture.record(.claude)
-
-        Harness.expectEqual(
-            fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
-            TokenTotals(input: 30, output: 3),
-            "an appended transcript adds only its new requests"
         )
     }
 

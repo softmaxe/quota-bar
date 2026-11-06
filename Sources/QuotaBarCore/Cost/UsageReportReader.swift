@@ -132,52 +132,16 @@ public struct UsageReportCostBreakdown: Codable, Sendable, Equatable {
     }
 }
 
-public struct UsageReportWeekday: Codable, Sendable, Equatable {
-    public let name: String
-    public let total: Int
-
-    public init(name: String, total: Int) {
-        self.name = name
-        self.total = total
-    }
-}
-
 public struct UsageReportSnapshot: Codable, Sendable, Equatable {
-    public let period: String
-    public let capturedAt: String
-    public let timezone: String
-    public let totals: UsageReportTotals
-    public let costBreakdown: UsageReportCostBreakdown
+    /// The last `windowDays` days of `history`.
     public let days: [UsageReportDay]
     /// Every calendar day from the first saved record, or the window's start if that is earlier,
     /// through the capture day. The page computes any period the viewer picks from these days.
     public let history: [UsageReportDay]
-    public let models: [UsageReportNamedUsage]
-    public let sources: [UsageReportNamedUsage]
-    public let weekdays: [UsageReportWeekday]
 
-    public init(
-        period: String,
-        capturedAt: String,
-        timezone: String,
-        totals: UsageReportTotals,
-        costBreakdown: UsageReportCostBreakdown = UsageReportCostBreakdown(),
-        days: [UsageReportDay],
-        history: [UsageReportDay]? = nil,
-        models: [UsageReportNamedUsage],
-        sources: [UsageReportNamedUsage],
-        weekdays: [UsageReportWeekday]
-    ) {
-        self.history = history ?? days
-        self.period = period
-        self.capturedAt = capturedAt
-        self.timezone = timezone
-        self.totals = totals
-        self.costBreakdown = costBreakdown
+    public init(days: [UsageReportDay], history: [UsageReportDay]? = nil) {
         self.days = days
-        self.models = models
-        self.sources = sources
-        self.weekdays = weekdays
+        self.history = history ?? days
     }
 
     /// Whether any saved day exists, so the page has a period worth showing.
@@ -247,13 +211,12 @@ public enum UsageReportReader {
         }
 
         let calendarDays = try self.dayRange(days: self.historyLimitDays, now: now, calendar: calendar)
-        let range = (dates: Array(calendarDays.dates.suffix(windowDays)), keys: Array(calendarDays.keys.suffix(windowDays)))
         let rows: [PricedUsage]
         do {
             let reader = try RecordedUsageReader(databaseURL: databaseURL)
             rows = PricedUsage.price(try reader.reportUsage(
-                fromDay: calendarDays.keys[0],
-                throughDay: calendarDays.keys[calendarDays.keys.count - 1],
+                fromDay: calendarDays[0],
+                throughDay: calendarDays[calendarDays.count - 1],
                 afterSchemaDiscovery: afterSchemaDiscovery
             ), on: rateCard)
         } catch let error as RecordedUsageReaderError {
@@ -265,24 +228,17 @@ public enum UsageReportReader {
             }
         }
 
-        var total = CheckedUsage()
         var dayTotals: [String: CheckedUsage] = [:]
-        var modelTotals: [String: CheckedUsage] = [:]
-        var sourceTotals: [CostUsageSource: CheckedUsage] = [:]
         var daySourceTotals: [String: [CostUsageSource: CheckedUsage]] = [:]
-        var modelSourceTokens: [String: [CostUsageSource: Int64]] = [:]
         var dayModelTotals: [String: [ModelUsageKey: CheckedUsage]] = [:]
-        var breakdown = CostBreakdownSum()
         var dayBreakdown: [String: CostBreakdownSum] = [:]
         var recordedDays: Set<String> = []
-        let validDays = Set(calendarDays.keys)
-        let windowKeys = Set(range.keys)
+        let validDays = Set(calendarDays)
 
         for row in rows {
             guard validDays.contains(row.day) else {
                 throw UsageReportReaderError.invalidData("unexpected day \(row.day)")
             }
-            let inWindow = windowKeys.contains(row.day)
             var usage = CheckedUsage(
                 input: Int64(row.tokens.input),
                 output: Int64(row.tokens.output),
@@ -303,7 +259,6 @@ public enum UsageReportReader {
                     let part = try CostBreakdownSum(row.tokens, rates: rates, longContext: row.key.longContext,
                                                     cost: cost, fast: row.key.isFast, standardCost: standard)
                     dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
-                    if inWindow { breakdown.add(part) }
                 }
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
@@ -314,18 +269,11 @@ public enum UsageReportReader {
             try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.source, model: model),
                                                       default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
-            guard inWindow else { continue }
-            try total.add(usage)
-            try modelTotals[model, default: CheckedUsage()].add(usage)
-            try sourceTotals[row.source, default: CheckedUsage()].add(usage)
-            modelSourceTokens[model, default: [:]][row.source, default: 0] +=
-                Int64(try usage.snapshot(label: "model source").total)
         }
 
-        let totals = try total.snapshot(label: "report total")
-        let firstRecorded = calendarDays.keys.firstIndex(where: recordedDays.contains) ?? calendarDays.keys.count
-        let historyStart = min(firstRecorded, calendarDays.keys.count - windowDays)
-        let history = try calendarDays.keys[historyStart...].map { key in
+        let firstRecorded = calendarDays.firstIndex(where: recordedDays.contains) ?? calendarDays.count
+        let historyStart = min(firstRecorded, calendarDays.count - windowDays)
+        let history = try calendarDays[historyStart...].map { key in
             let models = try dayModelTotals[key, default: [:]].map { key, usage in
                 UsageReportNamedUsage(name: key.model, source: key.source.rawValue,
                                       totals: try usage.snapshot(label: "day model \(key.model)"))
@@ -343,47 +291,7 @@ public enum UsageReportReader {
                 costBreakdown: dayBreakdown[key, default: CostBreakdownSum()].snapshot()
             )
         }
-        let days = Array(history.suffix(windowDays))
-        let models = try modelTotals.map { name, usage in
-            let leading = modelSourceTokens[name, default: [:]].max {
-                $0.value != $1.value ? $0.value < $1.value : $0.key.displayOrder > $1.key.displayOrder
-            }?.key
-            return UsageReportNamedUsage(name: name, source: leading?.rawValue,
-                                         totals: try usage.snapshot(label: "model \(name)"))
-        }.sorted {
-            if $0.cost != $1.cost { return $0.cost > $1.cost }
-            if $0.total != $1.total { return $0.total > $1.total }
-            return $0.name < $1.name
-        }
-        let sources = try Self.namedSources(sourceTotals, label: "source")
-
-        var weekdayTotals = Array(repeating: CheckedUsage(), count: 7)
-        for index in range.keys.indices where recordedDays.contains(range.keys[index]) {
-            let weekday = calendar.component(.weekday, from: range.dates[index])
-            guard (1 ... 7).contains(weekday) else {
-                throw UsageReportReaderError.invalidData("calendar returned invalid weekday \(weekday)")
-            }
-            try weekdayTotals[weekday - 1].add(dayTotals[range.keys[index], default: CheckedUsage()])
-        }
-        let weekdayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-        let mondayFirst = [2, 3, 4, 5, 6, 7, 1]
-        let weekdays = try mondayFirst.map { weekday in
-            let usage = try weekdayTotals[weekday - 1].snapshot(label: weekdayNames[weekday - 1])
-            return UsageReportWeekday(name: weekdayNames[weekday - 1], total: usage.total)
-        }
-
-        return UsageReportSnapshot(
-            period: "\(range.keys[0]) 至 \(range.keys[windowDays - 1])",
-            capturedAt: self.timestamp(now),
-            timezone: calendar.timeZone.identifier,
-            totals: totals,
-            costBreakdown: breakdown.snapshot(),
-            days: days,
-            history: history,
-            models: models,
-            sources: sources,
-            weekdays: weekdays
-        )
+        return UsageReportSnapshot(days: Array(history.suffix(windowDays)), history: history)
     }
 
     private static func namedSources(
@@ -400,7 +308,7 @@ public enum UsageReportReader {
         days windowDays: Int,
         now: Date,
         calendar: Calendar
-    ) throws -> (dates: [Date], keys: [String]) {
+    ) throws -> [String] {
         guard now.timeIntervalSinceReferenceDate.isFinite else {
             throw UsageReportReaderError.invalidData("capture date is not finite")
         }
@@ -414,26 +322,17 @@ public enum UsageReportReader {
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
 
-        var dates: [Date] = []
         var keys: [String] = []
         for offset in 0 ..< windowDays {
             guard let date = calendar.date(byAdding: .day, value: offset, to: start) else {
                 throw UsageReportReaderError.invalidData("could not calculate report day \(offset + 1)")
             }
-            dates.append(date)
             keys.append(formatter.string(from: date))
         }
         guard Set(keys).count == windowDays else {
             throw UsageReportReaderError.invalidData("calendar produced duplicate report days")
         }
-        return (dates, keys)
-    }
-
-    private static func timestamp(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
+        return keys
     }
 }
 

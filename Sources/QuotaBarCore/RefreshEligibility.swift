@@ -99,11 +99,6 @@ public struct RefreshEligibility {
         max(self.gate(provider).remaining(at: uptime), Self.serverRemaining(conditions, now: now))
     }
 
-    /// Whether a user click on the Refresh row would start a refresh now.
-    public func canRefresh(_ provider: Provider, given conditions: Conditions, uptime: TimeInterval, now: Date) -> Bool {
-        self.row(provider, given: conditions, uptime: uptime, now: now).isEnabled
-    }
-
     public func row(_ provider: Provider, given conditions: Conditions, uptime: TimeInterval, now: Date) -> Row {
         let title = conditions.isSignedOut ? "Check sign-in" : "Refresh"
         // An in-flight refresh also holds the cooldown, so it is reported as what it is rather

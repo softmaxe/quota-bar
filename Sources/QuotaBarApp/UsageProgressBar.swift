@@ -241,7 +241,6 @@ struct UsageProgressBar: View {
         }
         relay.publish(QuotaCelebrationFrame(
             elapsed: time,
-            percent: self.celebrationFill(at: time),
             isReplay: self.replayStartPercent != nil
         ))
     }

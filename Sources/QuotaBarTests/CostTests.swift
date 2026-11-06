@@ -97,7 +97,7 @@ enum CostTests {
                                 "deleted sessions remain in model usage")
             Harness.expectEqual(retained?.days.first?.dayKey, DayKey.make(from: ISO8601.parse(timestamp)!),
                                 "retained usage keeps its original day")
-            Harness.expectEqual(retained?.days.first?.rankedModels.first?.key.source, .codex,
+            Harness.expectEqual(retained?.days.first?.rankedModels(by: .cost).first?.key.source, .codex,
                                 "retained usage keeps its harness")
 
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -129,7 +129,7 @@ enum CostTests {
             let claudeRetained = await CostService(databaseURL: database, env: env, rateCard: changedPrices).refresh(.claude)
             Harness.expectEqual(claudeRetained?.windowTokens, 120, "Claude usage survives deleting its session directory and restart")
             Harness.expectClose(claudeRetained?.windowCostUSD, 0.014, "deleted Claude usage stays priced")
-            Harness.expectEqual(claudeRetained?.days.first?.rankedModels.first?.key.source, .claude,
+            Harness.expectEqual(claudeRetained?.days.first?.rankedModels(by: .cost).first?.key.source, .claude,
                                 "deleted Claude usage keeps its harness")
             for suffix in ["", "-wal"] {
                 if let data = try? Data(contentsOf: URL(fileURLWithPath: database.path + suffix)) {
@@ -492,10 +492,10 @@ enum CostTests {
         // The hover breakdown needs each model's own share, ranked by cost.
         let breakdown = codex?.days.first
         Harness.expectEqual(breakdown?.byModel.count, 2, "both models appear in the day breakdown")
-        Harness.expectClose(breakdown?.rankedModels.first?.usage.costUSD, 0.8, "per-model cost for sol")
-        Harness.expectClose(breakdown?.rankedModels.last?.usage.costUSD, 0.04, "per-model cost for luna")
+        Harness.expectClose(breakdown?.rankedModels(by: .cost).first?.usage.costUSD, 0.8, "per-model cost for sol")
+        Harness.expectClose(breakdown?.rankedModels(by: .cost).last?.usage.costUSD, 0.04, "per-model cost for luna")
         Harness.expect(
-            breakdown?.rankedModels.allSatisfy { $0.key.source == .codex } == true,
+            breakdown?.rankedModels(by: .cost).allSatisfy { $0.key.source == .codex } == true,
             "Codex CLI usage keeps its source in the day breakdown"
         )
 

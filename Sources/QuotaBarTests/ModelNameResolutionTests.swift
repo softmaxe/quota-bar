@@ -73,9 +73,9 @@ enum ModelNameResolutionTests {
 
         do {
             let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: laterCard)
-            Harness.expectEqual(report.models.map(\.name), ["claude-later"], "the report groups every spelling under the canonical model")
-            Harness.expectEqual(report.totals.unpricedTokens, 0, "the report prices the alias")
-            Harness.expectEqual(report.totals.cost, 4, "the report agrees with the menu's cost")
+            Harness.expectEqual(report.modelNames, ["claude-later"], "the report groups every spelling under the canonical model")
+            Harness.expectEqual(report.windowUnpricedTokens, 0, "the report prices the alias")
+            Harness.expectEqual(report.windowCost, 4, "the report agrees with the menu's cost")
         } catch {
             Harness.expect(false, "reading the usage report threw: \(error)")
         }
@@ -118,7 +118,7 @@ enum ModelNameResolutionTests {
         Harness.expectEqual(menu.windowCostUSD, 2, "both spellings are priced at the model's rates")
         do {
             let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: card)
-            Harness.expectEqual(report.models.map(\.name), ["glm-5"], "the report groups a routed name with its model")
+            Harness.expectEqual(report.modelNames, ["glm-5"], "the report groups a routed name with its model")
             let usage = card.modelUsage(
                 try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL),
                 provider: .claude
