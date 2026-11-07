@@ -65,7 +65,14 @@ enum Formatters {
 
     /// "$0.00", "$507.13". Cents matter here because a day can be genuinely tiny.
     static func cost(_ value: Double) -> String {
-        String(format: "$%.2f", value)
+        guard value.isFinite, value >= 0 else { return "Unavailable" }
+        return String(format: "$%.2f", value)
+    }
+
+    /// Whole values without an integer conversion that could overflow.
+    static func wholeNumber(_ value: Double) -> String {
+        guard value.isFinite, value >= 0 else { return "Unavailable" }
+        return value.rounded().formatted(.number.precision(.fractionLength(0)))
     }
 
     /// "2026-08-24" -> "Aug 24".
@@ -96,10 +103,14 @@ enum Formatters {
 
     /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
     static func tokens(_ count: Int) -> String {
-        let value = Double(count)
+        self.tokens(Double(count))
+    }
+
+    static func tokens(_ value: Double) -> String {
+        guard value.isFinite, value >= 0 else { return "Unavailable" }
         if value >= 1_000_000_000 { return String(format: "%.1fB", value / 1_000_000_000) }
         if value >= 1_000_000 { return String(format: "%.0fM", value / 1_000_000) }
         if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
-        return "\(count)"
+        return String(format: "%.0f", value.rounded(.towardZero))
     }
 }

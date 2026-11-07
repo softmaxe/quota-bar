@@ -52,7 +52,7 @@ public struct RateCard: Sendable {
         let tokens = Dictionary(
             usage.lazy.map { (self.modelID(for: $0.model, provider: provider), $0.tokens) }
                 .filter { Self.isKnown($0.0) },
-            uniquingKeysWith: +
+            uniquingKeysWith: { TokenTotals.boundedSum([$0, $1]) }
         )
         return tokens.map { ModelUsageTotal(model: $0.key, tokens: $0.value) }
             .sorted { $0.tokens != $1.tokens ? $0.tokens > $1.tokens : $0.model < $1.model }
@@ -104,7 +104,14 @@ public struct RateCard: Sendable {
             threshold = self.rates(for: id, provider: provider, day: day, fast: fast)?.thresholdTokens
         }
         guard let threshold else { return false }
-        return request.input + request.cacheRead + request.cacheWrite > threshold
+        let counts = [request.input, request.cacheRead, request.cacheWrite]
+        guard counts.allSatisfy({ $0 >= 0 }) else { return false }
+        var remaining = threshold
+        for count in counts {
+            if count > remaining { return true }
+            remaining -= count
+        }
+        return false
     }
 
     /// Cost in USD, or nil for unpriced usage: tokens whose model has no rate on their day.

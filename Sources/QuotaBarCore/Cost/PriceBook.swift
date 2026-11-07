@@ -127,7 +127,7 @@ public struct PriceBook: Sendable {
         guard let model = self.model(id, provider: provider),
               let period = model.periods.last(where: { ($0.from ?? "") <= day }) else { return nil }
         guard fast else { return period.rates }
-        return period.fastMultiplier.map { period.rates.scaled(by: $0) }
+        return period.fastMultiplier.flatMap { period.rates.scaled(by: $0) }
     }
 
     // MARK: - Parsing

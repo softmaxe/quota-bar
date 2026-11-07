@@ -75,6 +75,16 @@ extension ModelPricing {
         if rates[Self.thresholdKey] == nil, rates.keys.contains(where: Self.longContextKeys.contains) {
             violations.append(RateViolation(key: Self.thresholdKey, rule: .longContextWithoutThreshold))
         }
+        // An omitted one-hour rate is still a billed rate; validate its derivation too.
+        for (key, inputKey, fallback) in [
+            ("cacheWrite1h", "input", "input"),
+            ("cacheWrite1hAbove", "inputAbove", "input"),
+        ] where rates[key] == nil && (key == "cacheWrite1h" || rates["cacheWrite1h"] == nil) {
+            if let input = rates[inputKey] ?? rates[fallback], input.isFinite, input >= 0,
+               !(input * Self.oneHourCacheWriteMultiplier).isFinite {
+                violations.append(RateViolation(key: key, rule: .notANumber))
+            }
+        }
         return violations
     }
 

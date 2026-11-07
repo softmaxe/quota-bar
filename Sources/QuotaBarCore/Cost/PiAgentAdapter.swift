@@ -112,7 +112,7 @@ package struct PiAgentAdapter: SnapshotAdapter {
             cacheWrite1h: self.nonnegativeInt(usage["cacheWrite1h"]),
             cacheRead: self.nonnegativeInt(usage["cacheRead"])
         )
-        guard totals.total > 0 else { return nil }
+        guard totals.hasValidCounts, totals.total > 0 else { return nil }
         // Session entries use UUIDv7 identifiers that survive forks. Keying globally prevents a
         // copied history from billing the same model response twice.
         let identifier = (object["id"] as? String) ?? (message["id"] as? String)

@@ -27,25 +27,65 @@ public struct TokenTotals: Sendable, Equatable {
         self.cacheRead = cacheRead
     }
 
-    /// `cacheWrite1h` is a subset of `cacheWrite`, so counting it here would double it.
-    public var total: Int { self.input + self.output + self.cacheWrite + self.cacheRead }
-
-    /// The share of input the prompt cache served: cache reads over fresh input, cache writes,
-    /// and cache reads together. Output never comes from the cache, so it stays out. Nil when
-    /// there is no input to measure.
-    public var cacheHitRate: Double? {
-        let input = self.input + self.cacheWrite + self.cacheRead
-        return input > 0 ? Double(self.cacheRead) / Double(input) : nil
+    /// Invalid externally supplied counts must be rejected before recording or pricing.
+    package var hasValidCounts: Bool {
+        let values = [self.input, self.output, self.cacheWrite, self.cacheWrite1h, self.cacheRead]
+        guard values.allSatisfy({ $0 >= 0 }), self.cacheWrite1h <= self.cacheWrite else { return false }
+        var sum = 0
+        for value in [self.input, self.output, self.cacheWrite, self.cacheRead] {
+            let next = sum.addingReportingOverflow(value)
+            guard !next.overflow else { return false }
+            sum = next.partialValue
+        }
+        return true
     }
 
+    /// Presentation remains bounded even for directly constructed public model values.
+    /// Recording and aggregation use checked validation instead of truncating accounting data.
+    package static func boundedSum(_ values: [Int]) -> Int {
+        values.reduce(0) { sum, value in
+            let next = sum.addingReportingOverflow(max(0, value))
+            return next.overflow ? Int.max : next.partialValue
+        }
+    }
+
+    /// `cacheWrite1h` is part of `cacheWrite`, so it is not counted twice.
+    public var total: Int { Self.boundedSum([self.input, self.output, self.cacheWrite, self.cacheRead]) }
+
+    public var cacheHitRate: Double? {
+        guard self.hasValidCounts else { return nil }
+        let input = Double(self.input) + Double(self.cacheWrite) + Double(self.cacheRead)
+        return input > 0 ? Double(self.cacheRead) / input : nil
+    }
+
+    /// Accounting rejects an invalid record or aggregate rather than silently clipping it.
+    package func adding(_ other: Self) throws -> Self {
+        guard self.hasValidCounts, other.hasValidCounts else {
+            throw RecordedUsageReaderError.invalidData("token counts are negative or exceed the integer range")
+        }
+        func add(_ lhs: Int, _ rhs: Int) throws -> Int {
+            let result = lhs.addingReportingOverflow(rhs)
+            guard !result.overflow else {
+                throw RecordedUsageReaderError.invalidData("token aggregation exceeds the integer range")
+            }
+            return result.partialValue
+        }
+        let result = try Self(input: add(self.input, other.input), output: add(self.output, other.output),
+                              cacheWrite: add(self.cacheWrite, other.cacheWrite),
+                              cacheWrite1h: add(self.cacheWrite1h, other.cacheWrite1h),
+                              cacheRead: add(self.cacheRead, other.cacheRead))
+        guard result.hasValidCounts else {
+            throw RecordedUsageReaderError.invalidData("total tokens exceed the integer range")
+        }
+        return result
+    }
+
+    /// Bounded addition for presentation models; persisted accounting uses `adding`.
     public static func + (lhs: Self, rhs: Self) -> Self {
-        Self(
-            input: lhs.input + rhs.input,
-            output: lhs.output + rhs.output,
-            cacheWrite: lhs.cacheWrite + rhs.cacheWrite,
-            cacheWrite1h: lhs.cacheWrite1h + rhs.cacheWrite1h,
-            cacheRead: lhs.cacheRead + rhs.cacheRead
-        )
+        Self(input: boundedSum([lhs.input, rhs.input]), output: boundedSum([lhs.output, rhs.output]),
+             cacheWrite: boundedSum([lhs.cacheWrite, rhs.cacheWrite]),
+             cacheWrite1h: boundedSum([lhs.cacheWrite1h, rhs.cacheWrite1h]),
+             cacheRead: boundedSum([lhs.cacheRead, rhs.cacheRead]))
     }
 
     public static func += (lhs: inout Self, rhs: Self) { lhs = lhs + rhs }
@@ -209,7 +249,7 @@ public struct CostSnapshot: Sendable, Equatable {
         CostAvailability(
             knownUSD: self.windowCostUSD,
             totalTokens: self.windowTokens,
-            unpricedTokens: self.days.reduce(0) { $0 + $1.unpricedTokens }
+            unpricedTokens: TokenTotals.boundedSum(self.days.map(\.unpricedTokens))
         )
     }
 }

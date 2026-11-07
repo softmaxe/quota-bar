@@ -64,9 +64,10 @@ public struct ModelPricing: Sendable, Equatable {
     }
 
     /// Every rate multiplied by `factor`, with the long-context threshold unchanged. Codex and
-    /// Claude Fast are priced this way from the Standard row.
-    public func scaled(by factor: Double) -> ModelPricing {
-        ModelPricing(
+    /// Claude Fast are priced this way from the Standard row. Returns nil if scaling overflows.
+    public func scaled(by factor: Double) -> ModelPricing? {
+        guard factor.isFinite, factor >= 0, Self.violations(in: self.rateValues).isEmpty else { return nil }
+        let scaled = ModelPricing(
             input: self.input * factor,
             output: self.output * factor,
             cacheWrite: self.cacheWrite.map { $0 * factor },
@@ -79,6 +80,7 @@ public struct ModelPricing: Sendable, Equatable {
             cacheWrite1hAbove: self.cacheWrite1hAbove.map { $0 * factor },
             cacheReadAbove: self.cacheReadAbove.map { $0 * factor }
         )
+        return Self.violations(in: scaled.rateValues).isEmpty ? scaled : nil
     }
 
     /// Anthropic's published ratio between a one-hour cache write and the base input rate.
@@ -93,8 +95,11 @@ public struct ModelPricing: Sendable, Equatable {
         return inputRate * Self.oneHourCacheWriteMultiplier
     }
 
-    /// Cost in USD for one bucket of tokens, at either the base or the long-context tier.
-    public func cost(for totals: TokenTotals, longContext: Bool) -> Double {
+    /// Cost in USD for one bucket of tokens, or nil when rates or the amount are invalid.
+    public func cost(for totals: TokenTotals, longContext: Bool) -> Double? {
+        guard Self.violations(in: self.rateValues).isEmpty,
+              [totals.input, totals.output, totals.cacheWrite, totals.cacheWrite1h, totals.cacheRead]
+                .allSatisfy({ $0 >= 0 }) else { return nil }
         let million = 1_000_000.0
         let inputRate = (longContext ? self.inputAbove : nil) ?? self.input
         let outputRate = (longContext ? self.outputAbove : nil) ?? self.output
@@ -108,11 +113,21 @@ public struct ModelPricing: Sendable, Equatable {
         let write1h = Double(min(totals.cacheWrite1h, totals.cacheWrite))
         let write5m = Double(totals.cacheWrite) - write1h
 
-        return (Double(totals.input) * inputRate
+        let millionths = Double(totals.input) * inputRate
             + Double(totals.output) * outputRate
             + write5m * cacheWriteRate
             + write1h * self.cacheWrite1hRate(longContext: longContext)
-            + Double(totals.cacheRead) * cacheReadRate) / million
+            + Double(totals.cacheRead) * cacheReadRate
+        if millionths.isFinite { return millionths / million }
+
+        // Retry in USD when the intermediate amount in millionths overflowed.
+        // This preserves the existing rounding for ordinary rates.
+        let cost = Double(totals.input) * (inputRate / million)
+            + Double(totals.output) * (outputRate / million)
+            + write5m * (cacheWriteRate / million)
+            + write1h * (self.cacheWrite1hRate(longContext: longContext) / million)
+            + Double(totals.cacheRead) * (cacheReadRate / million)
+        return cost.isFinite && cost >= 0 ? cost : nil
     }
 }
 

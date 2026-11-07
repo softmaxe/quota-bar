@@ -57,7 +57,7 @@ public struct CreditsSnapshot: Sendable, Equatable {
     public init(hasCredits: Bool, unlimited: Bool, balance: Double?) {
         self.hasCredits = hasCredits
         self.unlimited = unlimited
-        self.balance = balance
+        self.balance = balance.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
     }
 
     /// True only when there is a balance worth showing. An account with no credits at all,

@@ -214,7 +214,7 @@ public enum UsageReportReader {
         let rows: [PricedUsage]
         do {
             let reader = try RecordedUsageReader(databaseURL: databaseURL)
-            rows = PricedUsage.price(try reader.reportUsage(
+            rows = try PricedUsage.price(try reader.reportUsage(
                 fromDay: calendarDays[0],
                 throughDay: calendarDays[calendarDays.count - 1],
                 afterSchemaDiscovery: afterSchemaDiscovery
@@ -258,7 +258,7 @@ public enum UsageReportReader {
                         : nil
                     let part = try CostBreakdownSum(row.tokens, rates: rates, longContext: row.key.longContext,
                                                     cost: cost, fast: row.key.isFast, standardCost: standard)
-                    dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
+                    try dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
                 }
             } else {
                 usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
@@ -358,12 +358,17 @@ private struct CostBreakdownSum {
         fast: Bool,
         standardCost: Double?
     ) throws {
-        let price = { (part: TokenTotals) in rates.cost(for: part, longContext: longContext) }
-        self.input = price(TokenTotals(input: tokens.input))
-        self.output = price(TokenTotals(output: tokens.output))
-        self.cacheRead = price(TokenTotals(cacheRead: tokens.cacheRead))
-        self.cacheWrite = price(TokenTotals(cacheWrite: tokens.cacheWrite, cacheWrite1h: tokens.cacheWrite1h))
-        self.cacheSavings = price(TokenTotals(input: tokens.cacheRead)) - self.cacheRead
+        let price = { (part: TokenTotals) throws -> Double in
+            guard let cost = rates.cost(for: part, longContext: longContext) else {
+                throw UsageReportReaderError.invalidData("cost breakdown is not finite and nonnegative")
+            }
+            return cost
+        }
+        self.input = try price(TokenTotals(input: tokens.input))
+        self.output = try price(TokenTotals(output: tokens.output))
+        self.cacheRead = try price(TokenTotals(cacheRead: tokens.cacheRead))
+        self.cacheWrite = try price(TokenTotals(cacheWrite: tokens.cacheWrite, cacheWrite1h: tokens.cacheWrite1h))
+        self.cacheSavings = try price(TokenTotals(input: tokens.cacheRead)) - self.cacheRead
         if fast {
             self.fast = cost
             self.fastPremium = max(0, cost - (standardCost ?? cost))
@@ -374,7 +379,7 @@ private struct CostBreakdownSum {
         }
     }
 
-    mutating func add(_ other: Self) {
+    mutating func add(_ other: Self) throws {
         self.input += other.input
         self.output += other.output
         self.cacheRead += other.cacheRead
@@ -382,6 +387,9 @@ private struct CostBreakdownSum {
         self.cacheSavings += other.cacheSavings
         self.fast += other.fast
         self.fastPremium += other.fastPremium
+        guard [self.input, self.output, self.cacheRead, self.cacheWrite, self.cacheSavings, self.fast, self.fastPremium].allSatisfy(\.isFinite) else {
+            throw UsageReportReaderError.invalidData("aggregate cost breakdown is not finite")
+        }
     }
 
     func snapshot() -> UsageReportCostBreakdown {

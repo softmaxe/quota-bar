@@ -11,6 +11,35 @@ private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self
 
 /// Where a file was left off. A file is resumable only if its identity still matches.
 package struct FileCursor {
+    /// SQLite affinities do not enforce storage types. Reject damaged cursors before converting
+    /// signed values or trusting a byte position, both for imports and existing databases.
+    static func read(_ statement: OpaquePointer?) -> FileCursor? {
+        guard (0...2).allSatisfy({ sqlite3_column_type(statement, Int32($0)) == SQLITE_INTEGER }),
+              let inode = UInt64(exactly: sqlite3_column_int64(statement, 0)),
+              sqlite3_column_int64(statement, 1) >= 0,
+              sqlite3_column_int64(statement, 2) >= 0,
+              sqlite3_column_int64(statement, 2) <= sqlite3_column_int64(statement, 1),
+              let digest = self.text(statement, column: 3), !digest.isEmpty else { return nil }
+        var resume: String?
+        if sqlite3_column_type(statement, 4) != SQLITE_NULL {
+            guard let value = self.text(statement, column: 4),
+                  (try? JSONSerialization.jsonObject(with: Data(value.utf8))) is [String: Any] else { return nil }
+            resume = value
+        }
+        return FileCursor(
+            inode: inode, size: sqlite3_column_int64(statement, 1),
+            offset: sqlite3_column_int64(statement, 2), prefixDigest: digest, resumeStateJSON: resume
+        )
+    }
+
+    static func text(_ statement: OpaquePointer?, column: Int32) -> String? {
+        guard sqlite3_column_type(statement, column) == SQLITE_TEXT,
+              let bytes = sqlite3_column_text(statement, column) else { return nil }
+        let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, column)))
+        guard !data.contains(0) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Zero marks a Codex rollout whose deletion was observed, so a restored copy can resume.
     package let inode: UInt64
     package let size: Int64
@@ -254,7 +283,7 @@ final class CostCache {
         var paths: [String] = []
         var result = sqlite3_step(stmt)
         while result == SQLITE_ROW {
-            paths.append(String(cString: sqlite3_column_text(stmt, 0)))
+            if let path = FileCursor.text(stmt, column: 0), !path.isEmpty { paths.append(path) }
             result = sqlite3_step(stmt)
         }
         guard result == SQLITE_DONE else { throw CostCacheError.statementFailed(self.lastErrorMessage) }
@@ -269,15 +298,7 @@ final class CostCache {
         guard stmt != nil else { return nil }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return FileCursor(
-            inode: UInt64(sqlite3_column_int64(stmt, 0)),
-            size: sqlite3_column_int64(stmt, 1),
-            offset: sqlite3_column_int64(stmt, 2),
-            prefixDigest: String(cString: sqlite3_column_text(stmt, 3)),
-            resumeStateJSON: sqlite3_column_type(stmt, 4) == SQLITE_NULL
-                ? nil
-                : String(cString: sqlite3_column_text(stmt, 4))
-        )
+        return FileCursor.read(stmt)
     }
 
     func setCursor(_ cursor: FileCursor, forPath path: String, provider: Provider) throws {
@@ -347,17 +368,45 @@ final class CostCache {
         isFast: Bool,
         totals: TokenTotals
     ) throws {
+        let existing = try self.reusable("""
+            SELECT input, output, cache_write, cache_write_1h, cache_read FROM codex_day
+            WHERE path = ? AND day = ? AND model = ? AND long_context = ? AND is_fast = ?
+            """)
+        defer { sqlite3_reset(existing) }
+        sqlite3_bind_text(existing, 1, path, -1, sqliteTransient)
+        sqlite3_bind_text(existing, 2, day, -1, sqliteTransient)
+        sqlite3_bind_text(existing, 3, model, -1, sqliteTransient)
+        sqlite3_bind_int64(existing, 4, longContext ? 1 : 0)
+        sqlite3_bind_int64(existing, 5, isFast ? 1 : 0)
+        let status = sqlite3_step(existing)
+        var combined = try TokenTotals().adding(totals)
+        if status == SQLITE_ROW {
+            let counts = try (0..<5).map { column -> Int in
+                guard sqlite3_column_type(existing, Int32(column)) == SQLITE_INTEGER else {
+                    throw RecordedUsageReaderError.invalidData("stored token count is not an integer")
+                }
+                return Int(sqlite3_column_int64(existing, Int32(column)))
+            }
+            guard counts[3] <= counts[2] else {
+                throw RecordedUsageReaderError.invalidData("stored one-hour cache tokens exceed cache writes")
+            }
+            combined = try TokenTotals(input: counts[0], output: counts[1], cacheWrite: counts[2],
+                                       cacheWrite1h: counts[3], cacheRead: counts[4]).adding(totals)
+        } else if status != SQLITE_DONE {
+            throw CostCacheError.statementFailed(self.lastErrorMessage)
+        }
+        sqlite3_reset(existing)
         let stmt = try self.reusable("""
             INSERT INTO codex_day
                 (path, day, model, long_context, is_fast, input, output, cache_write,
                  cache_write_1h, cache_read)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(path, day, model, long_context, is_fast) DO UPDATE SET
-                input = input + excluded.input,
-                output = output + excluded.output,
-                cache_write = cache_write + excluded.cache_write,
-                cache_write_1h = cache_write_1h + excluded.cache_write_1h,
-                cache_read = cache_read + excluded.cache_read
+                input = excluded.input,
+                output = excluded.output,
+                cache_write = excluded.cache_write,
+                cache_write_1h = excluded.cache_write_1h,
+                cache_read = excluded.cache_read
             """)
         defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, path, -1, sqliteTransient)
@@ -365,7 +414,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 4, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 5, isFast ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals)
+        self.bindUsage(stmt, from: 6, totals: combined)
         try self.step(stmt)
     }
 
@@ -505,6 +554,8 @@ final class CostCache {
         }
         defer { try? self.exec("DETACH DATABASE backup") }
         try self.requireKnownSchema()
+        try UsageBackup.validateCursors(self.recordedUsageReader, schema: "backup")
+        try UsageBackup.validateTokens(self.recordedUsageReader, schema: "backup")
         try? FileManager.default.removeItem(at: undoCopy)
         try self.writeSnapshot(to: undoCopy)
 

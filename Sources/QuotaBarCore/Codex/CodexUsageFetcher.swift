@@ -83,9 +83,9 @@ public struct CodexUsageResponse: Decodable, Sendable {
             self.hasCredits = (try? container.decode(Bool.self, forKey: .hasCredits)) ?? false
             self.unlimited = (try? container.decode(Bool.self, forKey: .unlimited)) ?? false
             if let balance = try? container.decode(Double.self, forKey: .balance) {
-                self.balance = balance
+                self.balance = balance.isFinite && balance >= 0 ? balance : nil
             } else if let raw = try? container.decode(String.self, forKey: .balance) {
-                self.balance = Double(raw)
+                self.balance = Double(raw).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
             } else {
                 self.balance = nil
             }

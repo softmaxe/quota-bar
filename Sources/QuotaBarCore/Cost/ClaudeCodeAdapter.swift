@@ -78,7 +78,7 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
                 cacheWrite1h: min(cacheCreation?.ephemeral_1h_input_tokens.intValue ?? 0, cacheWrite),
                 cacheRead: usage.cache_read_input_tokens.intValue
             )
-            guard tokens.total > 0 else { return nil }
+            guard tokens.hasValidCounts, tokens.total > 0 else { return nil }
 
             guard let timestamp = root.timestamp.loose(),
                   let date = ISO8601.parse(timestamp) else { return nil }
