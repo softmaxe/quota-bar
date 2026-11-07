@@ -261,16 +261,18 @@ package enum LogFileScanner {
         return String(decoding: characters, as: UTF8.self)
     }
 
-    /// All `.jsonl` files under the given roots, skipping unreadable directories.
-    static func jsonlFiles(under roots: [URL]) -> [URL] {
+    /// All readable `.jsonl` files, reporting directories that could not be enumerated.
+    static func jsonlFiles(under roots: [URL], onError: @escaping (Error) -> Void = { _ in }) -> [URL] {
         var found: [URL] = []
         for root in roots {
             guard FileManager.default.fileExists(atPath: root.path) else { continue }
             let enumerator = FileManager.default.enumerator(
                 at: root,
                 includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
+                options: [.skipsHiddenFiles],
+                errorHandler: { _, error in onError(error); return true }
             )
+            if enumerator == nil { onError(CocoaError(.fileReadUnknown)) }
             while let item = enumerator?.nextObject() as? URL {
                 guard item.pathExtension == "jsonl" else { continue }
                 found.append(item)

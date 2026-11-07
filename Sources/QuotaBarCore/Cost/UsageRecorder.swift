@@ -314,7 +314,7 @@ package protocol AppendedLogAdapter {
 
     var source: AppendedLogSource { get }
     /// Every log file to consider this pass.
-    func logFiles() -> [URL]
+    func logFiles(onError: @escaping (Error) -> Void) -> [URL]
     /// A byte-level prefilter run before a line is parsed. It sees at most a long line's first
     /// 64KB, so it may reject a prefix only when it would reject every line starting with it.
     func isWanted(_ line: UnsafeRawBufferPointer) -> Bool
@@ -343,15 +343,15 @@ package protocol AppendedLogParser {
 extension UsageRecorder {
     /// Reads what each of the adapter's files gained since the last scan. A file that fails
     /// partway leaves no rows and keeps its cursor, so a retry cannot double it, and is skipped
-    /// for this pass. A failure of the whole source keeps what was recorded before and reports it
-    /// in the source's scan status. Returns the number of files that contributed new bytes.
+    /// for this pass. Any failed file or directory is reported in the source's scan status while
+    /// readable files still contribute. Returns the number of files that contributed new bytes.
     @discardableResult
     package func record(_ adapter: some AppendedLogAdapter, rateCard: RateCard) -> Int {
         let source = adapter.source.usageSource
         do {
-            let touched = try self.readNewLines(adapter, rateCard: rateCard)
-            self.settle(source, status: .idle)
-            return touched
+            let result = try self.readNewLines(adapter, rateCard: rateCard)
+            self.settle(source, status: result.failed ? .error(ScanFailure.sessions.rawValue) : .idle)
+            return result.touched
         } catch {
             self.fail(source, .database, error: error)
             return 0
@@ -360,10 +360,11 @@ extension UsageRecorder {
 
     /// A file that was rewritten rather than appended to is reread from the start, after its rows
     /// are dropped when its Usage source's merge rule requires it (see `dropsRowsOnRewrite`).
-    private func readNewLines(_ adapter: some AppendedLogAdapter, rateCard: RateCard) throws -> Int {
+    private func readNewLines(_ adapter: some AppendedLogAdapter, rateCard: RateCard) throws -> (touched: Int, failed: Bool) {
         let source = adapter.source
         let provider = source.usageSource.provider
-        let files = adapter.logFiles()
+        var failed = false
+        let files = adapter.logFiles { _ in failed = true }
         let storedPaths = try self.retainedPaths(adapter)
         var touched = 0
         for url in files {
@@ -373,11 +374,21 @@ extension UsageRecorder {
             // copied log continues that session instead of counting it again.
             let path = sessionID.flatMap { storedPaths[$0] } ?? filePath
             let previous = self.cache.cursor(forPath: path)
-            guard let plan = try? LogFileScanner.plan(
-                for: url,
-                previous: previous,
-                matchingSessionCopy: sessionID != nil && (path != filePath || previous?.inode == 0)
-            ) else { continue }
+            let plan: LogFileScanner.ScanPlan
+            do {
+                guard let planned = try LogFileScanner.plan(
+                    for: url,
+                    previous: previous,
+                    matchingSessionCopy: sessionID != nil && (path != filePath || previous?.inode == 0)
+                ) else { continue }
+                plan = planned
+            } catch {
+                failed = true
+                source.usageSource.log.warning(
+                    "Skipped \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                continue
+            }
             // Deleting the live file may leave an older copy. It cannot roll history back.
             if sessionID != nil, let previous, plan.cursor.size < previous.size,
                path != filePath || previous.inode == 0 { continue }
@@ -430,12 +441,13 @@ extension UsageRecorder {
                 touched += 1
             } catch {
                 self.cache.rollback()
+                failed = true
                 source.usageSource.log.warning(
                     "Skipped \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
             }
         }
-        return touched
+        return (touched, failed)
     }
 
     /// The path each session is recorded under: the copy scanned furthest. A tracked file that

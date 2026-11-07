@@ -35,8 +35,8 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
         ]
     }
 
-    package func logFiles() -> [URL] {
-        LogFileScanner.jsonlFiles(under: Self.projectRoots(env: self.env) + self.mirroredRoots)
+    package func logFiles(onError: @escaping (Error) -> Void) -> [URL] {
+        LogFileScanner.jsonlFiles(under: Self.projectRoots(env: self.env) + self.mirroredRoots, onError: onError)
     }
 
     package func isWanted(_ line: UnsafeRawBufferPointer) -> Bool {
