@@ -1,6 +1,7 @@
 import QuotaBarCore
 @testable import QuotaBarApp
 import Foundation
+import Darwin
 
 /// Mirroring other machines' logs: what reaches ssh and rsync, how a failure surfaces, and that
 /// mirrored logs count once alongside this Mac's own.
@@ -13,6 +14,9 @@ enum RemoteLogMirrorTests {
         await Self.unreachableMachineCopiesNothing()
         await Self.machineWithoutLogsIsReported()
         await Self.failedCopyReportsItsLastLine()
+        await Self.cancellationStopsFurtherCommands()
+        await Self.removeAndReaddWaitsForCancellation()
+        await Self.nativeCommandCancellationCleansUp()
         Self.sessionsOnBothMachinesCountOnce()
         Self.mirroredLogsResumeWhereTheyStopped()
         Self.hostUsageSeparatesHeldFromNew()
@@ -143,6 +147,102 @@ enum RemoteLogMirrorTests {
         let mirror = RemoteLogMirror(root: fixture.root, run: commands.run)
 
         await Self.expectFailure(of: mirror, equals: .failed("rsync: command not found"), "rsync's reason surfaces")
+    }
+
+    private static func cancellationStopsFurtherCommands() async {
+        for suspended in [1, 2] {
+            let fixture = RecorderFixture(name: "remote-cancel-\(suspended)")
+            defer { fixture.remove() }
+            let commands = SuspendedRemoteCommand(suspended: suspended)
+            let root = fixture.root.appendingPathComponent("mirror")
+            let mirror = RemoteLogMirror(root: root, run: commands.run)
+            let task = Task { try await mirror.sync(host: "host") }
+            let reached = await Self.eventually { commands.isSuspended }
+            Harness.expect(reached, "the dummy command reaches its suspension")
+            task.cancel()
+            commands.release()
+            do {
+                try await task.value
+                Harness.expect(false, "cancelled mirror must throw")
+            } catch {
+                Harness.expect(error is CancellationError, "cancellation is preserved")
+            }
+            Harness.expectEqual(commands.count, suspended, "cancellation starts no further commands")
+            if suspended == 1 {
+                Harness.expect(!FileManager.default.fileExists(atPath: root.path), "cancelled probe creates no mirror")
+            } else {
+                Harness.expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("host/codex/sessions").path), "cancelled copy creates no later root")
+            }
+        }
+    }
+
+    @MainActor
+    private static func removeAndReaddWaitsForCancellation() async {
+        for suspended in [1, 2] {
+            let fixture = RecorderFixture(name: "remote-readd-\(suspended)")
+            defer { fixture.remove() }
+            let settings = SettingsStore(defaults: EphemeralDefaults.make("RemoteReadd-\(suspended)"))
+            let commands = SuspendedRemoteCommand(suspended: suspended)
+            var successes = 0
+            let model = RemoteSyncModel(
+                settings: settings,
+                mirror: RemoteLogMirror(root: fixture.root, run: commands.run),
+                didSync: { successes += 1 }
+            )
+            let retained = fixture.root.appendingPathComponent("host/retained.jsonl")
+            try? FileManager.default.createDirectory(at: retained.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data("existing transcript".utf8).write(to: retained)
+            model.add("host")
+            let reached = await Self.eventually { commands.isSuspended }
+            Harness.expect(reached, "model reaches suspended command")
+            model.remove("host")
+            Harness.expect(FileManager.default.fileExists(atPath: retained.path), "removing a host preserves old mirror data")
+            Harness.expectEqual(model.state(of: "host"), .idle, "removed host has no stale state")
+            model.add("host")
+            for _ in 0..<100 { await Task.yield() }
+            Harness.expectEqual(commands.count, suspended, "replacement waits for previous command to finish")
+            commands.release()
+            let finished = await Self.eventually { !model.isSyncing }
+            Harness.expect(finished, "replacement finishes within the test deadline")
+            Harness.expectEqual(successes, 1, "only replacement requests a scan")
+            Harness.expectEqual(commands.count, suspended + 3, "replacement runs exactly one probe and two copies")
+            if case .synced = model.state(of: "host") {} else {
+                Harness.expect(false, "replacement owns the final UI state")
+            }
+            model.stop()
+        }
+    }
+
+    private static func nativeCommandCancellationCleansUp() async {
+        let fixture = RecorderFixture(name: "remote-process-cancel")
+        defer { fixture.remove() }
+        let marker = fixture.root.appendingPathComponent("started")
+        let task = Task {
+            try await RemoteLogMirror.runCommand(
+                "/bin/sh", ["-c", "echo $$ > \"$1\"; exec /bin/sleep 30", "test", marker.path], 2
+            )
+        }
+        let reached = await Self.eventually { FileManager.default.fileExists(atPath: marker.path) }
+        Harness.expect(reached, "local dummy process starts without network access")
+        let start = Date()
+        task.cancel()
+        do {
+            _ = try await task.value
+            Harness.expect(false, "cancelled native command must throw")
+        } catch {
+            Harness.expect(error is CancellationError, "native command reports cancellation")
+        }
+        Harness.expect(Date().timeIntervalSince(start) < 1, "cancellation does not wait for timeout")
+        if let raw = try? String(contentsOf: marker, encoding: .utf8), let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            Harness.expect(kill(pid, 0) == -1, "cancelled child has exited before completion")
+        }
+    }
+
+    @MainActor
+    private static func eventually(_ predicate: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while !predicate(), Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        return predicate()
     }
 
     private static func expectFailure(
@@ -358,5 +458,42 @@ private extension RecorderFixture {
         defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+    }
+}
+
+/// Deliberately ignores task cancellation to exercise the mirror's post-await checks.
+private final class SuspendedRemoteCommand: @unchecked Sendable {
+    private let lock = NSLock()
+    private let suspended: Int
+    private var received = 0
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(suspended: Int) { self.suspended = suspended }
+    var count: Int { self.lock.withLock { self.received } }
+    var isSuspended: Bool { self.lock.withLock { self.continuation != nil } }
+
+    func release() {
+        let continuation = self.lock.withLock {
+            let result = self.continuation
+            self.continuation = nil
+            return result
+        }
+        continuation?.resume()
+    }
+
+    var run: CommandRunner {
+        { [self] executable, _, _ in
+            let pause = self.lock.withLock {
+                self.received += 1
+                return self.received == self.suspended
+            }
+            if pause {
+                await withCheckedContinuation { continuation in
+                    self.lock.withLock { self.continuation = continuation }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [weak self] in self?.release() }
+                }
+            }
+            return CommandOutput(status: 0, stdout: executable == "/usr/bin/ssh" ? ".claude/projects\n.codex/sessions\n" : "")
+        }
     }
 }

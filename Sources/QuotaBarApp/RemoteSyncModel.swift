@@ -27,6 +27,8 @@ final class RemoteSyncModel: ObservableObject {
     private let didSync: @MainActor () -> Void
     private let readUsage: @Sendable ([String]) -> [String: RemoteHostUsage]?
     private var timer: Timer?
+    private var taskIDs: [String: UUID] = [:]
+    private var generations: [String: UUID] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
 
     /// `readUsage` runs off the main actor and returns nil when the usage cannot be read.
@@ -56,7 +58,7 @@ final class RemoteSyncModel: ObservableObject {
         self.timer?.invalidate()
         self.timer = nil
         for task in self.tasks.values { task.cancel() }
-        self.tasks = [:]
+        self.generations = [:]
     }
 
     func state(of host: String) -> RemoteHostSyncState {
@@ -71,7 +73,7 @@ final class RemoteSyncModel: ObservableObject {
         let read = self.readUsage
         let usage = await Task.detached(priority: .utility) { read(hosts) }.value
         guard !Task.isCancelled, let usage else { return }
-        self.usage = usage
+        self.usage = usage.filter { self.settings.remoteHosts.contains($0.key) }
     }
 
     /// Adds a host and mirrors it at once, so a wrong name or a missing key shows up right away.
@@ -87,8 +89,9 @@ final class RemoteSyncModel: ObservableObject {
     func remove(_ host: String) {
         self.settings.remoteHosts.removeAll { $0 == host }
         self.tasks[host]?.cancel()
-        self.tasks[host] = nil
+        self.generations[host] = nil
         self.states[host] = nil
+        self.usage[host] = nil
     }
 
     func syncAll() {
@@ -102,18 +105,38 @@ final class RemoteSyncModel: ObservableObject {
 
     /// A sync already running for this host covers this request too.
     func sync(_ host: String) {
-        guard self.tasks[host] == nil else { return }
+        guard self.settings.remoteHosts.contains(host), self.generations[host] == nil else { return }
+        let previous = self.tasks[host]
+        let generation = UUID()
+        self.generations[host] = generation
+        self.taskIDs[host] = generation
         self.states[host] = .syncing
         self.tasks[host] = Task(priority: .utility) { [weak self, mirror] in
+            // A removed host may still be winding down its command. Never overlap its writes.
+            await previous?.value
             let outcome: Result<Void, Error>
             do {
+                try Task.checkCancellation()
                 try await mirror.sync(host: host)
                 outcome = .success(())
             } catch {
                 outcome = .failure(error)
             }
             await MainActor.run {
-                guard let self, !Task.isCancelled else { return }
+                guard let self else { return }
+                guard self.generations[host] == generation else {
+                    if self.taskIDs[host] == generation {
+                        self.tasks[host] = nil
+                        self.taskIDs[host] = nil
+                    }
+                    return
+                }
+                self.generations[host] = nil
+                self.taskIDs[host] = nil
+                guard !Task.isCancelled else {
+                    self.tasks[host] = nil
+                    return
+                }
                 self.tasks[host] = nil
                 switch outcome {
                 case .success:

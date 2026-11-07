@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// What a finished command left behind.
 package struct CommandOutput: Sendable, Equatable {
@@ -109,8 +110,10 @@ public struct RemoteLogMirror: Sendable {
 
     /// Brings the host's mirror up to date.
     public func sync(host: String) async throws {
+        try Task.checkCancellation()
         guard Self.isValidHost(host) else { throw RemoteSyncError.invalidHost }
         let roots = try await self.presentRoots(on: host)
+        try Task.checkCancellation()
         guard !roots.isEmpty else { throw RemoteSyncError.noLogs }
 
         let hostDirectory = self.root.appendingPathComponent(host, isDirectory: true)
@@ -121,6 +124,7 @@ public struct RemoteLogMirror: Sendable {
             attributes: [.posixPermissions: 0o700]
         )
         for root in roots {
+            try Task.checkCancellation()
             let target = hostDirectory.appendingPathComponent(root.mirror, isDirectory: true)
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
             try await self.copy(root, from: host, to: target)
@@ -131,17 +135,20 @@ public struct RemoteLogMirror: Sendable {
     /// ones present whatever the remote login shell is.
     private func presentRoots(on host: String) async throws -> [LogRoot] {
         let roots = Self.claudeRoots + Self.codexRoots
+        try Task.checkCancellation()
         let output = try await self.run(
             Self.sshPath,
             Self.sshOptions + [host, "ls", "-d"] + roots.map(\.remote),
             Self.probeTimeout
         )
+        try Task.checkCancellation()
         if output.status == Self.sshFailureStatus { throw Self.failure(output) }
         let present = Set(output.stdout.split(whereSeparator: \.isNewline).map(String.init))
         return roots.filter { present.contains($0.remote) }
     }
 
     private func copy(_ root: LogRoot, from host: String, to target: URL) async throws {
+        try Task.checkCancellation()
         let output = try await self.run(
             Self.rsyncPath,
             [
@@ -158,6 +165,7 @@ public struct RemoteLogMirror: Sendable {
             ],
             Self.copyTimeout
         )
+        try Task.checkCancellation()
         guard output.status == 0 else { throw Self.failure(output) }
     }
 
@@ -206,7 +214,8 @@ public struct RemoteLogMirror: Sendable {
 
     /// Output goes to files rather than pipes: an ssh `ControlPersist` master inherits them and
     /// outlives the command, so reading a pipe to its end could wait for hours.
-    private static let runCommand: CommandRunner = { executable, arguments, timeout in
+    package static let runCommand: CommandRunner = { executable, arguments, timeout in
+        try Task.checkCancellation()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("quotabar-command-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -223,25 +232,74 @@ public struct RemoteLogMirror: Sendable {
         process.standardOutput = try FileHandle(forWritingTo: stdoutURL)
         process.standardError = try FileHandle(forWritingTo: stderrURL)
 
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: error)
-                return
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                if process.isRunning { process.terminate() }
-            }
+        defer {
+            try? (process.standardOutput as? FileHandle)?.close()
+            try? (process.standardError as? FileHandle)?.close()
         }
+        let execution = CommandExecution(process: process)
+        let status = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                execution.start(timeout: timeout, continuation: continuation)
+            }
+        } onCancel: {
+            execution.cancel()
+        }
+        try Task.checkCancellation()
 
         return CommandOutput(
             status: status,
             stdout: (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? "",
             stderr: (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
         )
+    }
+}
+
+/// Serializes cancellation with launch and keeps the timeout alive only while the child runs.
+private final class CommandExecution: @unchecked Sendable {
+    private let lock = NSLock()
+    private let process: Process
+    private var cancelled = false
+    private var timer: DispatchSourceTimer?
+
+    init(process: Process) { self.process = process }
+
+    func start(timeout: TimeInterval, continuation: CheckedContinuation<Int32, Error>) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        guard !self.cancelled else {
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.process.terminationHandler = { [self] process in
+            self.lock.withLock {
+                self.timer?.cancel()
+                self.timer = nil
+                process.terminationHandler = nil
+            }
+            continuation.resume(returning: process.terminationStatus)
+        }
+        do {
+            try self.process.run()
+            let timer = DispatchSource.makeTimerSource(queue: .global())
+            timer.schedule(deadline: .now() + timeout)
+            timer.setEventHandler { [weak self] in self?.cancel() }
+            self.timer = timer
+            timer.resume()
+        } catch {
+            self.process.terminationHandler = nil
+            continuation.resume(throwing: error)
+        }
+    }
+
+    func cancel() {
+        self.lock.withLock {
+            self.cancelled = true
+            // Wait for the termination handler before allowing another copy of this host.
+            // SIGKILL also bounds cancellation when the command ignores SIGTERM.
+            if self.process.isRunning { kill(self.process.processIdentifier, SIGKILL) }
+            self.timer?.cancel()
+            self.timer = nil
+        }
     }
 }
 
