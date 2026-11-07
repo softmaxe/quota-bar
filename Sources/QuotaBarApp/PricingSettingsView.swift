@@ -115,7 +115,6 @@ struct PricingSettingsView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        // Inside the scroll view so a classic scroll bar narrows both alike.
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                                 self.sectionHeader(section.section)
@@ -126,7 +125,10 @@ struct PricingSettingsView: View {
                                 }
                             }
                         }
+                        // Reserve a gutter even while the overlay indicator is hidden.
+                        .padding(.trailing, 18)
                         .padding(.bottom, 12)
+                        .background(PricingScrollStyle())
                     }
                     // Rows fade out into the footer instead of being cut by it.
                     .mask {
@@ -443,6 +445,36 @@ struct PricingSettingsView: View {
         case (.priceBook?, _): ("OpenAI API pricing", Self.openAIPricingURL)
         case (.modelsDev?, _): ("Open models.dev", Self.modelsDevURL)
         case (nil, _): nil
+        }
+    }
+}
+
+/// Keep the pricing indicator on a transparent track, including with always-visible scrollers.
+private struct PricingScrollStyle: NSViewRepresentable {
+    func makeNSView(context: Context) -> ScrollStyleView {
+        ScrollStyleView()
+    }
+
+    func updateNSView(_ view: ScrollStyleView, context: Context) {
+        view.applyStyle()
+    }
+
+    final class ScrollStyleView: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            self.applyStyle()
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            self.applyStyle()
+        }
+
+        func applyStyle() {
+            guard let scrollView = self.enclosingScrollView else { return }
+            scrollView.scrollerStyle = .overlay
+            scrollView.drawsBackground = false
+            scrollView.borderType = .noBorder
         }
     }
 }
