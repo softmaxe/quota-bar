@@ -112,17 +112,9 @@ public enum ClaudeUsageFetcher {
         case 401:
             throw ClaudeFetchError.unauthorized
         case 429:
-            throw ClaudeFetchError.rateLimited(Self.retryAfter(from: response))
+            throw ClaudeFetchError.rateLimited(HTTPRetryAfter.date(from: response))
         default:
             throw ClaudeFetchError.serverError(response.statusCode, String(data: data, encoding: .utf8))
         }
-    }
-
-    private static func retryAfter(from response: HTTPURLResponse) -> Date? {
-        guard let raw = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
-        if let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return Date().addingTimeInterval(seconds)
-        }
-        return nil
     }
 }
