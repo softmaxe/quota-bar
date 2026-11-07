@@ -11,8 +11,10 @@ enum CostAggregator {
         calendar: Calendar = .current
     ) throws -> CostSnapshot {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
+        let todayKey = DayKey.today(calendar: calendar, now: now)
         let rows = PricedUsage.price(
-            try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar)),
+            try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar))
+                .filter { $0.day <= todayKey },
             on: rateCard
         )
 
@@ -60,7 +62,6 @@ enum CostAggregator {
 
         days.sort { $0.dayKey < $1.dayKey }
 
-        let todayKey = DayKey.today(calendar: calendar, now: now)
         var todayCostUSD = 0.0
         var windowCostUSD = 0.0
         var latestTokens = 0
