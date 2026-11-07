@@ -7,6 +7,14 @@ import Darwin
 /// mirrored logs count once alongside this Mac's own.
 enum RemoteLogMirrorTests {
     static func run() async {
+        await Self.evictedLogsResumeSafely()
+        Self.incompleteLogsStayLocal()
+        Self.fullPrefixAndAnonymousClaudeResume()
+        Self.manifestFailureRollsBackTokens()
+        Self.legacyLogsGainCleanupEvidenceWithoutReplay()
+        Self.localSessionCopyCanContinueAfterEviction()
+        await Self.batchChecksUseRealShellWithoutNetwork()
+        await Self.serviceCancellationKeepsHostBusy()
         Self.hostNamesCannotReadAsOptions()
         Self.configHostsLeaveOutPatterns()
         await Self.manualRefreshKeepsHostsManualUntilChanged()
@@ -23,6 +31,248 @@ enum RemoteLogMirrorTests {
         Self.logsWithoutUsageHoldNoRecords()
         Self.scannedMirrorsAreCountedAfterAnUpgrade()
         Self.restoredBackupKeepsWhatHostsHold()
+    }
+
+    private static func evictedLogsResumeSafely() async {
+        let fixture = RecorderFixture(name: "eviction")
+        defer { fixture.remove() }
+        let path = "host/codex/sessions/\(Self.rollout)"
+        let url = fixture.remoteLogs.appendingPathComponent(path)
+        fixture.writeMirrored(path, lines: Self.codexLines)
+        fixture.recordMirrored(.codex)
+        do {
+            guard let recorder = fixture.recorder else { return }
+            try recorder.evictVerifiedMirror(host: "host")
+            Harness.expect(FileManager.default.fileExists(atPath: url.path), "recent logs stay local")
+            try recorder.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            Harness.expect(!FileManager.default.fileExists(atPath: url.path), "stable recorded logs are evicted")
+            Harness.expectEqual(fixture.remoteUsage("host")?.records, 1, "eviction preserves host record counts")
+            let restarted = try UsageRecorder(databaseURL: fixture.databaseURL)
+            let versions = try restarted.remoteVersions(host: "host")
+            Harness.expectEqual(versions.count, 1, "manifest survives restart")
+            guard let version = versions.first else { return }
+            for reply in [CommandOutput(status: 0, stdout: "0 \(version.size) \(version.digest)"),
+                          CommandOutput(status: 127), CommandOutput(status: 0, stdout: "1 changed")] {
+                let commands = CommandLog(replies: [
+                    CommandOutput(status: 0, stdout: ".codex/sessions\n"), reply, CommandOutput(status: 0),
+                ])
+                try await RemoteLogMirror(root: fixture.remoteLogs, run: commands.run).sync(host: "host", versions: versions)
+                let excluded = commands.arguments.last?.contains("--exclude=/" + Self.rollout) == true
+                Harness.expectEqual(excluded, reply.stdout.contains(version.digest), "only freshly verified versions are excluded")
+            }
+            fixture.writeMirrored(path, lines: Self.codexLines)
+            restarted.record(.codex, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+            let tier = RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: false)
+            Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 100, output: 10), "redownload does not replay")
+            fixture.appendMirrored(path, lines: [CodexLine.tokenCount(input: 200, output: 20, total: 330)])
+            restarted.record(.codex, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+            Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 300, output: 30), "redownload resumes parser state")
+            fixture.writeMirrored(path, lines: [CodexLine.turnContext(model: "changed")])
+            restarted.record(.codex, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+            Harness.expectEqual(restarted.scanStatus(of: .codex), .error("sessions"), "rewrites report failure")
+            Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 300, output: 30), "rewrites preserve historical tokens")
+        } catch { Harness.expect(false, "eviction test failed: \(error)") }
+    }
+
+    private static func incompleteLogsStayLocal() {
+        let fixture = RecorderFixture(name: "eviction-incomplete")
+        defer { fixture.remove() }
+        let paths = ["host/claude/projects/app/partial.jsonl", "host/claude/projects/app/invalid.jsonl",
+                     "host/claude/projects/app/unsafe[1].jsonl"]
+        let line = ClaudeLine.assistant(id: "one", model: "claude-tier", input: 100, output: 10)
+        for path in paths { fixture.writeMirrored(path, lines: [line]) }
+        do {
+            let partial = fixture.remoteLogs.appendingPathComponent(paths[0])
+            try (line + "\n{").write(to: partial, atomically: true, encoding: .utf8)
+            fixture.appendMirrored(paths[1], lines: ["invalid json"])
+            fixture.recordMirrored(.claude)
+            try fixture.recorder?.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            for path in paths {
+                Harness.expect(FileManager.default.fileExists(atPath: fixture.remoteLogs.appendingPathComponent(path).path),
+                               "partial, malformed and unrepresentable logs are retained")
+            }
+            fixture.appendMirrored(paths[0], lines: ["}"])
+            fixture.recordMirrored(.claude)
+            try fixture.recorder?.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            Harness.expect(!FileManager.default.fileExists(atPath: partial.path), "a completed trailing line becomes eligible")
+            Harness.expect(FileManager.default.fileExists(atPath: fixture.remoteLogs.appendingPathComponent(paths[1]).path),
+                           "malformed history stays ineligible after later scans")
+            fixture.recorder?.busyRemoteHosts.insert("host")
+            fixture.writeMirrored("host/claude/projects/app/busy.jsonl", lines: [
+                ClaudeLine.assistant(id: "busy", model: "claude-tier", input: 900, output: 90),
+            ])
+            fixture.recordMirrored(.claude)
+            Harness.expectEqual(fixture.remoteUsage("host")?.records, 1, "scans skip a host while rsync is writing")
+        } catch { Harness.expect(false, "incomplete test failed: \(error)") }
+    }
+
+    private static func legacyLogsGainCleanupEvidenceWithoutReplay() {
+        let fixture = RecorderFixture(name: "eviction-legacy")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/codex/sessions/\(Self.rollout)", lines: Self.codexLines)
+        fixture.writeMirrored("host/claude/projects/app/anonymous.jsonl", lines: [
+            ClaudeLine.assistant(id: "", requestId: "", model: "claude-tier", input: 100, output: 10),
+        ])
+        fixture.recordMirrored(.codex)
+        fixture.recordMirrored(.claude)
+        let claudeBefore = fixture.recorded(.claude)
+        let codexBefore = fixture.recorded(.codex)
+        do {
+            // Simulate an existing installation whose cursors predate cleanup evidence.
+            try TestDatabase(fixture.databaseURL).exec("DELETE FROM remote_manifest")
+            fixture.recordMirrored(.codex)
+            fixture.recordMirrored(.claude)
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 2,
+                                "unchanged legacy logs receive evidence without waiting for an append")
+            Harness.expectEqual(fixture.recorded(.claude), claudeBefore, "certification never replays anonymous messages")
+            Harness.expectEqual(fixture.recorded(.codex), codexBefore, "certification preserves existing Codex totals")
+            let backup = fixture.root.appendingPathComponent("legacy-backup.sqlite")
+            try fixture.recorder?.writeSnapshot(to: backup)
+            _ = try fixture.recorder?.merge(backup: backup, undoCopy: fixture.root.appendingPathComponent("undo.sqlite"))
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 0,
+                                "import invalidates existing eviction proofs as well as imported proofs")
+            fixture.recordMirrored(.codex)
+            fixture.recordMirrored(.claude)
+            Harness.expectEqual(fixture.recorded(.claude), claudeBefore, "imported remote cursors resume without replay")
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 2,
+                                "merged cursors can be certified again")
+            try fixture.recorder?.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            Harness.expectEqual(fixture.remoteUsage("host")?.files, 0, "legacy cached files can be removed")
+            Harness.expectEqual(fixture.remoteUsage("host")?.bytes, 0, "cache size excludes removed files")
+            Harness.expectEqual(fixture.remoteUsage("host")?.records, 2, "both hosts' historical records survive an empty cache")
+        } catch { Harness.expect(false, "legacy certification failed: \(error)") }
+    }
+
+    private static func localSessionCopyCanContinueAfterEviction() {
+        let fixture = RecorderFixture(name: "eviction-local-copy")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/codex/sessions/\(Self.rollout)", lines: Self.codexLines)
+        fixture.recordMirrored(.codex)
+        do {
+            try fixture.recorder?.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            fixture.writeCodexRollout(Self.rollout, lines: Self.codexLines + [
+                CodexLine.tokenCount(input: 200, output: 20, total: 330),
+            ])
+            fixture.recordMirrored(.codex)
+            fixture.recordMirrored(.codex)
+            let tier = RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: false)
+            Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 300, output: 30),
+                                "another session copy resumes exactly once after eviction")
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .codex), .idle,
+                                "the updated manifest follows the canonical session cursor")
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 1,
+                                "continued canonical session retains consistent evidence")
+        } catch { Harness.expect(false, "local-copy continuation failed: \(error)") }
+    }
+
+    private static func batchChecksUseRealShellWithoutNetwork() async {
+        let fixture = RecorderFixture(name: "eviction-checksum-shell")
+        defer { fixture.remove() }
+        do {
+            var versions: [RemoteLogVersion] = []
+            for index in 0..<2 {
+                let suffix = "app/session-\(index).jsonl"
+                let remote = fixture.root.appendingPathComponent(".claude/projects/" + suffix)
+                try FileManager.default.createDirectory(at: remote.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let bytes = Data("{\"type\":\"user\",\"text\":\"example\"}\n".utf8)
+                try bytes.write(to: remote)
+                versions.append(RemoteLogVersion(
+                    path: fixture.remoteLogs.appendingPathComponent("host/claude/projects/" + suffix).path,
+                    size: Int64(bytes.count), digest: try LogFileScanner.prefixDigest(of: remote, byteCount: Int64(bytes.count)),
+                    state: nil, observedAt: Date(), validJSON: true, complete: true, evictionPending: true
+                ))
+            }
+            let changed = fixture.root.appendingPathComponent(".claude/projects/app/session-1.jsonl")
+            try Data("changed contents\n".utf8).write(to: changed)
+            let remoteHome = fixture.root.path
+            let mirror = RemoteLogMirror(root: fixture.remoteLogs, run: { _, arguments, timeout in
+                try await RemoteLogMirror.runCommand(
+                    "/bin/sh", ["-c", "cd \"$1\" && eval \"$2\"", "test", remoteHome, arguments.last ?? ""], timeout
+                )
+            })
+            let verified = try await mirror.verifiedPaths(host: "host", versions: versions)
+            Harness.expectEqual(verified, Set([versions[0].path]), "real shell hashes each batch file and rejects changed contents")
+            let commands = CommandLog(replies: [CommandOutput(status: 0, stdout: "0 \(versions[0].size) \(versions[0].digest)\n")])
+            _ = try await RemoteLogMirror(root: fixture.remoteLogs, run: commands.run).verifiedPaths(host: "host", versions: versions)
+            Harness.expectEqual(commands.arguments.count, 1, "multiple file checks share an SSH request")
+        } catch { Harness.expect(false, "checksum shell test failed: \(error)") }
+    }
+
+    private static func fullPrefixAndAnonymousClaudeResume() {
+        let fixture = RecorderFixture(name: "eviction-full-prefix")
+        defer { fixture.remove() }
+        let path = "host/claude/projects/app/session.jsonl"
+        let padding = "{\"type\":\"user\",\"text\":\"" + String(repeating: "x", count: 70000) + "\"}"
+        let line = ClaudeLine.assistant(id: "", requestId: "", model: "claude-tier", input: 100, output: 10)
+        fixture.writeMirrored(path, lines: [padding, line])
+        fixture.recordMirrored(.claude)
+        let tier = RecordedTier(model: "claude-tier", longContext: false, isFast: false)
+        let original = fixture.recorded(.claude)[tier]
+        do {
+            try fixture.recorder?.evictVerifiedMirror(host: "host", now: Date().addingTimeInterval(86401))
+            let restarted = try UsageRecorder(databaseURL: fixture.databaseURL)
+            fixture.writeMirrored(path, lines: [padding, line])
+            restarted.record(.claude, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+            Harness.expectEqual(fixture.recorded(.claude)[tier], original, "anonymous Claude rows are not replayed after eviction")
+            fixture.writeMirrored(path, lines: [padding, line.replacingOccurrences(of: "100", with: "200")])
+            restarted.record(.claude, rateCard: RateCard(), env: fixture.env, remoteLogs: fixture.remoteLogs)
+            Harness.expectEqual(restarted.scanStatus(of: .claude), .error("sessions"), "rewrite beyond 64KB is detected")
+            Harness.expectEqual(fixture.recorded(.claude)[tier], original, "late rewrites preserve history")
+            let restored = RecorderFixture(name: "eviction-import")
+            defer { restored.remove() }
+            let backup = fixture.root.appendingPathComponent("backup.sqlite")
+            try restarted.writeSnapshot(to: backup)
+            _ = try restored.recorder?.merge(backup: backup, undoCopy: restored.root.appendingPathComponent("undo.sqlite"))
+            Harness.expectEqual(try restored.recorder?.remoteVersions(host: "host").count, 0, "imports never inherit exclusion eligibility")
+        } catch { Harness.expect(false, "full prefix test failed: \(error)") }
+    }
+
+    private static func serviceCancellationKeepsHostBusy() async {
+        let fixture = RecorderFixture(name: "eviction-service-busy")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/codex/sessions/\(Self.rollout)", lines: Self.codexLines)
+        let service = CostService(databaseURL: fixture.databaseURL, env: fixture.env, rateCard: RateCard())
+        let commands = SuspendedRemoteCommand(suspended: 2)
+        let mirror = RemoteLogMirror(root: fixture.remoteLogs, run: commands.run)
+        let task = Task { try await service.syncRemote(host: "host", mirror: mirror) }
+        Harness.expect(await Self.eventually { commands.isSuspended }, "service holds host during copy")
+        _ = await service.refresh(.codex)
+        Harness.expectEqual(fixture.remoteUsage("host")?.records, 0, "background scans cannot see in-flight copies")
+        do {
+            try await service.syncRemote(host: "host", mirror: mirror)
+            Harness.expect(false, "overlapping sync must fail")
+        } catch { Harness.expectEqual(commands.count, 2, "overlap starts no commands") }
+        task.cancel()
+        commands.release()
+        do {
+            try await task.value
+            Harness.expect(false, "service cancellation must propagate")
+        } catch { Harness.expect(error is CancellationError, "service preserves cancellation") }
+        _ = await service.refresh(.codex)
+        Harness.expectEqual(fixture.remoteUsage("host")?.records, 1, "cancellation releases scan guard")
+    }
+
+    private static func manifestFailureRollsBackTokens() {
+        let fixture = RecorderFixture(name: "eviction-transaction")
+        defer { fixture.remove() }
+        fixture.writeMirrored("host/codex/sessions/\(Self.rollout)", lines: Self.codexLines)
+        do {
+            try TestDatabase(fixture.databaseURL).exec("""
+                CREATE TRIGGER reject_manifest BEFORE INSERT ON remote_manifest
+                BEGIN SELECT RAISE(FAIL, 'injected manifest failure'); END
+                """)
+            fixture.recordMirrored(.codex)
+            Harness.expectEqual(fixture.remoteUsage("host")?.records, 0, "manifest failure rolls back tokens")
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 0, "failed transaction has no cleanup evidence")
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .codex), .error("sessions"), "failed transaction reports scan error")
+            try TestDatabase(fixture.databaseURL).exec("DROP TRIGGER reject_manifest")
+            fixture.recordMirrored(.codex)
+            Harness.expectEqual(fixture.remoteUsage("host")?.records, 1, "retry resumes from uncommitted cursor without loss")
+            let duplicate = "host/codex/archived_sessions/\(Self.rollout)"
+            fixture.writeMirrored(duplicate, lines: Self.codexLines)
+            fixture.recordMirrored(.codex)
+            Harness.expectEqual(try fixture.recorder?.remoteVersions(host: "host").count, 1, "deduplicated copies gain no eviction eligibility")
+        } catch { Harness.expect(false, "transaction test failed: \(error)") }
     }
 
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000001.jsonl"
@@ -495,5 +745,13 @@ private final class SuspendedRemoteCommand: @unchecked Sendable {
             }
             return CommandOutput(status: 0, stdout: executable == "/usr/bin/ssh" ? ".claude/projects\n.codex/sessions\n" : "")
         }
+    }
+}
+
+private extension UsageRecorder {
+    /// Unit tests supply the same evidence that the service obtains from its SSH probe.
+    func evictVerifiedMirror(host: String, now: Date = Date()) throws {
+        let paths = Set(try self.remoteVersions(host: host).map(\.path))
+        try self.cleanupRemoteLogs(host: host, now: now, verifiedPaths: paths)
     }
 }

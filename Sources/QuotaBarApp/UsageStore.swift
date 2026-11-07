@@ -21,6 +21,9 @@ final class UsageStore: ObservableObject {
         settings: self.settings,
         mirror: self.remoteLogMirror,
         didSync: { [weak self] in self?.refreshAllLocalUsageAfterChange() },
+        syncAndRecord: { [costService = self.costService, mirror = self.remoteLogMirror] host in
+            try await costService.syncRemote(host: host, mirror: mirror)
+        },
         readUsage: { [costService = self.costService] hosts in
             try? CostUsageReader.remoteUsage(
                 hosts: hosts,

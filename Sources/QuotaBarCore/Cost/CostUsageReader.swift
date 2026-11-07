@@ -38,8 +38,8 @@ public enum CostUsageReader {
         return SavedUsageSummary(records: usage.records, firstDay: usage.firstDay, bytes: bytes)
     }
 
-    /// What each host's mirror holds. A host with no mirror yet has an entry of zeros, and an
-    /// absent cache means none of its usage has been recorded yet.
+    /// Recorded usage and resident cache size for each host. Records survive cache eviction;
+    /// files and bytes count only the JSONL still on disk.
     public static func remoteUsage(
         hosts: [String],
         remoteLogs: URL,

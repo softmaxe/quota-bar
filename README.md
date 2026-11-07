@@ -188,6 +188,11 @@ The host needs key-based SSH sign-in that works without a prompt, and `rsync` in
 
 Remote usage adds to the same totals as this Mac's; the menu and the usage report have no per-machine breakdown. Sessions present on both count once. Removing a host stops syncing it and keeps what was recorded.
 
+After a successful sync and scan, QuotaBar automatically removes eligible local log copies that have been unchanged for at least 24 hours. Recorded usage and scan positions stay in SQLite. Each later sync validates an evicted file's remote contents before skipping its download. If the session grows, QuotaBar downloads that file again and resumes after the recorded portion. Incomplete or failed scans keep their files, and a rewritten historical portion preserves the existing usage and reports a scan failure. Remote originals are never deleted. See [Remote log cache](docs/remote-log-cache.md) for the cleanup guarantees.
+
+The host row labels the contribution as `unique` and the remaining local log size
+as `cached`; neither is the number of records or bytes transferred by the last sync.
+
 ### Saved history
 
 The first scan of a large history may take time. QuotaBar saves token counts, dates, models, sources, and pricing tiers in SQLite, along with record IDs and scan positions. It calculates costs when reading that usage.
@@ -250,7 +255,7 @@ QuotaBar reads CLI credentials and local session records. It does not write to C
 
 QuotaBar uses timestamps, models, token counts, record IDs, and account IDs needed to match OAuth sessions. It does not store prompts, responses, or reasoning text in its usage history or upload them.
 
-[Remote machines](#remote-machines) are the one exception to local-only reading: QuotaBar connects to the SSH hosts you add and copies their whole session logs, which can include prompts and responses, into a directory only your user can read. Nothing is sent to those hosts, and the copies stay after a host is removed. Delete `cost-usage/remote-logs` to remove them; recorded usage stays.
+[Remote machines](#remote-machines) are the one exception to local-only reading: QuotaBar connects to the SSH hosts you add and copies their whole session logs, which can include prompts and responses, into a directory only your user can read. It sends sync commands and content-validation requests to those hosts, without uploading conversation contents. Eligible old local copies are cleaned up after recording; recent or unverified copies can remain after a host is removed. Delete `cost-usage/remote-logs` to remove the remaining copies; recorded usage stays. The Usage database size excludes these cached JSONL files.
 
 <details>
 <summary>Local storage paths</summary>

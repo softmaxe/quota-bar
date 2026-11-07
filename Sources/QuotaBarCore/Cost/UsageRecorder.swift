@@ -46,12 +46,50 @@ struct RecordingAccess {
 package final class UsageRecorder {
     /// Recorded usage storage. Only the recorder holds a connection that writes it.
     private let cache: CostCache
+    package var busyRemoteHosts: Set<String> = []
     /// Each snapshot source's state that Recorded usage already reflects.
     private var snapshots: [SnapshotSource: RecordedSnapshot] = [:]
     private var statuses: [CostUsageSource: ExternalAgentScanStatus] = [:]
 
     package init(databaseURL: URL) throws {
         self.cache = try CostCache(path: databaseURL, access: RecordingAccess())
+    }
+
+    package func remoteVersions(host: String) throws -> [RemoteLogVersion] {
+        try self.cache.remoteVersions().filter {
+            RemoteLogMirror.host(ofLog: $0.path) == host && $0.complete
+                && $0.matches(self.cache.cursor(forPath: $0.path))
+        }
+    }
+
+    /// The committed pending flag survives a crash on either side of unlink.
+    package func cleanupRemoteLogs(host: String, now: Date = Date(), verifiedPaths: Set<String>) throws {
+        for var version in try self.remoteVersions(host: host) {
+            try Task.checkCancellation()
+            guard verifiedPaths.contains(version.path),
+                  now.timeIntervalSince(version.observedAt) >= 24 * 60 * 60,
+                  RemoteLogMirror.safeRelativePath(version.path, host: host) != nil,
+                  FileManager.default.fileExists(atPath: version.path) else { continue }
+            let url = URL(fileURLWithPath: version.path)
+            var ancestor = url.deletingLastPathComponent()
+            var hasSymlink = false
+            while ancestor.path != "/" {
+                if try ancestor.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
+                    hasSymlink = true
+                    break
+                }
+                if ancestor.lastPathComponent == RemoteLogMirror.directoryName { break }
+                ancestor.deleteLastPathComponent()
+            }
+            guard !hasSymlink else { continue }
+            let attributes = try FileManager.default.attributesOfItem(atPath: version.path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular,
+                  (attributes[.size] as? NSNumber)?.int64Value == version.size,
+                  try LogFileScanner.prefixDigest(of: url, byteCount: version.size) == version.digest else { continue }
+            version.evictionPending = true
+            try self.cache.saveRemoteVersion(version)
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     /// Borrows the recorder's connection; read only between recordings.
@@ -358,29 +396,48 @@ extension UsageRecorder {
         }
     }
 
-    /// A file that was rewritten rather than appended to is reread from the start, after its rows
-    /// are dropped when its Usage source's merge rule requires it (see `dropsRowsOnRewrite`).
+    /// Rewritten local files are reread according to the source's merge rule. A conflicting
+    /// remote version preserves its existing rows and stays ineligible for cleanup.
     private func readNewLines(_ adapter: some AppendedLogAdapter, rateCard: RateCard) throws -> (touched: Int, failed: Bool) {
         let source = adapter.source
         let provider = source.usageSource.provider
         var failed = false
         let files = adapter.logFiles { _ in failed = true }
         let storedPaths = try self.retainedPaths(adapter)
+        let versions = Dictionary(uniqueKeysWithValues: try self.cache.remoteVersions().map { ($0.path, $0) })
         var touched = 0
         for url in files {
+            if let host = RemoteLogMirror.host(ofLog: url.path), self.busyRemoteHosts.contains(host) { continue }
             let filePath = url.path
             let sessionID = adapter.sessionID(path: filePath)
             // Rows and cursor stay under the path a session was first stored at, so a moved or
             // copied log continues that session instead of counting it again.
             let path = sessionID.flatMap { storedPaths[$0] } ?? filePath
+            if let host = RemoteLogMirror.host(ofLog: path), self.busyRemoteHosts.contains(host) { continue }
             let previous = self.cache.cursor(forPath: path)
+            let version = versions[path]
+            let isRemote = RemoteLogMirror.host(ofLog: filePath) != nil
+            if path != filePath, sessionID != nil, let previous,
+               let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               Int64(size) < previous.size { continue }
             let plan: LogFileScanner.ScanPlan
             do {
+                if let version {
+                    guard let previous, previous.size == version.size,
+                          previous.resumeStateJSON == version.state,
+                          try LogFileScanner.prefixDigest(of: url, byteCount: version.size) == version.digest else {
+                        throw RemoteSyncError.failed("Previously recorded remote log was rewritten or its cursor changed")
+                    }
+                }
                 guard let planned = try LogFileScanner.plan(
                     for: url,
                     previous: previous,
-                    matchingSessionCopy: sessionID != nil && (path != filePath || previous?.inode == 0)
+                    matchingSessionCopy: version != nil || (isRemote && previous?.inode == 0)
+                        || (sessionID != nil && (path != filePath || previous?.inode == 0))
                 ) else { continue }
+                if isRemote, previous != nil, planned.requiresFullReparse {
+                    throw RemoteSyncError.failed("Previously recorded remote log was truncated or rewritten")
+                }
                 plan = planned
             } catch {
                 failed = true
@@ -392,11 +449,21 @@ extension UsageRecorder {
             // Deleting the live file may leave an older copy. It cannot roll history back.
             if sessionID != nil, let previous, plan.cursor.size < previous.size,
                path != filePath || previous.inode == 0 { continue }
-            guard plan.requiresScan else { continue }
+            if !plan.requiresScan {
+                // Older caches already hold the tokens and cursor. Certify their unchanged
+                // source once without replaying messages (some have no stable identity).
+                if isRemote, path == filePath, version == nil {
+                    do { try self.certifyRemoteLog(url, cursor: plan.cursor, source: source) }
+                    catch { failed = true }
+                }
+                continue
+            }
             let mirrorHost = RemoteLogMirror.host(ofLog: filePath)
 
             try self.cache.beginTransaction()
             do {
+                let beforeDigest = isRemote || version != nil
+                    ? try LogFileScanner.prefixDigest(of: url, byteCount: plan.cursor.size) : nil
                 if plan.requiresFullReparse, source.dropsRowsOnRewrite {
                     try self.cache.forget(path: path)
                 }
@@ -406,13 +473,17 @@ extension UsageRecorder {
                     savedState: plan.requiresFullReparse ? nil : plan.cursor.resumeStateJSON
                 )
                 var failure: Error?
+                var validJSON = version?.validJSON ?? true
                 let newOffset = try LogFileScanner.readLines(
                     of: url,
                     from: plan.cursor.offset,
                     upTo: plan.cursor.size,
-                    where: adapter.isWanted
+                    where: { isRemote || version != nil || adapter.isWanted($0) }
                 ) { line in
                     guard failure == nil else { return }
+                    if isRemote || version != nil,
+                       (try? JSONSerialization.jsonObject(with: Data(line))) == nil { validJSON = false }
+                    guard adapter.isWanted(line) else { return }
                     do {
                         guard let request = try parser.request(in: line) else { return }
                         try self.merge(
@@ -426,17 +497,28 @@ extension UsageRecorder {
                     }
                 }
                 if let failure { throw failure }
+                let savedState = parser.savedState
                 try self.cache.setCursor(
                     FileCursor(
                         inode: plan.cursor.inode,
                         size: plan.cursor.size,
                         offset: newOffset,
                         prefixDigest: plan.cursor.prefixDigest,
-                        resumeStateJSON: parser.savedState
+                        resumeStateJSON: savedState
                     ),
                     forPath: path,
                     provider: provider
                 )
+                if (isRemote && path == filePath && previous == nil) || version != nil, let beforeDigest {
+                    guard try LogFileScanner.prefixDigest(of: url, byteCount: plan.cursor.size) == beforeDigest else {
+                        throw RemoteSyncError.failed("Remote mirror changed during recording")
+                    }
+                    try self.cache.saveRemoteVersion(RemoteLogVersion(
+                        path: path, size: plan.cursor.size, digest: beforeDigest, state: savedState,
+                        observedAt: Date(), validJSON: validJSON, complete: newOffset == plan.cursor.size && validJSON
+                            && (source == .claude || savedState != nil), evictionPending: false
+                    ))
+                }
                 try self.cache.commit()
                 touched += 1
             } catch {
@@ -448,6 +530,30 @@ extension UsageRecorder {
             }
         }
         return (touched, failed)
+    }
+
+    private func certifyRemoteLog(_ url: URL, cursor: FileCursor, source: AppendedLogSource) throws {
+        guard cursor.size > 0, cursor.offset == cursor.size,
+              source == .claude || cursor.resumeStateJSON != nil else { return }
+        let digest = try LogFileScanner.prefixDigest(of: url, byteCount: cursor.size)
+        var validJSON = true
+        let end = try LogFileScanner.readLines(of: url, from: 0, upTo: cursor.size) { line in
+            if (try? JSONSerialization.jsonObject(with: Data(line))) == nil { validJSON = false }
+        }
+        guard end == cursor.size,
+              try LogFileScanner.prefixDigest(of: url, byteCount: cursor.size) == digest else { return }
+        try self.cache.beginTransaction()
+        do {
+            try self.cache.setCursor(cursor, forPath: url.path, provider: source.usageSource.provider)
+            try self.cache.saveRemoteVersion(RemoteLogVersion(
+                path: url.path, size: cursor.size, digest: digest, state: cursor.resumeStateJSON,
+                observedAt: Date(), validJSON: validJSON, complete: validJSON, evictionPending: false
+            ))
+            try self.cache.commit()
+        } catch {
+            self.cache.rollback()
+            throw error
+        }
     }
 
     /// The path each session is recorded under: the copy scanned furthest. A tracked file that
@@ -462,6 +568,10 @@ extension UsageRecorder {
         do {
             for path in tracked {
                 guard let id = adapter.sessionID(path: path) else { continue }
+                if let host = RemoteLogMirror.host(ofLog: path), self.busyRemoteHosts.contains(host) {
+                    if paths[id] == nil { paths[id] = path }
+                    continue
+                }
                 if !transactionOpen {
                     try self.cache.beginTransaction()
                     transactionOpen = true

@@ -24,6 +24,7 @@ final class RemoteSyncModel: ObservableObject {
 
     private let settings: SettingsStore
     private let mirror: RemoteLogMirror
+    private let syncAndRecord: (@Sendable (String) async throws -> Void)?
     private let didSync: @MainActor () -> Void
     private let readUsage: @Sendable ([String]) -> [String: RemoteHostUsage]?
     private var timer: Timer?
@@ -36,10 +37,12 @@ final class RemoteSyncModel: ObservableObject {
         settings: SettingsStore,
         mirror: RemoteLogMirror,
         didSync: @escaping @MainActor () -> Void,
+        syncAndRecord: (@Sendable (String) async throws -> Void)? = nil,
         readUsage: @escaping @Sendable ([String]) -> [String: RemoteHostUsage]? = { _ in nil }
     ) {
         self.settings = settings
         self.mirror = mirror
+        self.syncAndRecord = syncAndRecord
         self.didSync = didSync
         self.readUsage = readUsage
     }
@@ -117,7 +120,11 @@ final class RemoteSyncModel: ObservableObject {
             let outcome: Result<Void, Error>
             do {
                 try Task.checkCancellation()
-                try await mirror.sync(host: host)
+                if let syncAndRecord = self?.syncAndRecord {
+                    try await syncAndRecord(host)
+                } else {
+                    try await mirror.sync(host: host)
+                }
                 outcome = .success(())
             } catch {
                 outcome = .failure(error)

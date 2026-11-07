@@ -188,6 +188,14 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 远程用量与本机用量合并到同一总计中，菜单和用量报告不按机器拆分。两边都有的会话只计一次。移除主机后不再同步，已记录的用量会保留。
 
+Remote log cache update: after a successful sync and scan, eligible local copies
+are removed once their recorded version has remained unchanged for 24 hours.
+`unique` describes this host's contribution; `cached` is the remaining local log
+size. Recorded usage stays in SQLite. Later syncs revalidate remote contents,
+skip unchanged evicted files, and resume growing sessions after their recorded
+portion. Incomplete, malformed, or unverifiable files remain cached. Remote
+originals are never deleted. See [Remote log cache](docs/remote-log-cache.md).
+
 ### 历史记录
 
 首次扫描大量历史记录可能需要一些时间。QuotaBar 用 SQLite 保存 token 数量、日期、模型、来源和计价档位，以及记录 ID 和扫描位置。成本在读取用量时计算。
@@ -250,7 +258,13 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 
 统计会使用时间、模型、token 数量、记录 ID，以及匹配 OAuth 会话所需的账号 ID。QuotaBar 不会将提示词、回复和推理文本写入用量历史或上传。
 
-[远程机器](#远程机器)是只读本地数据这一规则的唯一例外：QuotaBar 会连接你添加的 SSH 主机，把完整的会话日志（可能包含提示词和回复）复制到只有当前用户可读的目录。不会向这些主机发送任何数据。移除主机后副本仍会保留，如需清除，请删除 `cost-usage/remote-logs`，已记录的用量不受影响。
+[Remote machines](#远程机器) connect over SSH and copy complete session logs,
+including possible prompts and responses, into a directory only this user can
+read. QuotaBar sends sync commands and content-validation requests, without
+uploading conversation contents. Eligible old local copies are cleaned up after
+recording; recent or unverified copies may remain after removing a host. Delete
+`cost-usage/remote-logs` to remove remaining copies; recorded usage stays. The
+Usage database size excludes these cached JSONL files.
 
 <details>
 <summary>本地存储路径</summary>
