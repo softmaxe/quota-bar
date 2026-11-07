@@ -236,4 +236,6 @@ await RefreshRowTests.run()
 await MenuCommandTests.run()
 await RemoteLogMirrorTests.run()
 
+NumericFormattingTests.run()
+TokenValidationTests.run()
 Harness.finish()

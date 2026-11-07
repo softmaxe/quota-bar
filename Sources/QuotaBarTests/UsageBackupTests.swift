@@ -17,6 +17,9 @@ enum UsageBackupTests {
         await Self.importKeepsTheDatabaseAsItStood()
         await Self.legacyBackupIsUpgraded()
         await Self.unusableFilesChangeNothing()
+        await Self.invalidCursorsChangeNothing()
+        await Self.invalidTokenCountsChangeNothing()
+        await Self.corruptExistingCursorIsRescanned()
         await Self.settingsPaneReportsEachOutcome()
     }
 
@@ -270,6 +273,7 @@ enum UsageBackupTests {
                 INSERT INTO claude_message VALUES (
                     'legacy', '/gone.jsonl', '2026-01-01', 'claude-opus-5', 0, 7, 3, 0, 0, 0.5
                 );
+                INSERT INTO file_cursor VALUES ('/gone.jsonl', 'claude', 7, 10, 10, 'legacy-digest');
                 """)
         } catch {
             Harness.expect(false, "could not write the legacy backup: \(error)")
@@ -311,6 +315,99 @@ enum UsageBackupTests {
         )
 
         Harness.expectEqual(fixture.logs.recorded(.claude)[Self.claudeTier]?.input, 7, "the saved usage is untouched")
+    }
+
+    private static func invalidCursorsChangeNothing() async {
+        let original = BackupFixture(name: "invalid-cursor-source")
+        let local = BackupFixture(name: "invalid-cursor-target")
+        defer { original.remove(); local.remove() }
+        original.logs.writeClaudeTranscript("app/source.jsonl", lines: [
+            ClaudeLine.assistant(id: "source", model: "claude-opus-5", input: 19, output: 3),
+        ])
+        local.logs.writeClaudeTranscript("app/local.jsonl", lines: [
+            ClaudeLine.assistant(id: "local", model: "claude-opus-5", input: 7, output: 3),
+        ])
+        await original.scan()
+        await local.scan()
+        let mutations = [
+            "inode = -1", "inode = 'invalid'", "inode = 1.5", "size = -1",
+            "size = X'01'", "offset = -1", "offset = size + 1", "offset = 'invalid'",
+            "path = NULL", "path = ''", "path = X'01'", "path = 'a' || char(0) || 'b'",
+            "provider = X'01'", "prefix_digest = X'01'", "prefix_digest = ''",
+            "resume_state = X'01'", "resume_state = 'invalid'", "resume_state = '[]'",
+        ]
+        for mutation in mutations {
+            await Self.export(original)
+            do {
+                try TestDatabase(original.backup).exec("UPDATE file_cursor SET \(mutation)")
+            } catch {
+                Harness.expect(false, "could not create invalid cursor fixture: \(error)")
+                continue
+            }
+            await Self.expectRefused(original.backup, by: local, mutation)
+            Harness.expectEqual(local.logs.recorded(.claude)[Self.claudeTier]?.input, 7,
+                                "invalid cursor import leaves live usage unchanged: \(mutation)")
+            Harness.expect(!FileManager.default.fileExists(atPath: local.service.undoCopyURL.path),
+                           "invalid cursor import does not replace the undo snapshot")
+        }
+        await Self.export(original)
+        _ = await Self.importBackup(original.backup, into: local)
+        let reopened = BackupFixture(name: "reopened", keeping: local.logs)
+        await reopened.scan()
+        Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 26,
+                            "valid backup remains readable after reopening and scanning")
+    }
+
+    private static func invalidTokenCountsChangeNothing() async {
+        let source = BackupFixture(name: "invalid-token-source")
+        let target = BackupFixture(name: "invalid-token-target")
+        defer { source.remove(); target.remove() }
+        for (fixture, id, input) in [(source, "source", 19), (target, "target", 7)] {
+            fixture.logs.writeClaudeTranscript("app/session.jsonl", lines: [
+                ClaudeLine.assistant(id: id, model: "claude-opus-5", input: input, output: 3),
+            ])
+            await fixture.scan()
+        }
+        for mutation in ["input = -1", "input = 'invalid'", "input = 1.5",
+                         "cache_write_1h = 1, cache_write = 0", "input = 9223372036854775807"] {
+            await Self.export(source)
+            do {
+                try TestDatabase(source.backup).exec("UPDATE claude_message SET \(mutation)")
+            } catch {
+                Harness.expect(false, "could not create invalid token fixture: \(error)")
+                continue
+            }
+            await Self.expectRefused(source.backup, by: target, mutation)
+            Harness.expectEqual(target.logs.recorded(.claude)[Self.claudeTier]?.input, 7,
+                                "invalid token import preserves live usage")
+            Harness.expect(!FileManager.default.fileExists(atPath: target.service.undoCopyURL.path),
+                           "invalid token import preserves the undo snapshot")
+        }
+        await Self.export(source)
+        _ = await Self.importBackup(source.backup, into: target)
+        let reopened = BackupFixture(name: "reopened-valid-tokens", keeping: target.logs)
+        await reopened.scan()
+        Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 26,
+                            "valid token import survives reopening")
+    }
+
+    private static func corruptExistingCursorIsRescanned() async {
+        let fixture = BackupFixture(name: "corrupt-existing-cursor")
+        defer { fixture.remove() }
+        fixture.logs.writeClaudeTranscript("app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "first", model: "claude-opus-5", input: 7, output: 3),
+        ])
+        await fixture.scan()
+        do {
+            try TestDatabase(fixture.logs.databaseURL).exec("UPDATE file_cursor SET inode = -1")
+        } catch { Harness.expect(false, "could not corrupt disposable cursor: \(error)") }
+        fixture.logs.appendClaudeTranscript("app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "second", model: "claude-opus-5", input: 11, output: 3),
+        ])
+        let reopened = BackupFixture(name: "reopened-corrupt", keeping: fixture.logs)
+        await reopened.scan()
+        Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 18,
+                            "an invalid existing cursor triggers a safe reparse after reopening")
     }
 
     /// What the pane does around the service: the message it shows and the scan that puts imported

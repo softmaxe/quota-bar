@@ -29,7 +29,7 @@ package struct PricedUsage: Equatable {
     /// Rows read from the recorded usage, regrouped and priced. Spellings that resolve to one
     /// model on this card add up before they are priced. Order follows day, then source, then
     /// model.
-    package static func price(_ rows: [RecordedUsageReader.DayUsage], on rateCard: RateCard) -> [PricedUsage] {
+    package static func price(_ rows: [RecordedUsageReader.DayUsage], on rateCard: RateCard) throws -> [PricedUsage] {
         var grouped: [Key: TokenTotals] = [:]
         for row in rows {
             let key = Key(
@@ -39,7 +39,7 @@ package struct PricedUsage: Equatable {
                 longContext: row.tier.longContext,
                 isFast: row.tier.isFast
             )
-            grouped[key, default: TokenTotals()] += row.tokens
+            grouped[key] = try grouped[key, default: TokenTotals()].adding(row.tokens)
         }
         return grouped.map { key, tokens in
             let cost = tokens.total > 0

@@ -90,6 +90,7 @@ enum UsageBackup {
                 if let name = sqlite3_column_text(statement, 0) { tables.insert(String(cString: name)) }
             }
             guard Self.requiredTables.isSubset(of: tables) else { throw UsageBackupError.unreadable }
+            try Self.validateCursors(reader)
             try reader.query("PRAGMA quick_check(1)") { statement in
                 guard let result = sqlite3_column_text(statement, 0), String(cString: result) == "ok" else {
                     throw UsageBackupError.unreadable
@@ -97,6 +98,49 @@ enum UsageBackup {
             }
         } catch is RecordedUsageReaderError {
             throw UsageBackupError.unreadable
+        }
+    }
+
+    /// Run after migration has supplied historical columns, before touching live data or undo.
+    static func validateTokens(_ reader: RecordedUsageReader, schema: String) throws {
+        for table in ["codex_day", "claude_message", "opencode_part", "pi_message"] {
+            try reader.query("""
+                SELECT input, output, cache_write, cache_write_1h, cache_read FROM \(schema).\(table)
+                """) { statement in
+                var counts: [Int] = []
+                for column in Int32(0)..<Int32(5) {
+                    guard sqlite3_column_type(statement, column) == SQLITE_INTEGER,
+                          let count = Int(exactly: sqlite3_column_int64(statement, column)), count >= 0 else {
+                        throw UsageBackupError.unreadable
+                    }
+                    counts.append(count)
+                }
+                // Check the raw subset before TokenTotals' compatibility initializer clamps it.
+                guard counts[3] <= counts[2],
+                      TokenTotals(input: counts[0], output: counts[1], cacheWrite: counts[2],
+                                  cacheWrite1h: counts[3], cacheRead: counts[4]).hasValidCounts else {
+                    throw UsageBackupError.unreadable
+                }
+            }
+        }
+    }
+
+    /// Validate before migrations as well: an upgrade can discard obsolete cursor rows.
+    /// Older backups have no resume_state column and legitimately reconstruct it from the log.
+    static func validateCursors(_ reader: RecordedUsageReader, schema: String = "main") throws {
+        var hasResumeState = false
+        try reader.query("PRAGMA \(schema).table_info(file_cursor)") { statement in
+            if FileCursor.text(statement, column: 1) == "resume_state" { hasResumeState = true }
+        }
+        try reader.query("""
+            SELECT inode, size, offset, prefix_digest, \(hasResumeState ? "resume_state" : "NULL"), path, provider
+            FROM \(schema).file_cursor
+            """) { statement in
+            guard FileCursor.read(statement) != nil,
+                  let path = FileCursor.text(statement, column: 5), !path.isEmpty,
+                  let provider = FileCursor.text(statement, column: 6), !provider.isEmpty else {
+                throw UsageBackupError.unreadable
+            }
         }
     }
 }

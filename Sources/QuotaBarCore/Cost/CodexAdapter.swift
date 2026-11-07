@@ -122,7 +122,7 @@ package struct CodexAdapter: AppendedLogAdapter {
                 cacheWrite: cacheWrite,
                 cacheRead: cacheRead
             )
-            guard totals.total > 0 else { return nil }
+            guard totals.hasValidCounts, totals.total > 0 else { return nil }
 
             guard let timestamp = root.timestamp.loose(),
                   let date = ISO8601.parse(timestamp) else { return nil }

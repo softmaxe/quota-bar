@@ -389,8 +389,9 @@ struct CostSectionView: View {
 
     /// Chart annotations stay short: whole dollars once a value reaches ten.
     private func compactValue(_ value: Double) -> String {
-        guard self.selectedLabelMode == .cost else { return Formatters.tokens(Int(value)) }
-        return value >= 10 ? "$\(Int(value.rounded()).formatted())" : Formatters.cost(value)
+        guard value.isFinite, value >= 0 else { return "Unavailable" }
+        guard self.selectedLabelMode == .cost else { return Formatters.tokens(value) }
+        return value >= 10 ? "$\(Formatters.wholeNumber(value))" : Formatters.cost(value)
     }
 
     /// At rest every day reads at full strength; only pointing at or pinning a day fades the rest.
@@ -808,7 +809,7 @@ struct CreditsSectionView: View {
 
     private var leftLabel: String {
         if self.credits.unlimited { return "Unlimited" }
-        let balance = Int((self.credits.balance ?? 0).rounded())
-        return "\(balance.formatted()) left"
+        guard let balance = self.credits.balance else { return "Unavailable" }
+        return "\(Formatters.wholeNumber(balance)) left"
     }
 }

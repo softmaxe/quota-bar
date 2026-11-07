@@ -12,7 +12,7 @@ enum CostAggregator {
     ) throws -> CostSnapshot {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
         let todayKey = DayKey.today(calendar: calendar, now: now)
-        let rows = PricedUsage.price(
+        let rows = try PricedUsage.price(
             try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar))
                 .filter { $0.day <= todayKey },
             on: rateCard
@@ -26,6 +26,7 @@ enum CostAggregator {
 
         for (dayKey, dayRows) in Dictionary(grouping: rows, by: \.day) {
             var dayTokens: [ModelUsageKey: TokenTotals] = [:]
+            var checkedDayTokens = TokenTotals()
             // Per-source/model cost stays nil until something prices it, so an unpriced row reads
             // as "no price" in the breakdown rather than as zero dollars.
             var dayCostByModel: [ModelUsageKey: Double] = [:]
@@ -35,16 +36,17 @@ enum CostAggregator {
 
             for row in dayRows {
                 let usageKey = ModelUsageKey(source: row.source, model: row.model, isFast: row.key.isFast)
-                dayTokens[usageKey, default: TokenTotals()] += row.tokens
-                modelTokens[row.model, default: 0] += row.tokens.total
+                dayTokens[usageKey] = try dayTokens[usageKey, default: TokenTotals()].adding(row.tokens)
+                checkedDayTokens = try checkedDayTokens.adding(row.tokens)
+                modelTokens[row.model] = try self.add(modelTokens[row.model, default: 0], row.tokens.total)
                 if let cost = row.cost {
-                    dayCost += cost
+                    dayCost = try self.add(dayCost, cost)
                     dayPriced = true
-                    dayCostByModel[usageKey, default: 0] += cost
-                    modelCost[row.model, default: 0] += cost
+                    dayCostByModel[usageKey] = try self.add(dayCostByModel[usageKey, default: 0], cost)
+                    modelCost[row.model] = try self.add(modelCost[row.model, default: 0], cost)
                 } else if row.unpricedTokens > 0 {
                     hasUnpriced = true
-                    dayUnpricedTokens += row.unpricedTokens
+                    dayUnpricedTokens = try self.add(dayUnpricedTokens, row.unpricedTokens)
                 }
             }
 
@@ -68,9 +70,9 @@ enum CostAggregator {
         var windowTokens = 0
         for day in days {
             if day.dayKey == todayKey { todayCostUSD = day.costUSD ?? 0 }
-            windowCostUSD += day.costUSD ?? 0
+            windowCostUSD = try self.add(windowCostUSD, day.costUSD ?? 0)
             latestTokens = day.tokens.total
-            windowTokens += latestTokens
+            windowTokens = try self.add(windowTokens, latestTokens)
         }
 
         return CostSnapshot(
@@ -84,6 +86,22 @@ enum CostAggregator {
             hasUnpricedTokens: hasUnpriced,
             scannedAt: now
         )
+    }
+
+    private static func add(_ lhs: Int, _ rhs: Int) throws -> Int {
+        let result = lhs.addingReportingOverflow(rhs)
+        guard lhs >= 0, rhs >= 0, !result.overflow else {
+            throw RecordedUsageReaderError.invalidData("window token total exceeds the integer range")
+        }
+        return result.partialValue
+    }
+
+    private static func add(_ lhs: Double, _ rhs: Double) throws -> Double {
+        let result = lhs + rhs
+        guard lhs >= 0, rhs >= 0, result.isFinite else {
+            throw RecordedUsageReaderError.invalidData("aggregate cost is not finite and nonnegative")
+        }
+        return result
     }
 
     /// Highest accumulated cost wins; models with equal cost fall back to token count.

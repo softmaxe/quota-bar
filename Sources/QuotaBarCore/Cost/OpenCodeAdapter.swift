@@ -150,12 +150,14 @@ package struct OpenCodeAdapter: SnapshotAdapter {
             guard let keyText = sqlite3_column_text(stmt, 0),
                   let modelText = sqlite3_column_text(stmt, 2) else { continue }
             let input = max(0, Int(sqlite3_column_int64(stmt, 3)))
-            let output = max(0, Int(sqlite3_column_int64(stmt, 4)))
-                + max(0, Int(sqlite3_column_int64(stmt, 5)))
+            let outputSum = max(0, Int(sqlite3_column_int64(stmt, 4))).addingReportingOverflow(
+                max(0, Int(sqlite3_column_int64(stmt, 5))))
+            guard !outputSum.overflow else { continue }
+            let output = outputSum.partialValue
             let cacheRead = max(0, Int(sqlite3_column_int64(stmt, 6)))
             let cacheWrite = max(0, Int(sqlite3_column_int64(stmt, 7)))
             let totals = TokenTotals(input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
-            guard totals.total > 0 else { continue }
+            guard totals.hasValidCounts, totals.total > 0 else { continue }
             let rawTime = sqlite3_column_double(stmt, 1)
             let seconds = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime
             guard seconds > 0 else { continue }

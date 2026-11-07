@@ -73,7 +73,7 @@ package final class RecordedUsageReader {
     }
 
     /// The menu requires all of its provider's tables and has no upper date bound.
-    /// SQLite's integer decoding remains unchanged; report-specific validation is separate.
+    /// Both readers reject invalid token domains; the report also bounds JavaScript integers.
     package func dailyUsage(provider: Provider, fromDay: String) throws -> [DayUsage] {
         try self.readDailyUsage(
             tables: Self.sourceTables.filter { $0.provider == provider },
@@ -151,7 +151,8 @@ package final class RecordedUsageReader {
     ) throws -> [DayUsage] {
         var rows: [DayUsage] = []
         let sums = Self.tokenColumns.map { "SUM(\($0))" }.joined(separator: ", ")
-        let validation = validateForReport ? ", MAX(CASE WHEN \(Self.invalidReportTokens) THEN 1 ELSE 0 END)" : ""
+        let maximum = validateForReport ? Self.reportMaximumSafeInteger : Int64.max
+        let validation = ", MAX(CASE WHEN \(Self.invalidTokens(maximum: maximum)) THEN 1 ELSE 0 END)"
         for source in tables {
             let fast = source.supportsFast ? "is_fast" : "FALSE"
             let bounds = throughDay == nil ? "day >= ?" : "day BETWEEN ? AND ?"
@@ -166,7 +167,7 @@ package final class RecordedUsageReader {
                       let model = self.text(statement, column: 1, strict: validateForReport) else {
                     throw RecordedUsageReaderError.invalidData("day or model is NULL or not text")
                 }
-                if validateForReport, sqlite3_column_int64(statement, 9) != 0 {
+                if sqlite3_column_int64(statement, 9) != 0 {
                     throw RecordedUsageReaderError.invalidData(
                         "\(source.source.displayName) contains invalid values on \(day)"
                     )
@@ -184,9 +185,9 @@ package final class RecordedUsageReader {
         return rows
     }
 
-    private static var invalidReportTokens: String {
+    private static func invalidTokens(maximum: Int64) -> String {
         let fields = Self.tokenColumns.map { column in
-            "typeof(\(column)) != 'integer' OR \(column) < 0 OR \(column) > \(Self.reportMaximumSafeInteger)"
+            "typeof(\(column)) != 'integer' OR \(column) < 0 OR \(column) > \(maximum)"
         }
         return (fields + ["cache_write_1h > cache_write"]).joined(separator: " OR ")
     }
@@ -195,22 +196,24 @@ package final class RecordedUsageReader {
         let values = try Self.tokenColumns.enumerated().map { offset, name -> Int in
             let column = Int32(offset + 4)
             let value = sqlite3_column_int64(statement, column)
-            if validateForReport {
-                guard sqlite3_column_type(statement, column) == SQLITE_INTEGER else {
-                    throw RecordedUsageReaderError.invalidData("aggregated \(name) is not an integer")
-                }
-                guard value >= 0, value <= Self.reportMaximumSafeInteger else {
-                    throw RecordedUsageReaderError.invalidData("aggregated \(name) is outside the safe integer range")
-                }
+            guard sqlite3_column_type(statement, column) == SQLITE_INTEGER else {
+                throw RecordedUsageReaderError.invalidData("aggregated \(name) is not an integer")
+            }
+            guard value >= 0, (!validateForReport || value <= Self.reportMaximumSafeInteger) else {
+                throw RecordedUsageReaderError.invalidData("aggregated \(name) is outside the safe integer range")
             }
             return Int(value)
         }
         // Validate before TokenTotals normalizes the one-hour subset.
-        if validateForReport, values[3] > values[2] {
+        if values[3] > values[2] {
             throw RecordedUsageReaderError.invalidData("aggregated cacheWrite1h exceeds cacheWrite")
         }
-        return TokenTotals(input: values[0], output: values[1], cacheWrite: values[2],
-                           cacheWrite1h: values[3], cacheRead: values[4])
+        let totals = TokenTotals(input: values[0], output: values[1], cacheWrite: values[2],
+                                 cacheWrite1h: values[3], cacheRead: values[4])
+        guard totals.hasValidCounts else {
+            throw RecordedUsageReaderError.invalidData("total tokens exceed the integer range")
+        }
+        return totals
     }
 
     private func text(_ statement: OpaquePointer, column: Int32, strict: Bool) -> String? {
@@ -220,12 +223,13 @@ package final class RecordedUsageReader {
     }
 
     /// Pricing counts every recorded day and requires all of the provider's source tables.
-    /// Keep SQLite's existing numeric behavior, including promotion in the row expression.
+    /// Reject invalid stored counts and SQLite promotion instead of coercing them to integers.
     package func modelUsage(provider: Provider) throws -> [ModelUsageTotal] {
         var totals: [String: Int] = [:]
         for source in Self.sourceTables where source.provider == provider {
             try self.query("""
-                SELECT model, SUM(input + output + cache_write + cache_read) AS tokens
+                SELECT model, SUM(input + output + cache_write + cache_read) AS tokens,
+                       MAX(CASE WHEN \(Self.invalidTokens(maximum: Int64.max)) THEN 1 ELSE 0 END)
                 FROM \(source.table)
                 \(source.includedOnly ? "WHERE included = 1" : "")
                 GROUP BY model
@@ -234,7 +238,16 @@ package final class RecordedUsageReader {
                 guard let model = sqlite3_column_text(statement, 0) else {
                     throw RecordedUsageReaderError.invalidData("model is NULL")
                 }
-                totals[String(cString: model), default: 0] += Int(sqlite3_column_int64(statement, 1))
+                guard sqlite3_column_int64(statement, 2) == 0 else {
+                    throw RecordedUsageReaderError.invalidData("model usage contains invalid token counts")
+                }
+                let value = Int(sqlite3_column_int64(statement, 1))
+                let key = String(cString: model)
+                let sum = totals[key, default: 0].addingReportingOverflow(value)
+                guard sqlite3_column_type(statement, 1) == SQLITE_INTEGER, value >= 0, !sum.overflow else {
+                    throw RecordedUsageReaderError.invalidData("model token total is outside the integer range")
+                }
+                totals[key] = sum.partialValue
             }
         }
         return totals.map { ModelUsageTotal(model: $0.key, tokens: $0.value) }
