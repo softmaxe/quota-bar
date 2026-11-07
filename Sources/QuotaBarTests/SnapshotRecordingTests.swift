@@ -14,6 +14,7 @@ enum SnapshotRecordingTests {
         Self.rowsMissingFromALaterSnapshotAreKept()
         Self.nonOAuthSignInIsNotIncluded()
         Self.uncheckableSignInRecordsNothingUntilItRecovers()
+        Self.openCodeSignOutKeepsHistoryAndResumesAutomatically()
         Self.excludedRowsStayExcluded()
         Self.unreadableSourceKeepsRecordedUsage()
         Self.removedSourceIsIdleAndKeepsRecordedUsage()
@@ -61,13 +62,48 @@ enum SnapshotRecordingTests {
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
 
         Harness.expect(fixture.recorded(.codex).isEmpty, "nothing is recorded while the sign-in cannot be checked")
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .error("auth"), "an uncheckable sign-in fails the scan")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "an uncheckable OpenCode sign-in is quietly skipped")
 
         Self.signInOpenCode(fixture, #"{"openai":{"type":"oauth","accountId":"account-a"}}"#)
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
 
         Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "the usage is recorded once the sign-in recovers")
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "the recovered scan is quiet")
+    }
+
+    /// Signing out pauses recording without hiding history. Ordinary provider refreshes resume
+    /// recording after sign-in, even when the database has not changed since the skipped pass.
+    private static func openCodeSignOutKeepsHistoryAndResumesAutomatically() {
+        let fixture = RecorderFixture(name: "snapshot-opencode-sign-out")
+        defer { fixture.remove() }
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "OpenCode history is initially recorded")
+
+        guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
+        db.stepFinish("part-2", created: 1_788_264_000_000, model: "gpt-5.6-luna", input: 5)
+        db.close()
+        let auth = fixture.root.appendingPathComponent("opencode/auth.json")
+        do {
+            try FileManager.default.removeItem(at: auth)
+        } catch {
+            Harness.expect(false, "removing the OpenCode fixture sign-in failed: \(error)")
+            return
+        }
+
+        // Missing, cleared, malformed, and incomplete sign-ins all pause without a scan error.
+        for signIn: String? in [nil, #"{"openai":null}"#, "invalid json", #"{"openai":{"type":"oauth"}}"#] {
+            if let signIn { Self.signInOpenCode(fixture, signIn) }
+            fixture.record(.codex)
+            Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "sign-out retains history without adding unchecked usage")
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "sign-out does not report a scan failure")
+        }
+
+        Self.signInOpenCode(fixture, #"{"openai":{"type":"oauth","accountId":"account-a"}}"#)
+        fixture.record(.codex)
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "background refresh catches up after sign-in without double counting")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "automatic recovery remains quiet")
     }
 
     /// Whether a request counts is settled when it is first recorded. Signing in to the Codex
