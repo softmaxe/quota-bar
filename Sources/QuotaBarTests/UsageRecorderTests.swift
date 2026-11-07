@@ -10,6 +10,7 @@ enum UsageRecorderTests {
         Self.rewrittenTranscriptKeepsMessagesRewrittenAway()
         Self.rewrittenTranscriptKeepsRecordedMessages()
         Self.midFileFailureLeavesNoRows()
+        Self.unreadableFileReportsPartialFailure()
     }
 
     /// A Claude Code request is recorded under its model ID, with its Long-context tier settled
@@ -49,6 +50,50 @@ enum UsageRecorderTests {
 }
 
 extension UsageRecorderTests {
+    private static func unreadableFileReportsPartialFailure() {
+        let fixture = RecorderFixture(name: "unreadable")
+        defer { fixture.remove() }
+        fixture.writeClaudeTranscript("app/good.jsonl", lines: [
+            ClaudeLine.assistant(id: "good", model: "claude-opus-5", input: 10, output: 1),
+        ])
+        fixture.writeClaudeTranscript("app/blocked.jsonl", lines: [
+            ClaudeLine.assistant(id: "blocked", model: "claude-opus-5", input: 20, output: 2),
+        ])
+        let blocked = fixture.claudeTranscript("app/blocked.jsonl")
+        do {
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: blocked.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: blocked.path) }
+            Harness.expectThrows("the fixture is genuinely unreadable") { _ = try Data(contentsOf: blocked) }
+            fixture.record(.claude)
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .error("sessions"),
+                                "an unreadable file reports scan failure")
+            let tier = RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)
+            Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 10, output: 1),
+                                "readable files still contribute during a partial failure")
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: blocked.path)
+            fixture.record(.claude)
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .idle,
+                                "restoring access clears the partial failure")
+            Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 30, output: 3),
+                                "retry records recovered usage without doubling readable files")
+            fixture.writeClaudeTranscript("locked/session.jsonl", lines: [
+                ClaudeLine.assistant(id: "locked", model: "claude-opus-5", input: 40, output: 4),
+            ])
+            let locked = fixture.claudeTranscript("locked/session.jsonl").deletingLastPathComponent()
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path) }
+            fixture.record(.claude)
+            Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .error("sessions"),
+                                "an unreadable directory is not mistaken for an empty successful scan")
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+            fixture.record(.claude)
+            Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 70, output: 7),
+                                "a restored directory contributes its previously unreadable usage")
+        } catch {
+            Harness.expect(false, "unreadable-file fixture failed: \(error)")
+        }
+    }
+
     /// Claude Code streams a message as several lines whose output grows, and replays finished
     /// messages into resumed and forked transcripts. Each message counts once, at its final size.
     fileprivate static func claudeReplaysCountOnceAtTheFinalOutput() {
@@ -137,10 +182,11 @@ extension UsageRecorderTests {
         )
 
         fixture.recorder?.record(failing, rateCard: RateCard())
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .idle, "a failing file is skipped, not a failed source")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .error("sessions"), "a failing file reports a partial scan failure")
         Harness.expect(fixture.recorded(.claude).isEmpty, "a file that fails partway leaves no rows")
 
         fixture.record(.claude)
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .claude), .idle, "a successful retry clears the scan failure")
         Harness.expectEqual(
             fixture.recorded(.claude)[RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)],
             TokenTotals(input: 70, output: 7),
@@ -156,7 +202,7 @@ private struct FailingAdapter<Wrapped: AppendedLogAdapter>: AppendedLogAdapter {
     let failingOn: Data
 
     var source: AppendedLogSource { self.wrapped.source }
-    func logFiles() -> [URL] { self.wrapped.logFiles() }
+    func logFiles(onError: @escaping (Error) -> Void) -> [URL] { self.wrapped.logFiles(onError: onError) }
     func isWanted(_ line: UnsafeRawBufferPointer) -> Bool { self.wrapped.isWanted(line) }
 
     func parser(for file: URL, resumingAt offset: Int64, savedState: String?) -> Parser {

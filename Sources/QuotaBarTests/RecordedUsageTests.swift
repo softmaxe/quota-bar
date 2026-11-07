@@ -161,8 +161,10 @@ enum RecordedUsageTests {
         let service = CostService(databaseURL: fixture.databaseURL, env: isolatedEnvironment(root: fixture.directory),
                                   rateCard: try RecordedUsageFixture.rateCard())
         let first = await service.refresh(.codex)
-        Harness.expectEqual(first?.windowTokens, 1_082, "menu retains its lower date bound and future-day usage")
-        Harness.expectEqual(first?.latestTokens, 1_000, "future usage remains the latest menu day")
+        Harness.expectEqual(first?.windowTokens, 82, "menu includes only usage through today")
+        Harness.expectEqual(first?.latestTokens, 54, "future usage does not replace the latest menu day")
+        Harness.expect(first?.days.allSatisfy { $0.dayKey <= fixture.day() } == true,
+                       "menu days exclude future usage")
         Harness.expectClose(first?.windowCostUSD, 695, "menu prices Standard, Fast, and recorded Long-context usage")
         Harness.expectClose(first?.todayCostUSD, 667, "menu prices today's matching source grouping")
         Harness.expectEqual(first?.topModel, "priced-model", "menu ranks models by priced usage")
@@ -178,7 +180,7 @@ enum RecordedUsageTests {
                                                rateCard: try RecordedUsageFixture.rateCard())
         let codexSources = report.days.flatMap(\.sources).filter { $0.name != CostUsageSource.claude.displayName }
         Harness.expectEqual(codexSources.reduce(0) { $0 + $1.total }, 82,
-                            "the report's matching Codex sources exclude the menu's 1,000 future tokens")
+                            "the report and menu both exclude future tokens")
         Harness.expectClose(codexSources.reduce(0) { $0 + $1.cost }, first?.windowCostUSD ?? -1,
                             "matching priced records use the same Rate card in menu and report")
         Harness.expectEqual(report.days.last?.sources.map(\.name), ["Codex", "Claude", "OpenCode", "Pi Agent"],
@@ -201,7 +203,7 @@ enum RecordedUsageTests {
         try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
         try fixture.database.exec("UPDATE pi_message SET input = 7 WHERE key = 'pi-a'")
         let recovered = await service.refresh(.codex)
-        Harness.expectEqual(recovered?.windowTokens, 1_083, "CostService can read again after query failure")
+        Harness.expectEqual(recovered?.windowTokens, 83, "CostService can read again after query failure")
         Harness.expectClose(recovered?.windowCostUSD, 696, "a successful retry returns the current complete snapshot")
     }
 }

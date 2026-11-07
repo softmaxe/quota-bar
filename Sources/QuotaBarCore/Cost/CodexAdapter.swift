@@ -33,8 +33,9 @@ package struct CodexAdapter: AppendedLogAdapter {
     }
 
     /// One copy per rollout: archiving moves or copies a live rollout into the other root.
-    package func logFiles() -> [URL] {
-        self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env) + self.mirroredRoots))
+    package func logFiles(onError: @escaping (Error) -> Void) -> [URL] {
+        self.uniqueRollouts(LogFileScanner.jsonlFiles(under: Self.sessionRoots(env: self.env) + self.mirroredRoots,
+                                                   onError: onError))
     }
 
     /// Standard rollout names end in the session UUID, which survives archive moves and copies.

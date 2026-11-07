@@ -221,6 +221,29 @@ enum ProviderStateTests {
         guard await AsyncWait.wait(until: { store.displays[.claude]?.cost?.windowTokens == 1 }), quotaCalls == 0 else {
             return "the menu did not load recorded usage independently of quota"
         }
+        let blocked = transcript.deletingLastPathComponent().appendingPathComponent("blocked.jsonl")
+        let good = transcript.deletingLastPathComponent().appendingPathComponent("good.jsonl")
+        try (line.replacingOccurrences(of: "msg", with: "blocked") + "\n")
+            .write(to: blocked, atomically: true, encoding: .utf8)
+        try (line.replacingOccurrences(of: "msg", with: "good") + "\n")
+            .write(to: good, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: blocked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: blocked.path) }
+        store.retryLocalUsage()
+        guard await AsyncWait.wait(until: {
+            if case .some(.failed) = store.displays[.claude]?.localScanStatus {
+                return store.displays[.claude]?.cost?.windowTokens == 2
+            }
+            return false
+        }) else { return "partial scan failure did not show new readable usage and a retry status" }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: blocked.path)
+        store.retryLocalUsage()
+        guard await AsyncWait.wait(until: {
+            if case .some(.completed) = store.displays[.claude]?.localScanStatus {
+                return store.displays[.claude]?.cost?.windowTokens == 3
+            }
+            return false
+        }) else { return "successful retry did not clear the partial failure and load recovered usage" }
         return nil
     }
 

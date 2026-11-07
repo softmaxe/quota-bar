@@ -6,6 +6,7 @@ private actor CodexRefreshTransport: HTTPTransport {
         case unauthorized
         case refreshedToken
         case rateLimited
+        case longRateLimit
         case forbidden
         case usage
     }
@@ -48,6 +49,9 @@ private actor CodexRefreshTransport: HTTPTransport {
         case .rateLimited:
             statusCode = 429
             body = Data()
+        case .longRateLimit:
+            statusCode = 429
+            body = Data()
         case .forbidden:
             statusCode = 403
             body = Data()
@@ -60,7 +64,7 @@ private actor CodexRefreshTransport: HTTPTransport {
             url: request.url!,
             statusCode: statusCode,
             httpVersion: nil,
-            headerFields: nil
+            headerFields: self.replies[index] == .longRateLimit ? ["Retry-After": "1800"] : nil
         )!
         return (body, response)
     }
@@ -72,11 +76,29 @@ private actor CodexRefreshTransport: HTTPTransport {
 
 enum CodexRefreshTests {
     static func run() async {
+        Self.retryAfterFormats()
         await Self.firstUsageSuccessClearsGate()
         await Self.retryUsageSuccessClearsGate()
         await Self.retryRateLimitStartsBackoff()
+        await Self.longRateLimitIsHonored(replies: [.longRateLimit])
+        await Self.longRateLimitIsHonored(replies: [.unauthorized, .refreshedToken, .longRateLimit])
         await Self.credentialReadFailureIsNotSignedOut()
         await Self.forbiddenResponseIsNotSignedOut()
+    }
+
+    private static func retryAfterFormats() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func parsed(_ value: String?) -> Date? {
+            let response = HTTPURLResponse(url: URL(string: "https://example.com")!, statusCode: 429,
+                                           httpVersion: nil, headerFields: value.map { ["Retry-After": $0] })!
+            return HTTPRetryAfter.date(from: response, now: now)
+        }
+        Harness.expectEqual(parsed(" 1800 "), now.addingTimeInterval(1800), "Retry-After accepts seconds")
+        Harness.expectEqual(parsed("Fri, 15 Jan 2027 08:30:00 GMT"), now.addingTimeInterval(1800),
+                            "Retry-After accepts an HTTP date")
+        for value in [nil, "invalid", "NaN", "inf", "-1"] as [String?] {
+            Harness.expectEqual(parsed(value), nil, "invalid Retry-After uses the fallback")
+        }
     }
 
     private static func firstUsageSuccessClearsGate() async {
@@ -131,6 +153,24 @@ enum CodexRefreshTests {
             "a rate-limited usage retry reports the gate's deadline"
         )
         Harness.expectEqual(await transport.requestsMade(), 3, "a rate-limited usage request retries once")
+    }
+
+    private static func longRateLimitIsHonored(replies: [CodexRefreshTransport.Reply]) async {
+        let before = Date()
+        let transport = CodexRefreshTransport(replies: replies)
+        let gate = UsageRateLimitGate()
+        let state = await Self.fetch(transport: transport, gate: gate)
+        guard case let .rateLimited(_, retryAfter) = state else {
+            Harness.expect(false, "a long server rate limit reports its deadline")
+            return
+        }
+        Harness.expect(
+            (1799...1801).contains(retryAfter.timeIntervalSince(before)),
+            "Codex honors Retry-After on both the initial request and the recovery retry"
+        )
+        Harness.expectEqual(await gate.blocked(.codex), retryAfter, "the gate retains the server deadline")
+        _ = await Self.fetch(transport: transport, gate: gate)
+        Harness.expectEqual(await transport.requestsMade(), replies.count, "the server deadline prevents further requests")
     }
 
     private static func credentialReadFailureIsNotSignedOut() async {

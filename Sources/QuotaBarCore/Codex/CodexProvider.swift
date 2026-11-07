@@ -52,10 +52,14 @@ public enum CodexProvider {
             )
             await gate.recordSuccess(.codex)
             return .loaded(Self.snapshot(from: response))
-        } catch CodexFetchError.serverError(429, _) {
-            await gate.recordRateLimit(.codex, retryAfter: nil)
+        } catch let CodexFetchError.rateLimited(retryAfter) {
+            await gate.recordRateLimit(.codex, retryAfter: retryAfter)
             let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
-            return .rateLimited(reason: "Codex usage API rate-limited. Try again in a few minutes.", retryAfter: until)
+            return .rateLimited(
+                reason: "Codex usage API rate-limited. Try again after "
+                    + until.formatted(date: .omitted, time: .shortened) + ".",
+                retryAfter: until
+            )
         } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
             // The stored token was stale after all — refresh once, then retry.
             do {
@@ -68,10 +72,14 @@ public enum CodexProvider {
                 )
                 await gate.recordSuccess(.codex)
                 return .loaded(Self.snapshot(from: response))
-            } catch CodexFetchError.serverError(429, _) {
-                await gate.recordRateLimit(.codex, retryAfter: nil)
+            } catch let CodexFetchError.rateLimited(retryAfter) {
+                await gate.recordRateLimit(.codex, retryAfter: retryAfter)
                 let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
-                return .rateLimited(reason: "Codex usage API rate-limited. Try again in a few minutes.", retryAfter: until)
+                return .rateLimited(
+                    reason: "Codex usage API rate-limited. Try again after "
+                        + until.formatted(date: .omitted, time: .shortened) + ".",
+                    retryAfter: until
+                )
             } catch {
                 return .failed(error.localizedDescription)
             }
