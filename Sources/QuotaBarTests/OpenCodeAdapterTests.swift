@@ -78,8 +78,7 @@ enum OpenCodeAdapterTests {
         Harness.expectEqual(fast["toggled-off"], false, "a request after Fast mode is turned off is Standard")
     }
 
-    /// A sign-in that cannot be checked fails the survey as `auth` before the database is
-    /// opened, so it is the reason reported even when the database is unreadable too.
+    /// Without a checkable sign-in, OpenCode is quietly skipped before opening its database.
     private static func signInIsCheckedBeforeTheDatabase() {
         let root = Self.temporaryRoot("auth-first")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -88,13 +87,13 @@ enum OpenCodeAdapterTests {
         try? Data("not a database".utf8).write(to: directory.appendingPathComponent("opencode.db"))
         try? #"{"openai":null}"#.write(to: directory.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
 
-        let failedOnAuth: Bool
-        if case .failed(.auth) = OpenCodeAdapter(env: isolatedEnvironment(root: root)).survey() {
-            failedOnAuth = true
+        let skipped: Bool
+        if case .skipped = OpenCodeAdapter(env: isolatedEnvironment(root: root)).survey() {
+            skipped = true
         } else {
-            failedOnAuth = false
+            skipped = false
         }
-        Harness.expect(failedOnAuth, "an uncheckable sign-in is reported before an unreadable database")
+        Harness.expect(skipped, "an uncheckable sign-in quietly skips an unreadable database")
     }
 
     private static func requests(root: URL) -> [ObservedRequest]? {

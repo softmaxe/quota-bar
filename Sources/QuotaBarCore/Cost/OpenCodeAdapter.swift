@@ -28,13 +28,17 @@ package struct OpenCodeAdapter: SnapshotAdapter {
     private var databaseURL: URL { self.dataDirectory.appendingPathComponent("opencode.db") }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        ExternalAgentEligibility.survey(
+        let survey = ExternalAgentEligibility.survey(
             installedAt: self.databaseURL,
             authFile: self.dataDirectory.appendingPathComponent("auth.json"),
             entry: "openai",
             env: self.env,
             stamp: self.stamp
         )
+        // OpenCode can remain installed after sign-out. Keep recorded history quietly and
+        // recheck its sign-in on the next refresh so recording resumes automatically.
+        if case .failed(.auth) = survey { return .skipped }
+        return survey
     }
 
     package func requests() throws -> [ObservedRequest] {

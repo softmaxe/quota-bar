@@ -510,6 +510,8 @@ package protocol SnapshotAdapter {
 package enum SnapshotSurvey<Stamp: Hashable> {
     /// The source is not installed, so there is nothing to record.
     case absent
+    /// Recording is paused. Keep history without reporting a failure and survey again next pass.
+    case skipped
     /// The source cannot be recorded this pass.
     case failed(ScanFailure)
     /// The source is present. `stamp` is nil when its files could not be examined, so it is read
@@ -549,7 +551,7 @@ extension UsageRecorder {
     package func record<Adapter: SnapshotAdapter>(_ adapter: Adapter, rateCard: RateCard) -> Int {
         let source = adapter.source
         switch adapter.survey() {
-        case .absent:
+        case .absent, .skipped:
             self.snapshots[source] = nil
             self.settle(source.usageSource, status: .idle)
             return 0
