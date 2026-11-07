@@ -5,6 +5,16 @@
 import Combine
 import Foundation
 
+public struct SettingsWindowPosition: Codable, Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
 public enum RefreshFrequency: String, CaseIterable, Identifiable {
     case manual
     case oneMinute
@@ -66,9 +76,28 @@ public final class SettingsStore: ObservableObject {
         static let modelsDevPricing = "modelsDevPricing"
         static let remoteHosts = "remoteHosts"
         static let remoteAutoSync = "remoteAutoSync"
+        static let settingsWindowPosition = "settingsWindowPosition"
     }
 
     private let defaults: UserDefaults
+
+    /// Window movement is persisted without publishing changes to the settings views.
+    public var settingsWindowPosition: SettingsWindowPosition? {
+        get {
+            guard let data = self.defaults.data(forKey: Key.settingsWindowPosition),
+                  let position = try? JSONDecoder().decode(SettingsWindowPosition.self, from: data),
+                  position.x.isFinite, position.y.isFinite else { return nil }
+            return position
+        }
+        set {
+            if let position = newValue, position.x.isFinite, position.y.isFinite,
+               let data = try? JSONEncoder().encode(position) {
+                self.defaults.set(data, forKey: Key.settingsWindowPosition)
+            } else {
+                self.defaults.removeObject(forKey: Key.settingsWindowPosition)
+            }
+        }
+    }
 
     /// Five minutes by default: the quota endpoints are shared with the CLIs and rate-limit,
     /// and a shorter cadence buys little for a number that moves over hours.
