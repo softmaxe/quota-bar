@@ -13,8 +13,6 @@ struct CostSectionView: View {
     /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
     private static let emptyStubHeight: CGFloat = 1.5
     private static let minimumBarHeight: CGFloat = 4
-    /// Room above the bars for the average and maximum daily values.
-    private static let chartSummaryHeight: CGFloat = 13
     /// How far the day summary's hover highlight reaches past its text.
     private static let summaryInset: CGFloat = 6
     /// A row is a line of text over its share bar.
@@ -197,9 +195,9 @@ struct CostSectionView: View {
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
                 ZStack(alignment: .topLeading) {
-                    // The average sits behind the bars; the summary above names its value.
+                    // The average sits behind the bars; the footer names its value.
                     if let average = self.averageLine {
-                        let rawY = Self.chartSummaryHeight + Self.chartHeight * (1 - CGFloat(average.fraction))
+                        let rawY = Self.chartHeight * (1 - CGFloat(average.fraction))
                         let scale = max(self.displayScale, 1)
                         // Align the one-point stroke's edges to pixels so it stays crisp at 1× too.
                         let y = ((rawY - 0.5) * scale).rounded() / scale + 0.5
@@ -222,7 +220,7 @@ struct CostSectionView: View {
                                     x: slotWidth * CGFloat(index) + 2,
                                     y: top - 2.5,
                                     width: slotWidth - 4,
-                                    height: Self.chartSummaryHeight + Self.chartHeight - top + 2.5
+                                    height: Self.chartHeight - top + 2.5
                                 )
                                 context.fill(Path(clearance), with: .color(.white))
                             }
@@ -236,27 +234,9 @@ struct CostSectionView: View {
                         }
                     }
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    // Both values describe the visible period rather than a particular column.
-                    HStack {
-                        if let average = self.averageLine {
-                            Text("avg \(average.label)")
-                                .foregroundStyle(Theme.chartReference)
-                                .accessibilityLabel("Average daily usage: \(average.label)")
-                        }
-                        Spacer(minLength: 4)
-                        if let peak = self.peakLabel {
-                            Text("max \(peak)")
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("Maximum daily usage: \(peak)")
-                        }
-                    }
-                    .font(.system(size: 10))
-                    .monospacedDigit()
-                    .frame(height: Self.chartSummaryHeight, alignment: .top)
-                    .allowsHitTesting(false)
                 }
             }
-            .frame(height: Self.chartSummaryHeight + Self.chartHeight + CostChartHoverMotion.markerBand)
+            .frame(height: Self.chartHeight + CostChartHoverMotion.markerBand)
             .onMoveCommand { direction in
                 switch direction {
                 case .left: self.moveSelection(by: -1)
@@ -275,7 +255,42 @@ struct CostSectionView: View {
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
+
+            self.chartSummary
+                .padding(.top, 4)
         }
+    }
+
+    /// Both values describe the visible period, grouped below the date axis.
+    private var chartSummary: some View {
+        HStack(spacing: 16) {
+            if let average = self.averageLine {
+                HStack(spacing: 4) {
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: 0.5))
+                        path.addLine(to: CGPoint(x: 12, y: 0.5))
+                    }
+                    .stroke(Theme.chartReference, style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                    .frame(width: 12, height: 1)
+                    .accessibilityHidden(true)
+                    Text("avg").foregroundStyle(.secondary)
+                    Text(average.label)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Average daily usage: \(average.label)")
+            }
+            if let peak = self.peakLabel {
+                HStack(spacing: 4) {
+                    Text("max").foregroundStyle(.secondary)
+                    Text(peak)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Maximum daily usage: \(peak)")
+            }
+        }
+        .font(.system(size: 10))
+        .monospacedDigit()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func dayButton(_ day: CostDay) -> some View {
@@ -359,7 +374,7 @@ struct CostSectionView: View {
             let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
             guard value > 0, maxValue > 0 else { return nil }
             let height = max(Self.minimumBarHeight, Self.chartHeight * CGFloat(value / maxValue))
-            return Self.chartSummaryHeight + Self.chartHeight - height
+            return Self.chartHeight - height
         }
     }
 
