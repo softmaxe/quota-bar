@@ -133,13 +133,13 @@ struct UsageSettingsView: View {
             if state == .syncing {
                 ProgressView().controlSize(.small)
             }
-            if let usage, usage.files > 0 {
+            if let usage, usage.records > 0 || usage.files > 0 {
                 Text(Self.count(usage.records, "record"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(usage.records == 0 ? Color.orange : Color.primary)
                     .monospacedDigit()
                     .fixedSize()
-                    .help("Usage records in this machine's logs. New counts those no other log recorded first.")
+                    .help("Recorded usage from this host. Unique records were first recorded from this host.")
             }
             Menu {
                 Button("Sync this host") { self.remote.sync(host) }
@@ -192,13 +192,13 @@ struct UsageSettingsView: View {
 
     private static func tooltip(state: RemoteHostSyncState, usage: RemoteHostUsage?, detail: String) -> String {
         if case let .failed(reason) = state { return reason }
-        return usage.map { "\(Self.count($0.files, "file")) · \(Self.size($0.bytes))" } ?? detail
+        return usage.map { "\(Self.count($0.files, "cached file")) · \(Self.size($0.bytes)) cached locally" } ?? detail
     }
 
     private static func joined(_ status: String, _ usage: RemoteHostUsage?) -> String {
-        guard let usage, usage.files > 0 else { return status }
+        guard let usage, usage.records > 0 || usage.files > 0 else { return status }
         guard usage.records > 0 else { return "\(status) · no usage in these logs" }
-        return "\(status) · \(usage.newRecords.formatted()) new · \(self.size(usage.bytes))"
+        return "\(status) · \(usage.newRecords.formatted()) unique · \(self.size(usage.bytes)) cached"
     }
 
     /// Red for a failed sync, orange for logs that arrived holding nothing to count.

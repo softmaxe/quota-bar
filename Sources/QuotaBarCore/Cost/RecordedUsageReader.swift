@@ -300,7 +300,13 @@ package final class RecordedUsageReader {
             stored[codex.sessionID(path: path) ?? path, default: (0, false)].rows += rows
             if path.contains(marker) { stored[codex.sessionID(path: path) ?? path]?.isNew = true }
         }
-        let sessions = Set(logs.map { codex.sessionID(path: $0) ?? $0 })
+        var sessions = Set(logs.map { codex.sessionID(path: $0) ?? $0 })
+        // Stored paths remain host evidence after an acknowledged mirror has been evicted.
+        try self.query("SELECT DISTINCT path FROM codex_day WHERE instr(path, ?) > 0", bindings: [marker]) { statement in
+            if let path = self.text(statement, column: 0, strict: false) {
+                sessions.insert(codex.sessionID(path: path) ?? path)
+            }
+        }
         for session in sessions {
             guard let rows = stored[session] else { continue }
             records += rows.rows

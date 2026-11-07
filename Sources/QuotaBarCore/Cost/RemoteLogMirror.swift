@@ -38,7 +38,7 @@ public enum RemoteSyncError: LocalizedError, Equatable {
     }
 }
 
-/// How much a host's mirror holds, for its row in Settings.
+/// A host's recorded contribution and remaining local cache, for Settings.
 public struct RemoteHostUsage: Sendable, Equatable {
     public let files: Int
     public let bytes: Int64
@@ -57,8 +57,8 @@ public struct RemoteHostUsage: Sendable, Equatable {
 
 /// Copies the Claude Code and Codex logs of SSH hosts into a local directory, so the Usage
 /// recorder reads them the way it reads this Mac's own. rsync's `--inplace` keeps each file's
-/// inode, so the recorder resumes a grown log instead of rereading it. Nothing is ever deleted
-/// from the mirror: a log the remote tool cleans up remains recorded here.
+/// inode, so the recorder resumes a grown log instead of rereading it. The recorder can evict
+/// acknowledged versions; each sync verifies their remote bytes before excluding them.
 public struct RemoteLogMirror: Sendable {
     /// The mirror's directory beside the database.
     static let directoryName = "remote-logs"
@@ -110,12 +110,17 @@ public struct RemoteLogMirror: Sendable {
 
     /// Brings the host's mirror up to date.
     public func sync(host: String) async throws {
+        try await self.sync(host: host, versions: [])
+    }
+
+    package func sync(host: String, versions: [RemoteLogVersion]) async throws {
         try Task.checkCancellation()
         guard Self.isValidHost(host) else { throw RemoteSyncError.invalidHost }
         let roots = try await self.presentRoots(on: host)
         try Task.checkCancellation()
         guard !roots.isEmpty else { throw RemoteSyncError.noLogs }
 
+        let verified = try await self.verifiedPaths(host: host, versions: versions.filter(\.evictionPending))
         let hostDirectory = self.root.appendingPathComponent(host, isDirectory: true)
         // Transcripts hold prompts and responses, so only this user may enter the mirror.
         try FileManager.default.createDirectory(
@@ -127,8 +132,50 @@ public struct RemoteLogMirror: Sendable {
             try Task.checkCancellation()
             let target = hostDirectory.appendingPathComponent(root.mirror, isDirectory: true)
             try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-            try await self.copy(root, from: host, to: target)
+            let excludes = verified.compactMap { path -> String? in
+                guard let relative = Self.safeRelativePath(path, host: host),
+                      relative.hasPrefix(root.mirror + "/") else { return nil }
+                return "--exclude=/" + String(relative.dropFirst(root.mirror.count + 1))
+            }
+            try await self.copy(root, from: host, to: target, excludes: excludes)
         }
+    }
+
+    package func verifiedPaths(host: String, versions: [RemoteLogVersion]) async throws -> Set<String> {
+        guard Self.isValidHost(host) else { throw RemoteSyncError.invalidHost }
+        let candidates: [(version: RemoteLogVersion, remote: String)] = versions.compactMap { version in
+            guard let relative = Self.safeRelativePath(version.path, host: host),
+                  let root = (Self.claudeRoots + Self.codexRoots).first(where: { relative.hasPrefix($0.mirror + "/") })
+            else { return nil }
+            return (version, root.remote + "/" + String(relative.dropFirst(root.mirror.count + 1)))
+        }
+        var verified: Set<String> = []
+        // Bound command length and reuse each SSH connection for several file checks.
+        for start in stride(from: 0, to: candidates.count, by: 32) {
+            try Task.checkCancellation()
+            let batch = Array(candidates[start..<min(start + 32, candidates.count)])
+            let script = batch.enumerated().map { index, candidate in
+                "p='\(candidate.remote)'; if n=$(wc -c < \"$p\") && "
+                    + "h=$(sha256sum < \"$p\" 2>/dev/null || shasum -a 256 < \"$p\" 2>/dev/null); "
+                    + "then set -- $h; printf '%s %s %s\\n' '\(index)' \"$n\" \"$1\"; fi"
+            }.joined(separator: "; ") + "; exit 0"
+            let command = "sh -c '" + script.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            do {
+                let result = try await self.run(Self.sshPath, Self.sshOptions + [host, command], Self.probeTimeout)
+                try Task.checkCancellation()
+                guard result.status == 0 else { continue }
+                for line in result.stdout.split(whereSeparator: \.isNewline) {
+                    let fields = line.split(whereSeparator: \.isWhitespace)
+                    guard fields.count == 3, let index = Int(fields[0]), batch.indices.contains(index) else { continue }
+                    let version = batch[index].version
+                    if Int64(fields[1]) == version.size, fields[2] == version.digest {
+                        verified.insert(version.path)
+                    }
+                }
+            } catch is CancellationError { throw CancellationError() }
+            catch { /* A failed probe must download normally. */ }
+        }
+        return verified
     }
 
     /// Which log directories the machine has. rsync fails on a missing source, and `ls` lists the
@@ -147,15 +194,17 @@ public struct RemoteLogMirror: Sendable {
         return roots.filter { present.contains($0.remote) }
     }
 
-    private func copy(_ root: LogRoot, from host: String, to target: URL) async throws {
+    private func copy(_ root: LogRoot, from host: String, to target: URL, excludes: [String]) async throws {
         try Task.checkCancellation()
         let output = try await self.run(
             Self.rsyncPath,
             [
                 "-rtz",
                 "--inplace",
+                "--checksum",
                 "--prune-empty-dirs",
                 "--timeout=60",
+            ] + excludes + [
                 "--include=*/",
                 "--include=*.jsonl",
                 "--exclude=*",
@@ -200,6 +249,19 @@ public struct RemoteLogMirror: Sendable {
     static func host(ofLog path: String) -> String? {
         guard let marker = path.range(of: "/\(self.directoryName)/") else { return nil }
         return path[marker.upperBound...].split(separator: "/", maxSplits: 1).first.map(String.init)
+    }
+
+    /// Wildcards, shell syntax, control characters and ambiguous components are never evicted.
+    package static func safeRelativePath(_ path: String, host: String) -> String? {
+        guard let marker = path.range(of: self.pathMarker(of: host)) else { return nil }
+        let relative = String(path[marker.upperBound...])
+        guard relative.unicodeScalars.allSatisfy({
+            $0.isASCIIAlphanumeric || "-._/".unicodeScalars.contains($0)
+        }), relative.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({
+            !$0.isEmpty && $0 != "." && $0 != ".."
+        }), (self.claudeRoots + self.codexRoots).contains(where: { relative.hasPrefix($0.mirror + "/") })
+        else { return nil }
+        return relative
     }
 
     /// What every path under a host's mirror contains.

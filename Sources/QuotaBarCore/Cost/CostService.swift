@@ -61,6 +61,36 @@ public actor CostService {
             .appendingPathComponent("cost-usage.sqlite", isDirectory: false)
     }
 
+    /// Actor reentrancy allows local scans during SSH; the recorder skips hosts being written.
+    public func syncRemote(host: String, mirror: RemoteLogMirror) async throws {
+        let recorder = try self.openRecorder()
+        guard !recorder.busyRemoteHosts.contains(host) else {
+            throw RemoteSyncError.failed("Remote host is already syncing")
+        }
+        recorder.busyRemoteHosts.insert(host)
+        defer { recorder.busyRemoteHosts.remove(host) }
+        let versions = try recorder.remoteVersions(host: host)
+        try await mirror.sync(host: host, versions: versions)
+        try Task.checkCancellation()
+        // No suspension while the scan guard is released for this synchronous recording.
+        recorder.busyRemoteHosts.remove(host)
+        for provider in [Provider.claude, .codex] {
+            recorder.record(provider, rateCard: self.currentRateCard(), env: self.env, remoteLogs: self.remoteLogsURL)
+        }
+        try Task.checkCancellation()
+        guard recorder.scanStatus(of: .claude) == .idle, recorder.scanStatus(of: .codex) == .idle else {
+            throw RemoteSyncError.failed("Remote logs could not be fully recorded; cleanup skipped")
+        }
+        recorder.busyRemoteHosts.insert(host)
+        let candidates = try recorder.remoteVersions(host: host).filter {
+            Date().timeIntervalSince($0.observedAt) >= 24 * 60 * 60
+                && FileManager.default.fileExists(atPath: $0.path)
+        }
+        let verified = try await mirror.verifiedPaths(host: host, versions: candidates)
+        try Task.checkCancellation()
+        try recorder.cleanupRemoteLogs(host: host, verifiedPaths: verified)
+    }
+
     public func refresh(_ provider: Provider) async -> CostSnapshot? {
         do {
             let recorder = try self.openRecorder()

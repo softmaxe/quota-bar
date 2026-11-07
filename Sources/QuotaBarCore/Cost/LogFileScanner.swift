@@ -225,7 +225,7 @@ package enum LogFileScanner {
     /// SHA-256 of the first `byteCount` bytes, or of the whole file when it is shorter, as
     /// lowercase hex. Reads with plain syscalls: Foundation's file handles return autoreleased
     /// buffers, and a refresh hashes thousands of files before its task drains them.
-    private static func prefixDigest(of url: URL, byteCount: Int64) throws -> String {
+    package static func prefixDigest(of url: URL, byteCount: Int64) throws -> String {
         let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw Self.posixError() }
         defer { _ = Darwin.close(descriptor) }

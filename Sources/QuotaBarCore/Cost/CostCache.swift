@@ -83,7 +83,7 @@ final class CostCache {
             throw CostCacheError.openFailed(self.lastErrorMessage)
         }
         try self.exec("PRAGMA journal_mode=WAL")
-        try self.exec("PRAGMA synchronous=NORMAL")
+        try self.exec("PRAGMA synchronous=FULL")
         // Usage is durable history. Schema upgrades must preserve rows whose source is gone.
         try self.createSchema()
     }
@@ -94,6 +94,7 @@ final class CostCache {
     }
 
     private func createSchema() throws {
+        try self.exec("CREATE TABLE IF NOT EXISTS remote_manifest (path TEXT PRIMARY KEY, value TEXT NOT NULL)")
         try self.exec("""
         CREATE TABLE IF NOT EXISTS file_cursor (
             path TEXT PRIMARY KEY,
@@ -220,7 +221,15 @@ final class CostCache {
             DELETE FROM file_cursor
             WHERE provider = '\(Provider.claude.rawValue)'
                 AND path LIKE '%/\(RemoteLogMirror.directoryName)/%'
+                AND path NOT IN (SELECT path FROM remote_manifest)
             """)
+            try self.recordedUsageReader.query("SELECT path, key FROM claude_message") { statement in
+                if let path = FileCursor.text(statement, column: 0),
+                   let key = FileCursor.text(statement, column: 1),
+                   let host = RemoteLogMirror.host(ofLog: path) {
+                    try self.addMirroredMessage(host: host, key: key)
+                }
+            }
             try self.exec("COMMIT")
         } catch {
             try? self.exec("ROLLBACK")
@@ -573,6 +582,10 @@ final class CostCache {
                 INSERT OR IGNORE INTO main.mirrored_message (host, key)
                 SELECT host, key FROM backup.mirrored_message
                 """)
+            // Imported cursors can supersede the version the local eviction proof describes.
+            // Revalidate downloaded contents against the merged cursors before certifying again.
+            try self.exec("DELETE FROM main.remote_manifest")
+            try self.exec("UPDATE main.file_cursor SET inode = 0 WHERE instr(path, '/remote-logs/') > 0")
             try self.commit()
             return UsageImportResult(added: keyed.added + codex.added, updated: keyed.updated + codex.updated)
         } catch {
