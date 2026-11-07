@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Reads only the structural JSON fields needed to decide whether a JSONL record merits full
@@ -123,25 +124,29 @@ package enum JSONLogClassifier {
         guard index < buffer.count, buffer[index] == UInt8(ascii: "\"") else { return nil }
         index += 1
         let start = index
+        guard let base = buffer.baseAddress,
+              let quote = memchr(base.advanced(by: index), Int32(UInt8(ascii: "\"")), buffer.count - index) else {
+            return nil
+        }
+        let end = base.distance(to: quote)
+        // Skip long plain strings in libc. Escaped strings retain the scalar traversal: searching
+        // for every escaped quote separately regresses on densely escaped transcript content.
+        guard let escape = memchr(base.advanced(by: index), Int32(UInt8(ascii: "\\")), end - index) else {
+            index = end + 1
+            return ParsedString(range: start..<end, hasEscape: false)
+        }
+        index = base.distance(to: escape)
         var escaped = false
-        var hasEscape = false
         while index < buffer.count {
             let byte = buffer[index]
             if escaped {
                 escaped = false
-                index += 1
-                continue
-            }
-            if byte == UInt8(ascii: "\\") {
-                hasEscape = true
+            } else if byte == UInt8(ascii: "\\") {
                 escaped = true
-                index += 1
-                continue
-            }
-            if byte == UInt8(ascii: "\"") {
+            } else if byte == UInt8(ascii: "\"") {
                 let range = start..<index
                 index += 1
-                return ParsedString(range: range, hasEscape: hasEscape)
+                return ParsedString(range: range, hasEscape: true)
             }
             index += 1
         }

@@ -229,16 +229,18 @@ final class UsageStore: ObservableObject {
             }
             await MainActor.run {
                 guard let self else { return }
+                var display = self.displays[provider] ?? ProviderDisplay()
                 if let scanned {
-                    self.displays[provider, default: ProviderDisplay()].cost = scanned
-                    self.displays[provider, default: ProviderDisplay()].localScanStatus =
+                    display.cost = scanned
+                    display.localScanStatus =
                         scanFailed
                         ? .failed("Some local usage could not be scanned. Available usage is shown; retry the scan.")
                         : .completed(self.dateClock())
                 } else {
-                    self.displays[provider, default: ProviderDisplay()].localScanStatus =
+                    display.localScanStatus =
                         .failed("Local usage scan failed. Previous usage remains available.")
                 }
+                self.displays[provider] = display
                 self.costTasks[provider] = nil
                 self.finishedLocalScans += 1
                 if self.pendingCostRefreshes.remove(provider) != nil {

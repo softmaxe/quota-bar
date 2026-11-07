@@ -61,19 +61,16 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
 
     // MARK: Live updates
 
-    private func startLiveUpdates() {
+    func startLiveUpdates() {
         // Reading the database is quick; show what is saved now, then again after the scans.
         self.reload()
         self.store?.refreshAllLocalUsage()
         guard self.timer == nil else { return }
 
         // Any scan that finishes, whichever path started it, may have saved new usage.
-        self.scanObserver = self.store?.$displays
-            .map { displays in Provider.allCases.map { displays[$0]?.localScanStatus } }
-            .removeDuplicates()
+        self.scanObserver = self.store?.$finishedLocalScans
             .dropFirst()
-            .sink { [weak self] statuses in
-                guard statuses.contains(where: { if case .completed = $0 { true } else { false } }) else { return }
+            .sink { [weak self] _ in
                 self?.reload()
             }
         let timer = Timer(timeInterval: Self.rescanInterval, repeats: true) { [weak self] _ in
@@ -229,6 +226,11 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
     }
 
 #if DEBUG
+    /// Waits for all requested reads, including a coalesced follow-up, to be applied.
+    func debugWaitForPendingReads() async {
+        while let task = self.readTask { await task.value }
+    }
+
     /// The loaded page, for the preview dump.
     var debugWebView: WKWebView? { self.isPageReady ? self.webView : nil }
 #endif

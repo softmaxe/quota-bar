@@ -269,6 +269,22 @@ enum CostTests {
         Harness.expectEqual(topLevelType(fakeTopLevel), .other, "a marker inside a string cannot classify a record")
         let fakePayload = #"{"type":"event_msg","payload":{"note":"\"type\":\"token_count\"","type":"agent_message"}}"#
         Harness.expectEqual(payloadType(fakePayload), .other, "a payload marker inside a string is ignored")
+        for count in 0...12 {
+            let slashes = String(repeating: "\\", count: count * 2)
+            Harness.expectEqual(
+                topLevelType("{\"padding\":\"\(slashes)\",\"type\":\"assistant\"}"), .assistant,
+                "an even escape run ends the preceding string"
+            )
+            Harness.expectEqual(
+                topLevelType("{\"padding\":\"\(slashes)\\\"type\\\":\\\"user\\\"\",\"type\":\"assistant\"}"), .assistant,
+                "an odd escape run keeps decoy fields inside the string"
+            )
+        }
+        Harness.expectEqual(topLevelType(#"{"padding":"unterminated\\\"}"#), .indeterminate,
+                            "an unterminated escaped string stays indeterminate")
+        let denseEscapes = String(repeating: #"\\\""#, count: 32_768)
+        Harness.expectEqual(topLevelType("{\"padding\":\"\(denseEscapes)\",\"type\":\"assistant\"}"),
+                            .assistant, "dense escaped quotes do not expose a false string ending")
 
         let bounded = root.appendingPathComponent("bounded.jsonl")
         try? "first\nsecond\n".write(to: bounded, atomically: true, encoding: .utf8)
