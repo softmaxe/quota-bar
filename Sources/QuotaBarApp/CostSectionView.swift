@@ -13,10 +13,8 @@ struct CostSectionView: View {
     /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
     private static let emptyStubHeight: CGFloat = 1.5
     private static let minimumBarHeight: CGFloat = 4
-    /// Room above the bars for the tallest day's value.
-    private static let peakLabelBand: CGFloat = 13
-    /// Wide enough for the average's key at its longest, "avg $1,234".
-    private static let averageKeyWidth: CGFloat = 54
+    /// Room above the bars for the average and maximum daily values.
+    private static let chartSummaryHeight: CGFloat = 13
     /// How far the day summary's hover highlight reaches past its text.
     private static let summaryInset: CGFloat = 6
     /// A row is a line of text over its share bar.
@@ -199,10 +197,9 @@ struct CostSectionView: View {
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
                 ZStack(alignment: .topLeading) {
-                    // The average sits behind the bars, so it reads in the gaps without
-                    // crossing a bar; its value is named on the axis below.
+                    // The average sits behind the bars; the summary above names its value.
                     if let average = self.averageLine {
-                        let rawY = Self.peakLabelBand + Self.chartHeight * (1 - CGFloat(average.fraction))
+                        let rawY = Self.chartSummaryHeight + Self.chartHeight * (1 - CGFloat(average.fraction))
                         let scale = max(self.displayScale, 1)
                         // Align the one-point stroke's edges to pixels so it stays crisp at 1× too.
                         let y = ((rawY - 0.5) * scale).rounded() / scale + 0.5
@@ -225,24 +222,12 @@ struct CostSectionView: View {
                                     x: slotWidth * CGFloat(index) + 2,
                                     y: top - 2.5,
                                     width: slotWidth - 4,
-                                    height: Self.peakLabelBand + Self.chartHeight - top + 2.5
+                                    height: Self.chartSummaryHeight + Self.chartHeight - top + 2.5
                                 )
                                 context.fill(Path(clearance), with: .color(.white))
                             }
                         }
                         .allowsHitTesting(false)
-                        // Named at the line's own left end, as the window names it on its axis,
-                        // where the first days leave room; otherwise in the top corner.
-                        let clear = self.barTops(slotWidth: slotWidth).prefix(2).allSatisfy { ($0 ?? .infinity) > y + 2 }
-                        Text("avg \(average.label)")
-                            .font(.system(size: 10))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.chartReference)
-                            .fixedSize()
-                            .frame(width: geometry.size.width, alignment: .leading)
-                            .position(x: geometry.size.width / 2, y: clear ? y - 7 : Self.peakLabelBand / 2 - 1)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
                     }
                     HStack(alignment: .bottom, spacing: 0) {
                         ForEach(self.bars, id: \.dayKey) { day in
@@ -251,31 +236,27 @@ struct CostSectionView: View {
                         }
                     }
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    // The tallest day carries its value, which gives the whole chart a scale.
-                    if let peak = self.peakBar {
-                        // Centered over its bar, held to the right edge near it, and clear of
-                        // the average's key on the left.
-                        let barCenter = slotWidth * (CGFloat(peak.index) + 0.5)
-                        // Only a label that would actually meet the key moves, and only far enough.
-                        let center = self.averageLine == nil ? barCenter : max(barCenter, Self.averageKeyWidth + 26)
-                        let alignment: Alignment = center < 30 ? .leading
-                            : center > geometry.size.width - 30 ? .trailing : .center
-                        Text(peak.label)
-                            .font(.system(size: 10, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
-                            .frame(width: 60, alignment: alignment)
-                            .position(
-                                x: min(max(30, center), geometry.size.width - 30),
-                                y: Self.peakLabelBand / 2 - 1
-                            )
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
+                    // Both values describe the visible period rather than a particular column.
+                    HStack {
+                        if let average = self.averageLine {
+                            Text("avg \(average.label)")
+                                .foregroundStyle(Theme.chartReference)
+                                .accessibilityLabel("Average daily usage: \(average.label)")
+                        }
+                        Spacer(minLength: 4)
+                        if let peak = self.peakLabel {
+                            Text("max \(peak)")
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Maximum daily usage: \(peak)")
+                        }
                     }
+                    .font(.system(size: 10))
+                    .monospacedDigit()
+                    .frame(height: Self.chartSummaryHeight, alignment: .top)
+                    .allowsHitTesting(false)
                 }
             }
-            .frame(height: Self.peakLabelBand + Self.chartHeight + CostChartHoverMotion.markerBand)
+            .frame(height: Self.chartSummaryHeight + Self.chartHeight + CostChartHoverMotion.markerBand)
             .onMoveCommand { direction in
                 switch direction {
                 case .left: self.moveSelection(by: -1)
@@ -364,11 +345,11 @@ struct CostSectionView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// The tallest bar and its value in the chosen unit, or nil when every day is empty.
-    private var peakBar: (index: Int, label: String)? {
-        let values = self.bars.map { CostChartHighlightPolicy.value(for: $0, mode: self.selectedLabelMode) }
-        guard let peak = values.max(), peak > 0, let index = values.firstIndex(of: peak) else { return nil }
-        return (index, self.compactValue(peak))
+    /// The maximum daily value in the chosen unit, or nil when every day is empty.
+    private var peakLabel: String? {
+        let peak = CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
+        guard peak > 0 else { return nil }
+        return self.compactValue(peak)
     }
 
     /// Each day's bar top in the chart's space, or nil for a day drawn as a stub.
@@ -378,7 +359,7 @@ struct CostSectionView: View {
             let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
             guard value > 0, maxValue > 0 else { return nil }
             let height = max(Self.minimumBarHeight, Self.chartHeight * CGFloat(value / maxValue))
-            return Self.peakLabelBand + Self.chartHeight - height
+            return Self.chartSummaryHeight + Self.chartHeight - height
         }
     }
 
