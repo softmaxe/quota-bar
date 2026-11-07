@@ -97,7 +97,12 @@ struct UsageUnitSwitch: View {
     private func pill(width: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous)
             .fill(ProviderTabBar.pillColor)
-            .shadow(color: .black.opacity(0.14), radius: 1, y: 0.5)
+            // A hairline edge and a contact shadow, as AppKit draws a selected segment.
+            .overlay(
+                RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.22), radius: 1.5, y: 0.5)
             .frame(width: max(0, (self.pillMaxX - self.pillMinX) * width), height: Self.segmentHeight)
             .offset(x: self.pillMinX * width)
     }

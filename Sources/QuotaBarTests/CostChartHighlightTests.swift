@@ -84,6 +84,21 @@ enum CostChartHighlightTests {
         Harness.expect(!(CostChartHighlightPolicy.value(for: priced, mode: .tokens) != 200
             || CostChartHighlightPolicy.value(for: priced, mode: .cost) != 10
             || CostChartHighlightPolicy.maxValue(for: days, mode: .cost) != 10), "chart values expected to follow the selected unit")
+        let unknownToday = days.last!
+        let meanDays = [priced, partial, unpriced, unknownToday]
+        let unknownKeys = Set([unknownToday.dayKey])
+        Harness.expect(CostChartHighlightPolicy.meanValue(
+            for: meanDays, mode: .cost, excluding: unknownKeys
+        ) == 6.5, "mean cost must exclude unscanned dates and fully unpriced usage")
+        Harness.expect(CostChartHighlightPolicy.meanValue(
+            for: meanDays, mode: .tokens, excluding: unknownKeys
+        ) == Double(320) / 3, "mean tokens must retain recorded unpriced usage")
+        Harness.expect(CostChartHighlightPolicy.meanValue(
+            for: [priced, days[1]], mode: .tokens, excluding: []
+        ) == 100, "a scanned zero must remain in the average")
+        Harness.expect(CostChartHighlightPolicy.meanValue(
+            for: [unpriced, unknownToday], mode: .cost, excluding: unknownKeys
+        ) == nil, "unknown observations must not invent a mean cost")
         let available = Set(keys)
         let selected = CostChartHighlightPolicy.selectedDayKey(
             pinnedDayKey: "2026-09-09",

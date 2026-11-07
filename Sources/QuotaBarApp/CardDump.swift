@@ -453,7 +453,11 @@ enum CardDump {
                         isRefreshing: false,
                         animatesFill: false,
                         quotaResetDisplayMode: resetMode
-                    ),
+                    )
+                    // A rate limit carries the server's cooldown, so Refresh waits it out.
+                    .environment(\.menuRefreshState, errors[baseName] == nil
+                        ? RefreshEligibility.Row(title: "Refresh", trailingText: nil, isEnabled: true)
+                        : RefreshEligibility.Row(title: "Refresh", trailingText: "12m", isEnabled: false)),
                     named: name,
                     into: root
                 )

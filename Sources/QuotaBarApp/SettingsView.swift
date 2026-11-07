@@ -1,4 +1,5 @@
 import QuotaBarCore
+import ServiceManagement
 import AppKit
 import SwiftUI
 
@@ -109,9 +110,10 @@ struct GeneralSettingsView: View {
     var body: some View {
         SettingsPane("General") {
             SettingsSection("Menu bar") {
-                HStack(spacing: 10) {
-                    ForEach(Provider.allCases, id: \.self) { provider in
-                        ProviderChoiceCard(
+                VStack(spacing: 0) {
+                    ForEach(Array(Provider.allCases.enumerated()), id: \.element) { index, provider in
+                        if index > 0 { Divider() }
+                        ProviderChoiceRow(
                             provider: provider,
                             display: self.display(provider),
                             isSelected: self.settings.menuBarProvider == provider
@@ -122,30 +124,65 @@ struct GeneralSettingsView: View {
                         }
                     }
                 }
+                .settingsGroup()
             }
 
-            SettingsSection("Refresh") {
-                SettingsRow(
-                    title: "Refresh quota",
-                    detail: self.settings.refreshFrequency.risksRateLimit
-                        ? "The quota endpoints are shared with the Codex and Claude CLIs. "
-                            + "Polling this often can get you rate-limited."
-                        : nil,
-                    detailColor: .orange
-                ) {
-                    Picker("Refresh quota", selection: self.$settings.refreshFrequency) {
-                        ForEach(RefreshFrequency.allCases) { frequency in
-                            Text(frequency.label).tag(frequency)
+            SettingsSection("Behavior") {
+                VStack(spacing: 0) {
+                    SettingsRow(
+                        title: "Check for new readings",
+                        detail: self.settings.refreshFrequency.risksRateLimit
+                            ? "The quota endpoints are shared with the Codex and Claude CLIs. "
+                                + "Polling this often can get you rate-limited."
+                            : "How often QuotaBar asks Codex and Claude for your remaining quota.",
+                        detailColor: self.settings.refreshFrequency.risksRateLimit ? .orange : .secondary
+                    ) {
+                        Picker("Check for new readings", selection: self.$settings.refreshFrequency) {
+                            ForEach(RefreshFrequency.allCases) { frequency in
+                                Text(frequency.label).tag(frequency)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .fixedSize()
                     }
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                    .labelsHidden()
-                    .fixedSize()
+                    Divider()
+                    LaunchAtLoginRow()
                 }
                 .settingsGroup()
             }
+
+            SettingsSection("About") {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("QuotaBar")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(Self.versionText)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Link(destination: Self.releasesURL) {
+                        Text("Releases ↗")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .settingsGroup()
+            }
         }
+    }
+
+    private static let releasesURL = URL(string: "https://github.com/softmaxe/quota-bar/releases")!
+
+    private static var versionText: String {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
+            return "Development build"
+        }
+        return "Version \(version)"
     }
 
     private func display(_ provider: Provider) -> ProviderDisplay {
@@ -218,12 +255,13 @@ struct SettingsSectionHeader<Accessory: View>: View {
             Text(self.title)
                 .font(.system(size: 13, weight: .semibold))
             Spacer(minLength: 8)
+            // Borderless, so the last control's text ends on the box's edge below it.
             self.accessory()
-                .buttonStyle(.accessoryBar)
+                .buttonStyle(.borderless)
                 .controlSize(.small)
+                .foregroundStyle(.secondary)
         }
         .frame(minHeight: 24)
-        .padding(.horizontal, 2)
     }
 }
 
@@ -306,8 +344,46 @@ extension View {
     }
 }
 
-/// One provider as a choice for the menu bar, carrying the quota it would show.
-struct ProviderChoiceCard: View {
+/// Opens QuotaBar when the user logs in, through the system's login item for this app. The
+/// switch reads the system's record each time it appears, since System Settings can change it.
+struct LaunchAtLoginRow: View {
+    @State private var isEnabled = SMAppService.mainApp.status == .enabled
+    @State private var failure: String?
+
+    var body: some View {
+        SettingsRow(
+            title: "Open at login",
+            detail: self.failure ?? "Start QuotaBar in the menu bar when you log in.",
+            detailColor: self.failure == nil ? .secondary : .orange
+        ) {
+            Toggle("Open at login", isOn: Binding(
+                get: { self.isEnabled },
+                set: { self.apply($0) }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .labelsHidden()
+        }
+        .onAppear { self.isEnabled = SMAppService.mainApp.status == .enabled }
+    }
+
+    private func apply(_ enable: Bool) {
+        do {
+            if enable {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            self.failure = nil
+        } catch {
+            self.failure = "macOS did not allow this change. Try again from System Settings › Login Items."
+        }
+        self.isEnabled = SMAppService.mainApp.status == .enabled
+    }
+}
+
+/// One provider as a radio row for the menu bar, with the reading it would show there.
+struct ProviderChoiceRow: View {
     let provider: Provider
     let display: ProviderDisplay
     let isSelected: Bool
@@ -316,61 +392,35 @@ struct ProviderChoiceCard: View {
     @State private var isHovered = false
 
     var body: some View {
-        let accent = Theme.accent(for: self.provider)
         Button(action: self.select) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(accent)
-                        .frame(width: 7, height: 7)
-                    Text(self.provider.displayName)
-                        .font(.system(size: 13, weight: .semibold))
-                    if let plan = self.display.snapshot?.planLabel {
-                        Text(plan)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(accent)
-                        .opacity(self.isSelected ? 1 : 0)
+            HStack(spacing: 10) {
+                Image(systemName: self.isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(self.isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 16)
+                Text(self.provider.displayName)
+                    .font(.system(size: 13, weight: .medium))
+                if let plan = self.display.snapshot?.planLabel {
+                    Text(plan)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
-                Text(self.display.quotaReading.text)
-                    .font(.system(size: 11))
+                Spacer(minLength: 8)
+                Text(self.display.quotaReading)
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
+                    .monospacedDigit()
                     .lineLimit(1)
-                Capsule()
-                    .fill(Theme.progressTrack)
-                    .frame(height: 5)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { geometry in
-                            Capsule()
-                                .fill(accent)
-                                .frame(width: geometry.size.width * (self.display.quotaReading.fraction ?? 0))
-                        }
-                    }
-                    .padding(.top, 4)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(self.isSelected ? accent.opacity(0.10) : Color.primary.opacity(self.isHovered ? 0.07 : 0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(
-                        self.isSelected ? accent : Color.primary.opacity(0.09),
-                        lineWidth: self.isSelected ? 1.5 : 1
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.primary.opacity(self.isHovered ? 0.04 : 0))
+            .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .onHover { self.isHovered = $0 }
-        .accessibilityLabel("\(self.provider.displayName), \(self.display.quotaReading.text)")
+        .accessibilityLabel("\(self.provider.displayName), \(self.display.quotaReading)")
         .accessibilityAddTraits(self.isSelected ? [.isSelected] : [])
     }
 }
@@ -378,15 +428,15 @@ struct ProviderChoiceCard: View {
 extension ProviderDisplay {
     /// The window Settings reads from: the session one, or the weekly one when the plan has no
     /// session limit or the response left it out.
-    var quotaReading: (text: String, fraction: Double?) {
-        if self.isSignedOut { return ("Not signed in", nil) }
-        guard let snapshot = self.snapshot else { return ("No reading yet", nil) }
+    var quotaReading: String {
+        if self.isSignedOut { return "Not signed in" }
+        guard let snapshot = self.snapshot else { return "No reading yet" }
         if let session = snapshot.session {
-            return ("Session \(Formatters.percent(session.remainingPercent)) left", session.remainingPercent / 100)
+            return "Session \(Formatters.percent(session.remainingPercent)) left"
         }
         if let weekly = snapshot.weekly {
-            return ("Weekly \(Formatters.percent(weekly.remainingPercent)) left", weekly.remainingPercent / 100)
+            return "Weekly \(Formatters.percent(weekly.remainingPercent)) left"
         }
-        return (snapshot.sessionIsUnlimited ? "Session has no limit" : "No reading yet", nil)
+        return snapshot.sessionIsUnlimited ? "Session has no limit" : "No reading yet"
     }
 }

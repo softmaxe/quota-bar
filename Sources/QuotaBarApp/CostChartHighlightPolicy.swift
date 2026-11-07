@@ -2,7 +2,7 @@ import Foundation
 import QuotaBarCore
 
 enum CostChartHighlightPolicy {
-    static let restingOpacity = 0.55
+    static let restingOpacity = 0.65
 
     static func value(for day: CostDay, mode: CostChartLabelMode) -> Double {
         switch mode {
@@ -13,6 +13,19 @@ enum CostChartHighlightPolicy {
 
     static func maxValue(for days: [CostDay], mode: CostChartLabelMode) -> Double {
         days.map { self.value(for: $0, mode: mode) }.max() ?? 0
+    }
+
+    /// Unknown dates and unpriced costs are not zero-valued observations.
+    static func meanValue(for days: [CostDay], mode: CostChartLabelMode, excluding dayKeys: Set<String>) -> Double? {
+        let values: [Double] = days.compactMap { day in
+            guard !dayKeys.contains(day.dayKey) else { return nil }
+            switch mode {
+            case .tokens: return Double(day.tokens.total)
+            case .cost: return day.costAvailability.knownUSD
+            }
+        }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
     }
 
     /// Each slot is one local calendar day. Callers distinguish scan coverage from absence.

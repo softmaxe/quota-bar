@@ -15,8 +15,12 @@ struct UsageProgressBar: View {
     let tint: Color
     /// Where the fill would sit if the budget were being spent evenly, in remaining percent.
     let pacePercent: Double?
-    /// Red marks burning faster than the clock; green marks a reserve.
+    /// Burning faster than the clock. The marker stays neutral; the outcome line carries the color.
     let paceIsDeficit: Bool
+    /// The window is spent: the track takes a red tint so an empty bar never reads as a blank one.
+    let isExhausted: Bool
+    /// A saved reading: the pace tick steps back with the grey fill.
+    let isStale: Bool
     /// Offscreen renders capture a single frame, so they need the bar to start at its final value.
     let animatesFill: Bool
     /// Non-zero, and changing, means this window reset: play the celebration instead of static
@@ -39,9 +43,11 @@ struct UsageProgressBar: View {
     /// Captures the reading that the hidden replay charges from and returns to.
     @State private var replayStartPercent: Double?
 
-    private static let pacePunchWidth: CGFloat = 4
-    private static let paceStripeWidth: CGFloat = 2
-    private static let punchOpacity: Double = 1
+    private static let pacePunchWidth: CGFloat = 3.5
+    private static let paceStripeWidth: CGFloat = 1.5
+    private static let trackHeight: CGFloat = 6
+    /// How far the pace marker reaches above and below the track, so it reads as a target.
+    private static let markerOverhang: CGFloat = 2
     /// How far the celebration canvas reaches past each end of the bar.
     private static let celebrationInset: CGFloat = 20
     /// Tall enough that the glow fades out before it reaches the canvas edge; the card clips it
@@ -58,6 +64,8 @@ struct UsageProgressBar: View {
         tint: Color,
         pacePercent: Double? = nil,
         paceIsDeficit: Bool = false,
+        isExhausted: Bool = false,
+        isStale: Bool = false,
         animatesFill: Bool = true,
         celebrationToken: Int = 0,
         celebrationStartPercent: Double? = nil,
@@ -68,6 +76,8 @@ struct UsageProgressBar: View {
         self.tint = tint
         self.pacePercent = pacePercent
         self.paceIsDeficit = paceIsDeficit
+        self.isExhausted = isExhausted
+        self.isStale = isStale
         self.animatesFill = animatesFill
         self.celebrationToken = celebrationToken
         self.celebrationStartPercent = celebrationStartPercent
@@ -82,19 +92,32 @@ struct UsageProgressBar: View {
         // Everything is drawn in one Canvas. CodexBar found that SwiftUI compositing modifiers
         // (.blendMode, .compositingGroup) trigger shader compilation on macOS 26 that can make the
         // status item icon disappear; a single Canvas uses Core Graphics directly and avoids it.
-        Canvas { context, size in
+        Canvas { context, canvasSize in
             let scale = max(self.displayScale, 1)
+            let inset = Self.markerOverhang
+            let size = CGSize(width: canvasSize.width, height: canvasSize.height - inset * 2)
             let cornerSize = CGSize(width: size.height / 2, height: size.height / 2)
-            let rect = CGRect(origin: .zero, size: size)
-
-            context.clip(to: Path(rect))
+            let rect = CGRect(origin: CGPoint(x: 0, y: inset), size: size)
 
             let trackPath = Path { $0.addRoundedRect(in: rect, cornerSize: cornerSize) }
             context.fill(trackPath, with: .color(Theme.progressTrack))
+            if self.isExhausted {
+                context.stroke(
+                    Path { $0.addRoundedRect(in: rect.insetBy(dx: 0.5, dy: 0.5), cornerSize: cornerSize) },
+                    with: .color(Color.red.opacity(0.75)),
+                    lineWidth: 1
+                )
+            }
 
-            let fillWidth = size.width * min(100, max(0, self.fillPercent)) / 100
+            var fillWidth = size.width * min(100, max(0, self.fillPercent)) / 100
+            // A fill that ends within a few points of the pace tick ends at the tick, so the two
+            // never leave a sliver between them. The headline keeps the exact reading.
+            if let pacePercent = self.pacePercent, self.celebration.elapsed == nil, fillWidth > 0 {
+                let tick = size.width * min(100, max(0, pacePercent)) / 100
+                if abs(fillWidth - tick) < 6 { fillWidth = tick }
+            }
             if fillWidth > 0 {
-                let fillRect = CGRect(x: 0, y: 0, width: min(fillWidth, size.width), height: size.height)
+                let fillRect = CGRect(x: 0, y: inset, width: min(fillWidth, size.width), height: size.height)
                 let fillPath = Path { $0.addRoundedRect(in: fillRect, cornerSize: cornerSize) }
                 context.fill(fillPath, with: .color(self.tint))
 
@@ -104,7 +127,7 @@ struct UsageProgressBar: View {
                     let shine = QuotaCelebration.headShineOpacity(at: time)
                     if shine > 0.01 {
                         let head = fillRect.maxX
-                        let glow = CGRect(x: head - 14, y: 0, width: 16, height: size.height)
+                        let glow = CGRect(x: head - 14, y: inset, width: 16, height: size.height)
                         context.fill(
                             Path(roundedRect: glow, cornerSize: cornerSize).intersection(fillPath),
                             with: .linearGradient(
@@ -124,29 +147,30 @@ struct UsageProgressBar: View {
                 }
             }
 
-            // Pace tip, drawn last so it reads on top of both the track and the fill.
+            // Pace tick, drawn last so it reads on top of both the track and the fill. It stands
+            // a little proud of the track, in the label color, so it reads as a target rather than
+            // as a notch in the fill.
             if let pacePercent = self.pacePercent {
                 let x = size.width * min(100, max(0, pacePercent)) / 100
-                let punchRect = Self.markerRect(x: x, size: size, width: Self.pacePunchWidth, scale: scale)
+                let punchRect = Self.markerRect(x: x, height: canvasSize.height, width: Self.pacePunchWidth, scale: scale)
+                    .insetBy(dx: 0, dy: inset)
                 let stripeRect = Self.markerRect(
                     x: x,
-                    size: size,
+                    height: canvasSize.height,
                     width: max(1 / scale, Self.paceStripeWidth),
                     scale: scale
                 )
                 context.blendMode = .destinationOut
-                context.fill(
-                    Path(Self.extended(punchRect, size: size)),
-                    with: .color(.white.opacity(Self.punchOpacity))
-                )
+                context.fill(Path(punchRect), with: .color(.white))
                 context.blendMode = .normal
                 context.fill(
-                    Path(Self.extended(stripeRect, size: size)),
-                    with: .color(self.paceIsDeficit ? .red : .green)
+                    Path(roundedRect: stripeRect, cornerRadius: stripeRect.width / 2),
+                    with: .color(Color(nsColor: self.isStale ? .secondaryLabelColor : .labelColor).opacity(0.85))
                 )
             }
         }
-        .frame(height: 6)
+        .frame(height: Self.trackHeight + Self.markerOverhang * 2)
+        .padding(.vertical, -Self.markerOverhang)
         .scaleEffect(self.barScale, anchor: .center)
         .opacity(self.barOpacity)
         // Outside the bar and unscaled: the glow is in the card's space, not the pill's.
@@ -325,13 +349,8 @@ struct UsageProgressBar: View {
         }
     }
 
-    private static func markerRect(x: CGFloat, size: CGSize, width: CGFloat, scale: CGFloat) -> CGRect {
+    private static func markerRect(x: CGFloat, height: CGFloat, width: CGFloat, scale: CGFloat) -> CGRect {
         let align: (CGFloat) -> CGFloat = { ($0 * scale).rounded() / scale }
-        return CGRect(x: align(x - width / 2), y: 0, width: width, height: align(size.height))
-    }
-
-    /// Extend past the bar vertically so the punch clears the rounded edges.
-    private static func extended(_ rect: CGRect, size: CGSize) -> CGRect {
-        rect.insetBy(dx: 0, dy: -size.height * 2)
+        return CGRect(x: align(x - width / 2), y: 0, width: width, height: align(height))
     }
 }

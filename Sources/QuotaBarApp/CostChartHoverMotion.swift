@@ -8,7 +8,7 @@ enum CostChartHoverMotion {
     /// The mark under the selected bar: as thick as the bar's own corner radius, and far enough
     /// below the baseline to read as a separate thing rather than as part of the bar.
     static let markerHeight: CGFloat = 2
-    static let markerGap: CGFloat = 3
+    static let markerGap: CGFloat = 5
     /// The strip the mark needs under the chart. The chart reserves it whether or not a bar is
     /// selected, so the card is the same height with the pointer on it as without.
     static var markerBand: CGFloat { Self.markerGap + Self.markerHeight }

@@ -52,6 +52,8 @@ enum OffscreenCapture {
         )
         let appearance = hosting.appearance ?? NSAppearance(named: .darkAqua)
         window.appearance = appearance
+        // sRGB whatever the screen's profile is, so renders compare across machines and runs.
+        window.colorSpace = .sRGB
 
         let ground = NSView(frame: hosting.frame)
         ground.wantsLayer = true
@@ -61,7 +63,10 @@ enum OffscreenCapture {
         window.contentView = ground
 
         if titled {
-            window.orderFront(nil)
+            // Key, as the real settings window is while someone looks at it, so switches,
+            // selections, and default buttons draw in their active colors.
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
         }
         if settle > 0 {
             RunLoop.current.run(until: Date().addingTimeInterval(settle))
@@ -77,7 +82,7 @@ enum OffscreenCapture {
             return nil
         }
         ground.cacheDisplay(in: ground.bounds, to: rep)
-        return rep
+        return rep.converting(to: .sRGB, renderingIntent: .default) ?? rep
     }
 
     /// `<dir>` as the dumps take it: tilde-expanded and created if it is not there yet.

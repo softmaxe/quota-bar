@@ -115,9 +115,17 @@ struct MenuCardView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 } else {
-                    Text(self.statusLine)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        // A failing refresh marks the time as the age of saved readings.
+                        if self.display.error != nil, self.display.snapshot != nil {
+                            Image(systemName: "clock")
+                                .font(.system(size: 9, weight: .medium))
+                                .accessibilityHidden(true)
+                        }
+                        Text(self.statusLine)
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 if let plan = self.planLabel {
@@ -132,7 +140,7 @@ struct MenuCardView: View {
     private var statusLine: String {
         if self.display.isSignedOut { return "Not signed in" }
         if self.display.error != nil, let snapshot = self.display.snapshot {
-            return "Last successful update · \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
+            return "Last updated \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
         }
         if self.isRefreshing { return "Refreshing…" }
         guard let snapshot = self.display.snapshot else {
@@ -151,41 +159,55 @@ struct MenuCardView: View {
 
     // MARK: - Body
 
+    /// One compact notice: what happened and the action on one line, the reason under it. The
+    /// fill stays neutral; the glyph alone carries the warning color.
     private func refreshWarning(_ error: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(
-                self.display.snapshot == nil ? "Refresh failed" : "Refresh failed · Showing saved data",
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.orange)
-            Text(error)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if self.isRefreshing {
-                Label {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+                // Grey bars below already say the readings are saved ones.
+                Text("Couldn't refresh")
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                if self.isRefreshing {
                     WorkingLabel(title: "Refreshing…")
-                } icon: {
-                    Image(systemName: "arrow.clockwise")
+                        .foregroundStyle(.secondary)
+                } else if self.refreshState.isEnabled {
+                    Button(self.display.canAttemptCredentialRecovery ? "Recover" : "Try again") {
+                        self.onRefresh()
+                    }
+                    .controlSize(.mini)
+                    .fixedSize()
+                    .help(self.display.canAttemptCredentialRecovery ? "Recover with Claude Code" : "Refresh now")
+                } else if let remaining = self.refreshState.trailingText, !Self.namesRetryTime(error) {
+                    // A provider message that already says when to retry is not repeated.
+                    Text("Retry in \(remaining)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
-                .font(.system(size: 11))
-            } else if self.refreshState.isEnabled {
-                Button(self.display.canAttemptCredentialRecovery ? "Recover with Claude Code" : "Try again") {
-                    self.onRefresh()
-                }
-                .font(.system(size: 11, weight: .medium))
-                .buttonStyle(.link)
-            } else if let remaining = self.refreshState.trailingText {
-                Text("Try again in \(remaining)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
             }
+            Text(error)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 17)
+                .help(error)
         }
+        .font(.system(size: 11))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(9)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+    }
+
+    /// Whether a provider's message carries its own retry time, such as "after 4:24 PM".
+    static func namesRetryTime(_ message: String) -> Bool {
+        message.range(of: #"\b\d{1,2}:\d{2}\b"#, options: .regularExpression) != nil
     }
 
     private var signInCommand: String {
@@ -198,14 +220,10 @@ struct MenuCardView: View {
     private var signInGuide: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Sign in to \(self.provider.displayName)")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Use the \(self.provider.displayName) CLI in Terminal to sign in, then return here to check.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .font(QuotaHeadline.font)
             HStack(spacing: 8) {
                 Text(self.signInCommand)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button {
@@ -219,36 +237,41 @@ struct MenuCardView: View {
                             Text("Copied")
                         }
                     } else {
-                        Text("Copy command")
+                        Text("Copy")
                     }
                 }
-                .font(.system(size: 11))
+                .controlSize(.small)
                 .accessibilityLabel("Copy \(self.signInCommand) command")
             }
-            .padding(8)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
 
-            Button(action: self.onRefresh) {
-                HStack(spacing: 6) {
-                    if self.isRefreshing {
-                        WorkingLabel(title: "Checking…")
-                    } else {
-                        Text("Check sign-in")
-                    }
-                    if let remaining = self.refreshState.trailingText, !self.isRefreshing {
-                        Spacer(minLength: 4)
-                        Text(remaining).monospacedDigit()
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .disabled(!self.refreshState.isEnabled)
-            .buttonStyle(.borderedProminent)
             if let reason = self.display.signedOutReason, !reason.isEmpty {
                 Text(reason)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 0) {
+                Button(action: self.onRefresh) {
+                    HStack(spacing: 6) {
+                        if self.isRefreshing {
+                            WorkingLabel(title: "Checking…")
+                        } else {
+                            Text("Check sign-in")
+                        }
+                        if let remaining = self.refreshState.trailingText, !self.isRefreshing {
+                            Text(remaining).monospacedDigit()
+                        }
+                    }
+                }
+                .disabled(!self.refreshState.isEnabled)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .fixedSize()
+                Spacer(minLength: 0)
             }
         }
         .task(id: self.copiedCommand) {
@@ -319,13 +342,9 @@ struct MenuCardView: View {
                 }
                 self.localUsage
             }
-            if !self.display.isSignedOut,
-               let credits = self.display.snapshot?.credits, credits.hasSpendableBalance {
-                Divider().padding(.top, 2)
-                CreditsSectionView(credits: credits)
-            }
+
         }
-        .padding(.bottom, 6)
+        .padding(.bottom, 10)
     }
 
     /// The quota windows, in one stack so they can arrive together after a sign-in.
@@ -344,6 +363,24 @@ struct MenuCardView: View {
             if let weekly = snapshot.weekly {
                 self.window(window: weekly, kind: .weekly)
             }
+            if self.hasPaceMarker(snapshot) {
+                HStack(spacing: 6) {
+                    Capsule()
+                        .fill(Color.secondary)
+                        .frame(width: 1.5, height: 10)
+                        .frame(width: 8)
+                        .accessibilityHidden(true)
+                    Text("Expected remaining")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Vertical markers show expected remaining quota")
+                .help("The vertical marks show the remaining quota expected at this point in each window.")
+            }
+            if let credits = snapshot.credits, credits.hasSpendableBalance {
+                CreditsSectionView(credits: credits)
+            }
             if snapshot.session == nil, snapshot.weekly == nil, !snapshot.sessionIsUnlimited {
                 Text("No quota windows reported.")
                     .font(.system(size: 11))
@@ -352,16 +389,28 @@ struct MenuCardView: View {
         }
     }
 
+    private func hasPaceMarker(_ snapshot: UsageSnapshot) -> Bool {
+        let windows: [(QuotaWindowKind, UsageWindow?)] = [(.session, snapshot.session), (.weekly, snapshot.weekly)]
+        return windows.contains { kind, window in
+            guard let window else { return false }
+            return self.display.pace.pace(for: kind, window: window, now: self.now) != nil
+        }
+    }
+
     private func window(
         window: UsageWindow,
         kind: QuotaWindowKind
     ) -> some View {
         let pace = self.display.pace.pace(for: kind, window: window, now: self.now)
+        // A window on track for its reset needs no line saying so; the row speaks up only when
+        // the pace says something worth acting on.
+        let summary = pace.flatMap { $0.willLastToReset ? nil : $0.summary(kind: kind, durationText: Formatters.compactDuration) }
         return QuotaWindowRow(
             provider: self.provider,
             title: kind.title,
             window: window,
-            paceSummary: pace?.summary(kind: kind, durationText: Formatters.compactDuration),
+            isStale: self.display.error != nil,
+            paceSummary: summary,
             pacePercent: pace?.expectedRemainingPercent,
             paceIsDeficit: pace?.stage.isAhead == true,
             animatesFill: self.animatesFill,
@@ -388,6 +437,8 @@ private struct QuotaWindowRow: View {
     let provider: Provider
     let title: String
     let window: UsageWindow
+    /// A saved reading shown while refreshes fail: the fill and value step back, labels stay legible.
+    let isStale: Bool
     let paceSummary: String?
     /// Where the fill would sit at an even pace, drawn as a marker on the bar.
     let pacePercent: Double?
@@ -409,13 +460,19 @@ private struct QuotaWindowRow: View {
                 title: self.title,
                 percent: self.window.remainingPercent,
                 tint: Theme.accent(for: self.provider),
-                frame: self.celebration.frame
+                frame: self.celebration.frame,
+                isExhausted: self.isExhausted,
+                isStale: self.isStale
             )
+            .foregroundStyle(self.isStale ? Color.secondary : Color.primary)
             UsageProgressBar(
                 percent: self.window.remainingPercent,
-                tint: Theme.accent(for: self.provider),
+                // A saved reading loses its hue rather than going muddy: grey at the same weight.
+                tint: self.isStale ? Color.primary.opacity(0.42) : Theme.accent(for: self.provider),
                 pacePercent: self.pacePercent,
                 paceIsDeficit: self.paceIsDeficit,
+                isExhausted: self.isExhausted,
+                isStale: self.isStale,
                 animatesFill: self.animatesFill,
                 celebrationToken: self.celebrationToken,
                 celebrationStartPercent: self.celebrationStartPercent,
@@ -424,14 +481,17 @@ private struct QuotaWindowRow: View {
             )
             if self.paceSummary != nil || self.isExhausted || self.window.resetsAt != nil {
                 ViewThatFits(in: .horizontal) {
+                    // When it resets always sits under the bar's start; a warning, when there is
+                    // one, takes the other end.
                     HStack(spacing: 8) {
-                        self.paceSummaryLabel
+                        self.resetMenu
                         Spacer(minLength: 0)
-                        self.resetMenu
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
                         self.paceSummaryLabel
+                    }
+                    .frame(minHeight: 16)
+                    VStack(alignment: .leading, spacing: 4) {
                         self.resetMenu
+                        self.paceSummaryLabel
                     }
                 }
             }
@@ -447,17 +507,33 @@ private struct QuotaWindowRow: View {
     @ViewBuilder
     private var paceSummaryLabel: some View {
         if self.isExhausted {
-            Text("Limit reached")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.red)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            HStack(spacing: 4) {
+                Image(systemName: "xmark.octagon.fill")
+                    .font(.system(size: 9))
+                    .accessibilityHidden(true)
+                Text("Limit reached")
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.red)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
         } else if let paceSummary = self.paceSummary {
-            Text(paceSummary)
-                .font(.system(size: 11))
-                .foregroundStyle(self.paceIsDeficit ? Color.orange : Color.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            // A warning glyph, not a tinted sentence: orange text under a terracotta bar reads as
+            // brand color rather than as a warning.
+            HStack(spacing: 4) {
+                if self.paceIsDeficit {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(self.isStale ? Color.secondary : Color.orange)
+                        .accessibilityHidden(true)
+                }
+                Text(paceSummary)
+                    // A forecast from a saved reading is no more current than the reading.
+                    .foregroundStyle(self.paceIsDeficit && !self.isStale ? Color.primary : Color.secondary)
+            }
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -487,15 +563,22 @@ private struct UnlimitedWindowRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("\(self.title) ∞")
+                Text(self.title)
                     .font(QuotaHeadline.font)
                 Spacer(minLength: 0)
                 Text("No limit")
-                    .font(.system(size: 11))
+                    .font(QuotaHeadline.valueFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            UsageProgressBar(percent: 100, tint: self.tint.opacity(0.35), animatesFill: false)
+            // A dashed rule rather than a fill: there is no balance, so nothing should look full.
+            Capsule()
+                .stroke(
+                    Color(nsColor: .tertiaryLabelColor),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 4])
+                )
+                .frame(height: 1.5)
+                .padding(.vertical, 2.25)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(self.title) has no limit")

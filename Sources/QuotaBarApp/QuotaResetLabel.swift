@@ -41,20 +41,24 @@ struct ResetLabel: View {
             (
                 Text(Image(systemName: "arrow.clockwise"))
                     .font(.system(size: 9, weight: .semibold))
-                    + Text(" \(self.text) ")
+                    + Text(" \(self.text)")
                     .font(.system(size: 11))
                     .monospacedDigit()
-                    + Text(Image(systemName: "chevron.down"))
-                    .font(.system(size: 7, weight: .bold))
             )
             .foregroundStyle(Color.secondary)
             .fixedSize(horizontal: true, vertical: false)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        // The borderless menu draws its label in the primary color whatever the label asks for,
+        // so the secondary tone is applied to the control as a whole.
+        .opacity(0.68)
         .controlSize(.small)
         .font(.system(size: 11))
         .fixedSize(horizontal: true, vertical: false)
+        // The borderless menu pads its label; pull it back so the glyph starts on the card's edge.
+        .padding(.leading, -4)
+        .help(self.mode == .countdown ? "Click to show the reset date" : "Click to show the countdown")
         .accessibilityLabel("Reset time display, resets \(self.text)")
     }
 }

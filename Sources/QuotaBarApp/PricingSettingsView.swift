@@ -17,21 +17,19 @@ struct PricingSettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isTableFocused: Bool
 
-    private static let rateColumnWidth: CGFloat = 64
-    private static let detailLabelWidth: CGFloat = 132
+    private static let rateColumnWidth: CGFloat = 76
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
     private static let modelsDevURL = URL(string: "https://models.dev")!
 
     var body: some View {
         SettingsPane("Pricing") {
-            TextField("Search models", text: self.$model.searchText)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
+            SettingsSearchField(prompt: "Search models", text: self.$model.searchText)
                 .frame(width: 200)
         } content: {
             VStack(alignment: .leading, spacing: 10) {
                 self.table
+                Divider()
                 self.footer
             }
             .padding(.bottom, 16)
@@ -60,10 +58,15 @@ struct PricingSettingsView: View {
         SettingsSectionHeader(section.rawValue) {
             switch section {
             case .builtIn:
-                Text("Always on")
+                Label("Always used", systemImage: "lock.fill")
+                    .labelStyle(.titleAndIcon)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .help("Built-in prices always apply; models.dev only fills in models they do not list.")
             case .modelsDev:
+                Text(self.modelsDevStatus)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 Toggle("Price other models with models.dev", isOn: self.$settings.modelsDevPricing)
                     .toggleStyle(.switch)
                     .labelsHidden()
@@ -78,9 +81,9 @@ struct PricingSettingsView: View {
         HStack(spacing: 0) {
             Text("Model")
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(["Input", "Output", "Cache w", "Cache r"], id: \.self) { title in
+            ForEach(["Input", "Output", "Cache write", "Cache read"], id: \.self) { title in
                 Text(title)
-                    .frame(width: Self.rateColumnWidth, alignment: .leading)
+                    .frame(width: Self.rateColumnWidth, alignment: .trailing)
             }
         }
         .font(.system(size: 11))
@@ -122,6 +125,15 @@ struct PricingSettingsView: View {
                                     self.sectionCard(section)
                                 }
                             }
+                        }
+                        .padding(.bottom, 12)
+                    }
+                    // Rows fade out into the footer instead of being cut by it.
+                    .mask {
+                        VStack(spacing: 0) {
+                            Rectangle()
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 12)
                         }
                     }
                     .onChange(of: self.model.selectedRowID) { _, id in
@@ -211,10 +223,19 @@ struct PricingSettingsView: View {
                             .fill(Self.accent(for: row.group))
                             .opacity(isUsed ? 1 : 0.45)
                             .frame(width: 7, height: 7)
-                        Text(row.model)
+                            .help(isUsed ? "Used on this Mac" : "Not used on this Mac")
+                        // The same name the menu card uses, with the id the logs carry beside it.
+                        Text(Formatters.modelName(row.model))
                             .foregroundStyle(isUsed || isOpen ? Color.primary : Color.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        if Formatters.modelName(row.model) != row.model {
+                            Text(row.model)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                         if row.seenInLogs, !row.isPriced {
                             Text("unpriced")
                                 .font(.system(size: 10))
@@ -245,12 +266,12 @@ struct PricingSettingsView: View {
         .background(Color.primary.opacity(isOpen ? 0.05 : 0))
     }
 
-    private func rateCell(_ value: Double?) -> some View {
+    private func rateCell(_ value: Double?, isVariant: Bool = false) -> some View {
         Text(PricingTableModel.text(value))
             .monospacedDigit()
-            .foregroundStyle(value == nil ? .tertiary : .primary)
+            .foregroundStyle(value == nil ? .tertiary : isVariant ? .secondary : .primary)
             .lineLimit(1)
-            .frame(width: Self.rateColumnWidth, alignment: .leading)
+            .frame(width: Self.rateColumnWidth, alignment: .trailing)
     }
 
     private func moveSelection(by offset: Int) {
@@ -267,21 +288,24 @@ struct PricingSettingsView: View {
 
     private func rowDetail(_ row: PricingRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Rates first, in the row's columns; where they come from closes the panel.
+            self.secondaryRates(row)
             HStack(spacing: 4) {
+                Text(self.usageLine(row))
+                Text("·")
                 Text(self.sourceLine(row))
                 if let link = Self.link(for: row) {
                     Text("·")
                     Link(destination: link.url) {
                         Text("\(link.title) ↗")
-                            .underline()
+                            .font(.system(size: 10))
                     }
                     .foregroundStyle(.secondary)
                 }
             }
-            .font(.system(size: 11))
+            .font(.system(size: 10))
             .foregroundStyle(.secondary)
-
-            self.secondaryRates(row)
+            .padding(.top, -2)
         }
     }
 
@@ -290,48 +314,31 @@ struct PricingSettingsView: View {
     @ViewBuilder
     private func secondaryRates(_ row: PricingRow) -> some View {
         let rates = row.rates
+        // Every rate sits in the row's own columns; prose spans the row on its own line.
         VStack(alignment: .leading, spacing: 8) {
-            self.detailLine("1-hour cache write") {
-                Text(PricingTableModel.text(rates.map { $0.cacheWrite1hRate(longContext: false) }))
-                    .monospacedDigit()
-                if rates != nil, rates?.cacheWrite1h == nil {
-                    Text("2× input")
-                        .foregroundStyle(.secondary)
-                        .help("Not listed, so priced at 2× input, the ratio Anthropic publishes.")
+            self.gridLine(rates: [nil, nil, rates.map { $0.cacheWrite1hRate(longContext: false) }, nil]) {
+                HStack(spacing: 6) {
+                    Text("1-hour cache write")
+                    if rates != nil, rates?.cacheWrite1h == nil {
+                        Text("2× input")
+                            .foregroundStyle(.secondary)
+                            .help("Not listed, so priced at 2× input, the ratio Anthropic publishes.")
+                    }
                 }
             }
-            self.detailLine("Long-context tier") {
-                if let threshold = rates?.thresholdTokens {
-                    Text("Above \(Formatters.tokens(threshold)) tokens in one request")
-                } else {
-                    Text(rates == nil ? "—" : "Single tier")
-                        .foregroundStyle(rates == nil ? .tertiary : .primary)
+            if let rates, let threshold = rates.thresholdTokens {
+                self.gridLine(rates: [
+                    rates.inputAbove ?? rates.input,
+                    rates.outputAbove ?? rates.output,
+                    rates.cacheWriteAbove ?? rates.cacheWrite,
+                    rates.cacheReadAbove ?? rates.cacheRead,
+                ]) {
+                    Text("Above \(Formatters.tokens(threshold)) per request")
                 }
-            }
-            if let rates, rates.thresholdTokens != nil {
-                HStack(spacing: 0) {
-                    self.aboveCell("Input", rates.inputAbove ?? rates.input)
-                    self.aboveCell("Output", rates.outputAbove ?? rates.output)
-                    self.aboveCell("Cache w", rates.cacheWriteAbove ?? rates.cacheWrite)
-                    self.aboveCell("Cache 1h", rates.cacheWrite1hRate(longContext: true))
-                    self.aboveCell("Cache r", rates.cacheReadAbove ?? rates.cacheRead)
-                }
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.04))
-                )
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Rates above the threshold")
-            }
-            self.detailLine("Recorded locally") {
-                if !self.model.hasLoadedUsage {
-                    Text("Usage unavailable").foregroundStyle(.secondary)
-                } else if row.usageTokens > 0 {
-                    Text("\(Formatters.tokens(row.usageTokens)) tokens")
-                } else {
-                    Text("Not used on this Mac").foregroundStyle(.secondary)
-                }
+                .help("1-hour cache write above the threshold: \(PricingTableModel.text(rates.cacheWrite1hRate(longContext: true)))")
+            } else if rates != nil {
+                Text("One rate at every request size")
+                    .foregroundStyle(.secondary)
             }
             if row.seenInLogs, !row.isPriced {
                 Text(self.unpricedReason(row))
@@ -342,27 +349,27 @@ struct PricingSettingsView: View {
         .font(.system(size: 12))
     }
 
-    /// One of the rates above the long-context threshold.
-    private func aboveCell(_ caption: String, _ value: Double?) -> some View {
-        VStack(spacing: 2) {
-            Text(caption)
-                .font(.system(size: 9, weight: .medium))
+    /// A label over the free width, then one cell per rate column; nil leaves a column empty.
+    private func gridLine(rates: [Double?], @ViewBuilder label: () -> some View) -> some View {
+        HStack(spacing: 0) {
+            label()
                 .foregroundStyle(.secondary)
-            Text(PricingTableModel.text(value))
-                .monospacedDigit()
-                .foregroundStyle(value == nil ? .tertiary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Array(rates.enumerated()), id: \.offset) { _, rate in
+                if let rate {
+                    self.rateCell(rate, isVariant: true)
+                } else {
+                    Color.clear.frame(width: Self.rateColumnWidth, height: 1)
+                }
+            }
         }
-        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
-    private func detailLine(_ title: String, @ViewBuilder value: () -> some View) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .foregroundStyle(.secondary)
-                .frame(width: Self.detailLabelWidth, alignment: .leading)
-            HStack(alignment: .firstTextBaseline, spacing: 6) { value() }
-            Spacer(minLength: 0)
-        }
+
+    private func usageLine(_ row: PricingRow) -> String {
+        if !self.model.hasLoadedUsage { return "Local usage unavailable" }
+        return row.usageTokens > 0 ? "\(Formatters.tokens(row.usageTokens)) tokens on this Mac" : "Not used on this Mac"
     }
 
     private func sourceLine(_ row: PricingRow) -> String {
@@ -404,22 +411,18 @@ struct PricingSettingsView: View {
                     .disabled(self.model.isReadingUsage)
                 }
             }
-            Text(self.footerText)
-                .fixedSize(horizontal: false, vertical: true)
+            Text("Rates are USD per 1M tokens at API list prices. A bright dot marks a model used here.")
+            .frame(maxWidth: 520, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
     }
 
-    private var footerText: String {
-        let estimate = "Rates are USD per 1M tokens. Costs are estimates at API list prices."
-        guard self.model.modelsDevEnabled else {
-            return "\(estimate) models.dev prices are off."
-        }
-        guard let fetchedAt = self.model.modelsDevFetchedAt else {
-            return "\(estimate) models.dev prices have not been downloaded yet."
-        }
-        return "\(estimate) models.dev prices updated \(Formatters.relativeAge(since: fetchedAt))."
+    private var modelsDevStatus: String {
+        guard self.model.modelsDevEnabled else { return "Off" }
+        guard let fetchedAt = self.model.modelsDevFetchedAt else { return "Not downloaded yet" }
+        return "Updated \(Formatters.relativeAge(since: fetchedAt))"
     }
 
     // MARK: - Sources
@@ -440,6 +443,38 @@ struct PricingSettingsView: View {
         case (.priceBook?, _): ("OpenAI API pricing", Self.openAIPricingURL)
         case (.modelsDev?, _): ("Open models.dev", Self.modelsDevURL)
         case (nil, _): nil
+        }
+    }
+}
+
+/// AppKit's search field, with its magnifier and clear button, for filtering a settings list.
+struct SettingsSearchField: NSViewRepresentable {
+    let prompt: String
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = self.prompt
+        field.controlSize = .small
+        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != self.text { field.stringValue = self.text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: self.$text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            self.text.wrappedValue = field.stringValue
         }
     }
 }

@@ -7,26 +7,35 @@ struct QuotaHeadline: View {
     let tint: Color
     /// The bar's frame supplies a brief accent without changing the displayed reading.
     let frame: QuotaCelebrationFrame?
+    /// A spent window shows its reading in red, so the row reads as blocked at a glance.
+    var isExhausted = false
+    /// A saved reading: the value steps back to secondary so it never passes for a fresh one.
+    var isStale = false
 
-    /// Shared with the unlimited row in the same position.
-    static let font = Font.system(size: 14, weight: .semibold)
+    /// Shared with the unlimited row in the same position. The label is quieter than the value,
+    /// so each row has one anchor: how much is left.
+    static let font = Font.system(size: 13, weight: .medium)
+    static let valueFont = Font.system(size: 15, weight: .semibold)
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(self.title)
+                .font(Self.font)
             Spacer(minLength: 8)
             // A new reading rolls in from the direction it moved, over a tenth of a second.
             Text("\(Formatters.percent(self.percent)) left")
                 .monospacedDigit()
+                .font(Self.valueFont)
+                .foregroundStyle(self.isExhausted ? Color.red : self.isStale ? Color.secondary : Color.primary)
                 .rollingValue(self.percent, direction: self.percent)
                 .overlay {
                     Text("\(Formatters.percent(self.percent)) left")
                         .monospacedDigit()
                         .rollingValue(self.percent, direction: self.percent)
+                        .font(Self.valueFont)
                         .foregroundStyle(self.tint.opacity(self.accentOpacity))
                 }
         }
-        .font(Self.font)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(self.title) \(Formatters.percent(self.percent)) left")
     }
