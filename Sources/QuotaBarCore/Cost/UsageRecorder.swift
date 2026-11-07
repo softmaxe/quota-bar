@@ -379,7 +379,8 @@ extension UsageRecorder {
                 matchingSessionCopy: sessionID != nil && (path != filePath || previous?.inode == 0)
             ) else { continue }
             // Deleting the live file may leave an older copy. It cannot roll history back.
-            if sessionID != nil, let previous, plan.cursor.size < previous.size { continue }
+            if sessionID != nil, let previous, plan.cursor.size < previous.size,
+               path != filePath || previous.inode == 0 { continue }
             guard plan.requiresScan else { continue }
             let mirrorHost = RemoteLogMirror.host(ofLog: filePath)
 

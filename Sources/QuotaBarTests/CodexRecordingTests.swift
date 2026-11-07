@@ -6,6 +6,7 @@ enum CodexRecordingTests {
     static func run() {
         Self.turnsAccumulatePerModelAndTier()
         Self.rewrittenRolloutIsNotDoubled()
+        Self.shortenedRolloutResumesRecording()
         Self.replacedRolloutWithTheSamePrefixIsReparsed()
         Self.emptiedRolloutKeepsNoRows()
         Self.longContextIsSettledPerTurn()
@@ -86,9 +87,39 @@ enum CodexRecordingTests {
         )
     }
 
-    /// A rollout without a session id that is emptied in place keeps none of the rows recorded
-    /// from its old contents. (A shrunken rollout with a session id is taken for a stale copy of
-    /// that session and skipped, so its usage is retained.)
+    private static func shortenedRolloutResumesRecording() {
+        let fixture = RecorderFixture(name: "codex-shorten")
+        defer { fixture.remove() }
+        fixture.writeCodexRollout(Self.rollout, lines: [
+            CodexLine.turnContext(model: "gpt-5.6-sol"),
+            CodexLine.tokenCount(input: 100, output: 10, total: 110),
+            String(repeating: " ", count: 4_000),
+        ])
+        fixture.record(.codex)
+        fixture.writeCodexRollout(Self.rollout, lines: [
+            CodexLine.turnContext(model: "gpt-5.6-sol"),
+            CodexLine.tokenCount(input: 700, output: 70, total: 770),
+        ])
+        fixture.record(.codex)
+        let tier = RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: false)
+        Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 700, output: 70),
+                            "a shorter replacement at the original path is reparsed")
+        fixture.appendCodexRollout(Self.rollout, lines: [CodexLine.tokenCount(input: 20, output: 2, total: 792)])
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 720, output: 72),
+                            "a shortened rollout records appends before reaching its former size")
+        try? FileManager.default.removeItem(at: fixture.codexRollout(Self.rollout))
+        fixture.record(.codex)
+        fixture.writeCodexRollout(Self.rollout, lines: [
+            CodexLine.turnContext(model: "gpt-5.6-sol"),
+            CodexLine.tokenCount(input: 100, output: 10, total: 110),
+        ])
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[tier], TokenTotals(input: 720, output: 72),
+                            "restoring an older copy after observed deletion does not roll history back")
+    }
+
+    /// A rollout emptied in place keeps none of the rows recorded from its old contents.
     private static func emptiedRolloutKeepsNoRows() {
         let fixture = RecorderFixture(name: "codex-empty")
         defer { fixture.remove() }
