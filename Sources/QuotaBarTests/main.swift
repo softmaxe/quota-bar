@@ -228,6 +228,8 @@ await PricingModelFilterTests.run()
 await PopoverInputActivationTests.run()
 await ProviderStateTests.run()
 await PricingRefreshTests.run()
+await UsageReportUpdateTests.run()
+
 await MenuLifecycleTests.run()
 await RelativeTimeTests.run()
 await RefreshRowTests.run()
