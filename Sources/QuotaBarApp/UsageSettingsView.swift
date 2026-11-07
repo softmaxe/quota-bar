@@ -23,7 +23,6 @@ struct UsageSettingsView: View {
         SettingsPane("Usage") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    self.figures
                     self.sources
                     self.backupSection
                 }
@@ -42,27 +41,12 @@ struct UsageSettingsView: View {
 
     // MARK: - Saved usage
 
-    private var figures: some View {
-        HStack(spacing: 16) {
-            self.figure("Records", self.backup.summary.map { $0.records.formatted() } ?? "—")
-            self.figure("Saved since", self.firstDay)
-            self.figure("On disk", self.size)
-        }
-        .padding(.horizontal, 2)
-    }
-
-    private func figure(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 17, weight: .semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+    /// "56,412 records since Nov 3, 2025 · 27.4 MB", or what is known of it so far.
+    private var savedSummary: String {
+        guard let summary = self.backup.summary else { return "Reading what is saved…" }
+        let records = summary.records == 1 ? "1 record" : "\(summary.records.formatted()) records"
+        let since = summary.firstDay == nil ? records : "\(records) since \(self.firstDay)"
+        return summary.bytes > 0 ? "\(since) · \(self.size)" : since
     }
 
     private var firstDay: String {
@@ -79,13 +63,16 @@ struct UsageSettingsView: View {
 
     private var sources: some View {
         SettingsSection("Sources") {
+            if !self.settings.remoteHosts.isEmpty {
+                Button("Sync now", systemImage: "arrow.clockwise") { self.remote.syncAll() }
+                    .labelStyle(.titleAndIcon)
+                    .disabled(self.remote.isSyncing)
+            }
             Button("Add host", systemImage: "plus") {
                 self.configHosts = SSHConfigHosts.userHosts()
                 self.isAddingHost = true
             }
             .labelStyle(.titleAndIcon)
-            Button("Sync now") { self.remote.syncAll() }
-                .disabled(self.settings.remoteHosts.isEmpty || self.remote.isSyncing)
         } content: {
             VStack(spacing: 0) {
                 SettingsRow(symbol: "laptopcomputer", title: "This Mac", detail: self.thisMacDetail) {
@@ -99,12 +86,15 @@ struct UsageSettingsView: View {
                     Divider()
                     self.noHostsRow
                 }
-                Divider()
-                SettingsRow(title: "Sync automatically") {
-                    Toggle("Sync automatically", isOn: self.$settings.remoteAutoSync)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .labelsHidden()
+                // Only with a host to sync does the switch have anything to act on.
+                if !self.settings.remoteHosts.isEmpty {
+                    Divider()
+                    SettingsRow(title: "Sync automatically") {
+                        Toggle("Sync automatically", isOn: self.$settings.remoteAutoSync)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .labelsHidden()
+                    }
                 }
             }
             .settingsGroup()
@@ -131,11 +121,14 @@ struct UsageSettingsView: View {
             symbol: "server.rack",
             title: host,
             detail: detail,
-            detailColor: Self.isWarning(state, usage: usage) ? .orange : .secondary
+            detailColor: Self.detailColor(state, usage: usage)
         ) {
             if case .failed = state {
-                Button("Retry") { self.remote.sync(host) }
+                Button("Retry", systemImage: "arrow.clockwise") { self.remote.sync(host) }
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.borderless)
                     .controlSize(.small)
+                    .padding(.trailing, 6)
             }
             if state == .syncing {
                 ProgressView().controlSize(.small)
@@ -161,23 +154,16 @@ struct UsageSettingsView: View {
             .accessibilityLabel("Actions for \(host)")
             .help("Stop syncing keeps the usage already recorded.")
         }
-        .help(usage.map { "\(Self.count($0.files, "file")) · \(Self.size($0.bytes))" } ?? detail)
+        .help(Self.tooltip(state: state, usage: usage, detail: detail))
     }
 
     private var noHostsRow: some View {
-        HStack(spacing: 12) {
-            Text("Count usage from another machine over SSH.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Button("Add host") {
-                self.configHosts = SSHConfigHosts.userHosts()
-                self.isAddingHost = true
-            }
-            .controlSize(.small)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        Text("Add a host to count usage from another machine over SSH.")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
     }
 
     private var suggestedHosts: [String] {
@@ -189,14 +175,36 @@ struct UsageSettingsView: View {
         case .idle: self.joined("Waiting for the next sync", usage)
         case .syncing: "Syncing…"
         case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date))", usage)
-        case let .failed(reason): reason
+        case let .failed(reason): self.failureSummary(reason)
         }
+    }
+
+    /// A short line for the row; the raw message stays in the row's tooltip.
+    private static func failureSummary(_ reason: String) -> String {
+        let lowered = reason.lowercased()
+        if lowered.contains("timed out") || lowered.contains("connect to host")
+            || lowered.contains("could not resolve") || lowered.contains("no route") {
+            return "Couldn't reach this host"
+        }
+        if lowered.contains("permission denied") { return "SSH sign-in was refused" }
+        return "Sync failed"
+    }
+
+    private static func tooltip(state: RemoteHostSyncState, usage: RemoteHostUsage?, detail: String) -> String {
+        if case let .failed(reason) = state { return reason }
+        return usage.map { "\(Self.count($0.files, "file")) · \(Self.size($0.bytes))" } ?? detail
     }
 
     private static func joined(_ status: String, _ usage: RemoteHostUsage?) -> String {
         guard let usage, usage.files > 0 else { return status }
         guard usage.records > 0 else { return "\(status) · no usage in these logs" }
         return "\(status) · \(usage.newRecords.formatted()) new · \(self.size(usage.bytes))"
+    }
+
+    /// Red for a failed sync, orange for logs that arrived holding nothing to count.
+    private static func detailColor(_ state: RemoteHostSyncState, usage: RemoteHostUsage?) -> Color {
+        if case .failed = state { return .red }
+        return self.isWarning(state, usage: usage) ? .orange : .secondary
     }
 
     /// A failed sync, or logs that arrived holding nothing to count.
@@ -219,15 +227,42 @@ struct UsageSettingsView: View {
     // MARK: - Backup
 
     private var backupSection: some View {
-        SettingsSection("Backup") {
-            Button("Import…") { Task { await self.chooseBackup() } }
-                .disabled(self.backup.activity != nil)
-            Button("Export…") { Task { await self.chooseExportDestination() } }
-                .disabled(self.backup.activity != nil || self.backup.summary?.records == 0)
-        } content: {
-            self.backupStatus
-                .font(.system(size: 11))
-                .padding(.horizontal, 2)
+        SettingsSection("Saved usage") {
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Image(systemName: "externaldrive")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Usage database")
+                            .font(.system(size: 13, weight: .medium))
+                        // What is saved, in one line; importing only ever adds to it.
+                        Text(self.savedSummary)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .help("Export writes a copy. Import merges one back in and only adds.")
+                    }
+                    Spacer(minLength: 8)
+                    Button("Import…") { Task { await self.chooseBackup() } }
+                        .disabled(self.backup.activity != nil)
+                    Button("Export…") { Task { await self.chooseExportDestination() } }
+                        .disabled(self.backup.activity != nil || self.backup.summary?.records == 0)
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                if self.backup.activity != nil || self.backup.outcome != nil {
+                    Divider()
+                    self.backupStatus
+                        .font(.system(size: 11))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .settingsGroup()
         }
     }
 

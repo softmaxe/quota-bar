@@ -9,14 +9,10 @@
 </head>
 <body>
 <header class="topbar">
-  <nav class="crumbs" aria-label="Usage breadcrumb">
+  <div class="title-block">
     <h1 data-i18n="usage">Usage</h1>
-    <span class="crumb-sep" aria-hidden="true">/</span>
-    <span class="crumb" data-i18n="localHistory">Local history</span>
-    <span class="crumb-sep" aria-hidden="true">/</span>
-    <span class="crumb current" data-bind="periodName"></span>
-  </nav>
-  <span class="window-label" data-bind="windowLabel"></span>
+    <span class="window-label" data-bind="windowLabel"></span>
+  </div>
   <div class="controls">
     <div class="range-inputs" data-range-inputs hidden>
       <input type="date" data-range-from />
@@ -28,13 +24,13 @@
       <button type="button" data-period="30" data-i18n="last30">30 days</button>
       <button type="button" data-period="custom" data-i18n="custom">Custom</button>
     </div>
-    <div class="segmented" role="group" data-metric-group>
-      <button type="button" data-metric="cost" data-i18n="cost">Cost</button>
-      <button type="button" data-metric="tokens" data-i18n="tokens">Tokens</button>
+    <div class="segmented compact" role="group" data-language-group>
+      <button type="button" data-language="zh">中</button>
+      <button type="button" data-language="en">EN</button>
     </div>
-    <div class="segmented" role="group" data-language-group>
-      <button type="button" data-language="zh">中文</button>
-      <button type="button" data-language="en">English</button>
+    <div class="segmented" role="group" data-metric-group>
+      <button type="button" data-metric="tokens" data-i18n="tokens">Tokens</button>
+      <button type="button" data-metric="cost" data-i18n="cost">Cost</button>
     </div>
   </div>
 </header>
@@ -43,7 +39,10 @@
   <section class="overview">
     <div class="summary" id="summary"></div>
     <div class="trend">
-      <h2 class="heading" id="chart-title"></h2>
+      <div class="trend-head">
+        <h2 class="heading" id="chart-title"></h2>
+        <div class="chart-legend" id="chart-legend"></div>
+      </div>
       <div class="chart" id="chart" data-chart="daily"></div>
     </div>
   </section>

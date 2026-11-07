@@ -398,9 +398,11 @@ final class PricingTableModel: ObservableObject {
 
     static func text(_ value: Double?) -> String {
         guard let value else { return "—" }
-        // Rates go to four decimals: cache reads run as low as $0.005 per million.
-        return value == value.rounded()
-            ? String(format: "%.0f", value)
+        // Two decimals keep a column's decimal points in line; cache reads that run as low as
+        // $0.005 per million keep the extra places they need.
+        let cents = value * 100
+        return abs(cents - cents.rounded()) < 1e-9
+            ? String(format: "%.2f", value)
             : String(format: "%g", value)
     }
 }

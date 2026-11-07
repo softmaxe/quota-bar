@@ -69,7 +69,11 @@ enum IconRenderer {
         static let innerRadius: CGFloat = 5.75
         static let outerRadius: CGFloat = 8
         static let tickWidth: CGFloat = 1.5
-        static let unlitAlpha: CGFloat = 0.3
+        static let staleDotRadius: CGFloat = 1.75
+        static let lowTickWidth: CGFloat = 2.25
+        /// Inside the 90 degree opening at the bottom of the sweep.
+        static let staleDotY: CGFloat = 2.5
+        static let unlitAlpha: CGFloat = 0.35
 
         /// Any quota left lights a tick, so an empty gauge always means an empty window.
         static func litTicks(remainingPercent: Double) -> Int {
@@ -106,14 +110,33 @@ enum IconRenderer {
             for index in 0..<Gauge.tickCount {
                 let alpha: CGFloat
                 if let litTicks {
-                    let level: CGFloat = stale ? 0.55 : 1
+                    // Stale readings dim a little and gain the dot below, two signals rather than one.
+                    let level: CGFloat = stale ? 0.5 : 1
                     alpha = index < litTicks ? level : level * Gauge.unlitAlpha
                 } else {
                     // No reading at all: an even, faded gauge, so the icon still shows the app is alive.
                     alpha = 0.45
                 }
                 NSColor.labelColor.withAlphaComponent(alpha).setStroke()
-                Gauge.tick(index).stroke()
+                let tick = Gauge.tick(index)
+                // Almost empty: the last lit tick thickens, so the silhouette differs from stale.
+                if let litTicks, litTicks == 1, index == 0 { tick.lineWidth = Gauge.lowTickWidth }
+                tick.stroke()
+            }
+            // A stale reading also changes shape, not only brightness: a dot sits in the gauge's
+            // open bottom, where no tick ever draws.
+            if stale {
+                // A ring rather than a dot, so it cannot pass for a lit tick seen end-on.
+                NSColor.labelColor.setStroke()
+                let r = Gauge.staleDotRadius
+                let ring = NSBezierPath(ovalIn: CGRect(
+                    x: Gauge.center.x - r,
+                    y: Gauge.staleDotY - r,
+                    width: r * 2,
+                    height: r * 2
+                ))
+                ring.lineWidth = 1
+                ring.stroke()
             }
         }
     }

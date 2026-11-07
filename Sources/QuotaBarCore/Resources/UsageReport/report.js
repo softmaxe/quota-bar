@@ -3,29 +3,29 @@
 (() => {
   const COPY = {
     en: {
-      usage:'Usage',localHistory:'Local history',cost:'Cost',tokens:'Tokens',totals:'Totals',breakdown:'Breakdown',model:'Model',day:'Day',
-      periodName:n=>`${n} ${n===1?'day':'days'}`,range:(a,b)=>`${a} to ${b}`,
+      usage:'Usage',cost:'Cost',tokens:'Tokens',totals:'Token totals',breakdown:'Breakdown',model:'Model',day:'Day',
+      range:(a,b)=>`${a} to ${b}`,
       daysRecorded:n=>`${n} ${n===1?'day':'days'} recorded`,apiEstimate:'API estimate',
       unpricedInfo:p=>`API estimate excludes ${p} of tokens, which are unpriced.`,
       ofCost:p=>`${p} of cost`,ofTokens:p=>`${p} of tokens`,tokenCount:v=>`${v} tokens`,
-      dailyCost:'Daily cost',dailyTokens:'Daily processed tokens',
+      dailyCost:'Daily cost',average:'avg',dailyTokens:'Daily processed tokens',
       processedTokens:'Processed tokens',cachedInput:'Cached input',uncachedInput:'Uncached input',output:'Output',cacheSavings:'Cache savings',
       costByType:'Cost by type',tokensByType:'Tokens by type',costBySpeed:'Cost by speed',
-      input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',standard:'Standard',fast:'Fast',premium:'Premium',
+      input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',standard:'Standard',fast:'Fast',premium:'Extra for Fast',
       share:'Share',total:'Total',noActivity:'No activity in this window.',unpriced:'Unpriced',noRecord:'No record',
       metric:'Usage metric',language:'Language',breakdownGroup:'Usage breakdown',
       last7:'7 days',last30:'30 days',custom:'Custom',period:'Usage period',rangeFrom:'Start date',rangeTo:'End date',
     },
     zh: {
-      usage:'用量',localHistory:'本地记录',cost:'费用',tokens:'Tokens',totals:'合计',breakdown:'明细',model:'模型',day:'日期',
-      periodName:n=>`${n} 天`,range:(a,b)=>`${a} 至 ${b}`,
+      usage:'用量',cost:'费用',tokens:'Tokens',totals:'Token 合计',breakdown:'明细',model:'模型',day:'日期',
+      range:(a,b)=>`${a} 至 ${b}`,
       daysRecorded:n=>`${n} 天有记录`,apiEstimate:'API 估算',
       unpricedInfo:p=>`API 估算未计入 ${p} 的未定价 tokens。`,
       ofCost:p=>`占费用 ${p}`,ofTokens:p=>`占 tokens ${p}`,tokenCount:v=>`${v} tokens`,
-      dailyCost:'每日费用',dailyTokens:'每日处理 tokens',
-      processedTokens:'处理 tokens',cachedInput:'缓存输入',uncachedInput:'未缓存输入',output:'输出',cacheSavings:'缓存节省',
+      dailyCost:'每日费用',average:'日均',dailyTokens:'每日处理的 Tokens',
+      processedTokens:'处理的 Tokens',cachedInput:'缓存输入',uncachedInput:'未缓存输入',output:'输出',cacheSavings:'缓存节省',
       costByType:'按类型的费用',tokensByType:'按类型的 tokens',costBySpeed:'按速度的费用',
-      input:'输入',cacheRead:'缓存读取',cacheWrite:'缓存写入',standard:'标准',fast:'Fast',premium:'溢价',
+      input:'输入',cacheRead:'缓存读取',cacheWrite:'缓存写入',standard:'标准',fast:'快速',premium:'快速额外支出',
       share:'占比',total:'合计',noActivity:'此区间没有用量。',unpriced:'未定价',noRecord:'无记录',
       metric:'用量指标',language:'语言',breakdownGroup:'用量明细',
       last7:'7 天',last30:'30 天',custom:'自定义',period:'统计区间',rangeFrom:'开始日期',rangeTo:'结束日期',
@@ -39,8 +39,8 @@
     pi:{viewBox:'165.29 165.29 469.43 469.43',paths:[{d:'M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z',fill:'var(--mark-pi)',rule:'evenodd'},{d:'M517.36 400H634.72V634.72H517.36Z',fill:'var(--mark-pi)'}]},
   };
   const PROVIDERS = {
-    codex:{label:'Codex',color:'var(--foreground)',icon:'openai'},
-    claude:{label:'Claude Code',color:'#d97757',icon:'claude'},
+    codex:{label:'Codex',color:'var(--codex)',icon:'openai'},
+    claude:{label:'Claude',color:'var(--claude)',icon:'claude'},
     openCode:{label:'OpenCode',color:'#5b9bbd',icon:'opencode'},
     piAgent:{label:'Pi Agent',color:'#4d9f8a',icon:'pi'},
   };
@@ -49,8 +49,8 @@
   const sourceId = row => row.source ?? NAME_TO_ID[row.name] ?? row.name;
   const presentation = id => PROVIDERS[id] ?? {label:id,color:'#8b8b8b',icon:null};
 
-  const ink = p => `color-mix(in oklab, var(--foreground) ${p}%, var(--background))`;
-  const TYPE_COLORS = {input:ink(60),cacheRead:ink(30),cacheWrite:ink(72),output:ink(100)};
+  // Distinct muted category hues match their legend keys in either appearance.
+  const TYPE_COLORS = {input:'var(--type-1)',cacheRead:'var(--type-2)',cacheWrite:'var(--type-3)',output:'var(--type-4)'};
 
   const CURRENCY = new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
   const INTEGER = new Intl.NumberFormat('en-US');
@@ -131,6 +131,21 @@
   const unknownCost = row => row.total>0&&row.unpricedTokens>=row.total;
   const value = row => metric==='tokens'?(row?.total??0):(row?.cost??0);
   const format = v => metric==='tokens'?tokens(v):usd(v);
+  // Axis ticks are round numbers, so they drop the cents a total keeps.
+  const tickFormat = v => metric==='tokens'?(v===0?'0':tokens(v)):(Number.isInteger(v)?'$'+INTEGER.format(v):usd(v));
+  // The display names the menu card uses: "claude-opus-5" reads "Opus 5", "gpt-5.6-sol" "GPT-5.6 Sol".
+  const modelName = id => {
+    const parts=String(id).split('-');
+    if(parts.some(p=>!p))return id;
+    if(parts.length>=2&&parts[0]==='claude'&&/^[a-z]+$/i.test(parts[1])){
+      const version=parts.slice(2);
+      if(!version.every(p=>/^\d+$/.test(p)))return id;
+      const family=parts[1][0].toUpperCase()+parts[1].slice(1);
+      return version.length?`${family} ${version.join('.')}`:family;
+    }
+    if(parts.length>=2&&parts[0]==='gpt')return [`GPT-${parts[1]}`,...parts.slice(2).map(p=>p[0].toUpperCase()+p.slice(1))].join(' ');
+    return id;
+  };
 
   // DOM helpers. Text always goes through textContent, so model names never become markup.
   const NS='http://www.w3.org/2000/svg';
@@ -168,16 +183,19 @@
       const share=metric==='cost'?(totals.cost>0?row.cost/totals.cost:0):(totals.total>0?row.total/totals.total:0);
       root.append(h('div',{class:'provider'},
         h('div',{class:'provider-line'},
-          h('span',{class:'provider-name'},h('span',{class:'dot',style:`background:${p.color}`,'aria-hidden':'true'}),mark(id,16),
-            h('span',{class:'provider-label'},h('span',{class:'label'},p.label),h('span',{class:'count'},t('daysRecorded')(n)))),
+          h('span',{class:'provider-name'},mark(id,16),
+            h('span',{class:'provider-label',title:t('daysRecorded')(n)},h('span',{class:'label'},p.label))),
           h('span',{class:'provider-value'},metric==='cost'&&unknownCost(row)?t('unpriced'):format(value(row)))),
         h('span',{class:'provider-sub'},metric==='cost'
           ?`${t('ofCost')(percent(share))} · ${t('tokenCount')(tokens(row.total))}`
           :`${t('ofTokens')(percent(share))} · ${unknownCost(row)?t('unpriced'):usd(row.cost)}`)));
     }
+    // What the cache saved closes the column, level with the chart's baseline beside it.
+    if(breakdownCost&&breakdownCost.cacheSavings>0)root.append(h('div',{class:'summary-foot metric'},
+      h('span',{class:'label'},t('cacheSavings')),h('span',{class:'value num'},usd(breakdownCost.cacheSavings))));
   }
 
-  // Line chart: one monotone curve per source, sharing a zero-based scale.
+  // Column chart: one stacked column per day, sharing a zero-based scale.
   const VIEW_W=960,VIEW_H=260,PLOT_TOP=8,TICKS=4;
   function niceScale(peak){
     if(peak<=0)return {max:0,ticks:[0]};
@@ -186,52 +204,51 @@
     for(let v=0;v<=max+step*1e-6;v+=step)ticks.push(v);
     return {max,ticks};
   }
-  function tangents(pts){
-    const n=pts.length;if(n<2)return [0];
-    const slopes=[];for(let i=0;i<n-1;i++){const dx=pts[i+1].x-pts[i].x;slopes.push(dx===0?0:(pts[i+1].y-pts[i].y)/dx);}
-    const m=Array(n).fill(0);m[0]=slopes[0];m[n-1]=slopes[n-2];
-    for(let i=1;i<n-1;i++){const a=slopes[i-1],b=slopes[i];m[i]=a*b<=0?0:(a+b)/2;}
-    for(let i=0;i<n-1;i++){
-      const sl=slopes[i];if(sl===0){m[i]=0;m[i+1]=0;continue;}
-      const a=m[i]/sl,b=m[i+1]/sl,mag=a*a+b*b;
-      if(mag>9){const k=3/Math.sqrt(mag);m[i]=k*a*sl;m[i+1]=k*b*sl;}
-    }
-    return m;
-  }
-  function curve(pts){
-    if(pts.length<2)return '';
-    const m=tangents(pts),f=v=>v.toFixed(2);let d=`M${f(pts[0].x)},${f(pts[0].y)}`;
-    for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],dx=b.x-a.x;
-      d+=` C${f(a.x+dx/3)},${f(a.y+m[i]*dx/3)} ${f(b.x-dx/3)},${f(b.y-m[i+1]*dx/3)} ${f(b.x)},${f(b.y)}`;}
-    return d;
-  }
   function chart(){
     const root=document.getElementById('chart');root.replaceChildren();
     document.getElementById('chart-title').textContent=t(metric==='tokens'?'dailyTokens':'dailyCost');
+    // The key sits beside the title, next to the bars it explains.
+    document.getElementById('chart-legend').replaceChildren(...providers.map(id=>h('span',{},
+      h('i',{style:`background:${presentation(id).color}`,'aria-hidden':'true'}),presentation(id).label)));
     const series=providers.map(id=>({id,values:daySources.map(m=>value(m.get(id)))}));
-    const peak=Math.max(0,...series.flatMap(x=>x.values));
+    // Daily values are discrete, so each day is one column with its sources stacked in it.
+    const stacks=daySources.map((_,i)=>series.reduce((sum,x)=>sum+x.values[i],0));
+    const peak=Math.max(0,...stacks);
     const scale=niceScale(peak),toY=v=>scale.max===0?VIEW_H:VIEW_H-v/scale.max*(VIEW_H-PLOT_TOP);
-    const stepX=days.length<2?0:VIEW_W/(days.length-1);
+    const slot=days.length?VIEW_W/days.length:VIEW_W,barW=Math.max(1,slot*0.68),stepX=slot;
     const axis=h('div',{class:'y-axis'});
-    scale.ticks.forEach(v=>axis.append(h('span',{style:`top:${toY(v)/VIEW_H*100}%`},v===0?'0':format(v))));
+    const observed=stacks.filter((_,i)=>days[i].recorded&&(metric==='tokens'||!unknownCost(days[i])));
+    const dailyMean=observed.length?observed.reduce((x,y)=>x+y,0)/observed.length:0;
+    const nearMean=v=>v>0&&dailyMean>0&&Math.abs(toY(v)-toY(dailyMean))<14;
+    scale.ticks.forEach(v=>{if(!nearMean(v))axis.append(h('span',{style:`top:${toY(v)/VIEW_H*100}%`},tickFormat(v)));});
+    // The average reads on the axis, at its own height, where a tick would.
+    if(dailyMean>0)axis.append(h('span',{class:'avg-tick',style:`top:${toY(dailyMean)/VIEW_H*100}%`,title:t('average')},`${t('average')} ${metric==='cost'?usd(dailyMean):tickFormat(Math.round(dailyMean))}`));
     const svg=s('svg',{viewBox:`0 0 ${VIEW_W} ${VIEW_H}`,preserveAspectRatio:'none',role:'img','aria-label':t(metric==='tokens'?'dailyTokens':'dailyCost')});
-    scale.ticks.forEach(v=>svg.append(s('line',{x1:0,x2:VIEW_W,y1:toY(v),y2:toY(v),stroke:'var(--border)','stroke-width':1,'vector-effect':'non-scaling-stroke'})));
-    const drawn=series.map(x=>({...x,total:x.values.reduce((a,b)=>a+b,0),line:curve(x.values.map((v,i)=>({x:i*stepX,y:toY(v)})))}))
-      .sort((a,b)=>b.total-a.total);
-    for(const x of drawn)if(x.line)svg.append(s('path',{d:`${x.line} L${VIEW_W},${VIEW_H} L0,${VIEW_H} Z`,fill:presentation(x.id).color,'fill-opacity':.12}));
-    for(const x of drawn){
-      if(x.line)svg.append(s('path',{d:x.line,fill:'none',stroke:presentation(x.id).color,'stroke-width':2,'vector-effect':'non-scaling-stroke'}));
-      else if(days.length===1)svg.append(s('circle',{cx:VIEW_W/2,cy:toY(x.values[0]),r:4,fill:presentation(x.id).color}));
-    }
-    const cursor=s('line',{y1:PLOT_TOP,y2:VIEW_H,stroke:'var(--muted-foreground)','stroke-width':1,'vector-effect':'non-scaling-stroke',visibility:'hidden'});
+    // A gridline and its label that would run alongside the average give way to it.
+    scale.ticks.forEach(v=>{if(nearMean(v))return;
+      svg.append(s('line',{x1:0,x2:VIEW_W,y1:toY(v),y2:toY(v),stroke:'var(--border)','stroke-width':1,'vector-effect':'non-scaling-stroke'}));});
+    const cursor=s('rect',{y:0,width:slot,height:VIEW_H,fill:'var(--foreground)','fill-opacity':.06,visibility:'hidden'});
     svg.append(cursor);
+    // The daily average, behind the columns, as the menu card draws it.
+    const mean=dailyMean;
+    if(mean>0)svg.append(s('line',{x1:0,x2:VIEW_W,y1:toY(mean),y2:toY(mean),stroke:'var(--muted-foreground)','stroke-width':1,'stroke-dasharray':'3 3','vector-effect':'non-scaling-stroke'}));
+    // Larger sources sit at the bottom of every column, in the same order as the summary.
+    const order=series.map(x=>({...x,total:x.values.reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total);
+    daySources.forEach((_,i)=>{
+      let base=0;const x=i*slot+(slot-barW)/2;
+      for(const item of order){
+        const v=item.values[i];if(!(v>0))continue;
+        const y0=toY(base),y1=toY(base+v);base+=v;
+        svg.append(s('rect',{x,y:y1,width:barW,height:Math.max(0,y0-y1-(base<stacks[i]?1.5:0)),fill:presentation(item.id).color}));
+      }
+    });
     const plot=h('div',{class:'plot'},svg);
     const tip=h('div',{class:'chart-tip',hidden:true});plot.append(tip);
     plot.addEventListener('mousemove',event=>{
       const box=plot.getBoundingClientRect();if(!box.width||!days.length)return;
       const x=Math.min(box.width,Math.max(0,event.clientX-box.left)),y=Math.min(box.height,Math.max(0,event.clientY-box.top));
-      const index=Math.min(days.length-1,Math.max(0,Math.round(x/box.width*(days.length-1))));
-      cursor.setAttribute('x1',index*stepX);cursor.setAttribute('x2',index*stepX);cursor.setAttribute('visibility','visible');
+      const index=Math.min(days.length-1,Math.max(0,Math.floor(x/box.width*days.length)));
+      cursor.setAttribute('x',index*stepX);cursor.setAttribute('visibility','visible');
       const day=days[index],values=daySources[index];
       tip.replaceChildren(h('div',{class:'when'},dayShort(day.day)+(day.recorded?'':' · '+t('noRecord'))),
         ...providers.map(id=>h('div',{class:'tip-row'},h('span',{class:'who'},mark(id,12),presentation(id).label),h('span',{class:'num fg'},format(value(values.get(id)))))),
@@ -251,8 +268,7 @@
   function metrics(){
     const root=document.getElementById('metrics');root.replaceChildren();
     [['processedTokens',tokens(totals.total),count(totals.total)],['cachedInput',tokens(totals.cacheRead),count(totals.cacheRead)],
-     ['uncachedInput',tokens(totals.input),count(totals.input)],['output',tokens(totals.output),count(totals.output)],
-     ['cacheSavings',usd(breakdownCost.cacheSavings),usd(breakdownCost.cacheSavings)]]
+     ['uncachedInput',tokens(totals.input),count(totals.input)],['output',tokens(totals.output),count(totals.output)]]
       .forEach(([key,shown,exact])=>root.append(h('div',{class:'metric'},h('span',{class:'label'},t(key)),h('span',{class:'value',title:exact},shown))));
   }
 
@@ -262,8 +278,8 @@
     return h('div',{class:'share'},
       h('div',{class:'share-head'},h('h3',{},label),aside??null),
       h('div',{class:'share-bar',role:'img','aria-label':`${label}: ${visible.map(x=>`${x.label} ${fmt(x.value)}`).join(', ')}`},
-        visible.map(x=>h('div',{style:`flex:${x.value} 1 0;background:${x.color}`,'data-tip':`${x.label} · ${fmt(x.value)} · ${percent(x.value/total)}`}))),
-      h('div',{class:'share-legend'},visible.map(x=>h('span',{},h('i',{style:`background:${x.color}`,'aria-hidden':'true'}),h('span',{class:'muted'},x.label),h('span',{class:'num fg'},fmt(x.value))))));
+        visible.map((x,i)=>h('div',{style:`flex:${x.value} 1 0;background:${x.color}`,'data-seg':i,'data-tip':`${x.label} · ${fmt(x.value)} · ${percent(x.value/total)}`}))),
+      h('div',{class:'share-legend'},visible.map((x,i)=>h('span',{'data-seg':i},h('i',{style:`background:${x.color}`,'aria-hidden':'true'}),h('span',{class:'muted'},x.label),h('span',{class:'num fg'},fmt(x.value)),h('span',{class:'num muted'},percent(x.value/total))))));
   }
   function shares(){
     const root=document.getElementById('shares');root.replaceChildren();
@@ -280,8 +296,10 @@
       {label:t('cacheWrite'),value:c.cacheWrite,color:TYPE_COLORS.cacheWrite},{label:t('output'),value:c.output,color:TYPE_COLORS.output}],usd);
     if(byType)root.append(byType);
     if(c.fast>0){
-      const bySpeed=shareBar(t('costBySpeed'),[{label:t('standard'),value:Math.max(0,totals.cost-c.fast),color:ink(34)},{label:t('fast'),value:c.fast,color:ink(66)}],usd,
+      const bySpeed=shareBar(t('costBySpeed'),[{label:t('standard'),value:Math.max(0,totals.cost-c.fast),color:'var(--speed-standard)'},{label:t('fast'),value:c.fast,color:'var(--speed-fast)'}],usd,
         h('span',{class:'share-aside'},t('premium')+' ',h('span',{class:'num fg'},usd(c.fastPremium))));
+      // Two rows like its neighbour's key, so both blocks end on the same line.
+      bySpeed?.querySelector('.share-legend')?.classList.add('stacked');
       if(bySpeed)root.append(bySpeed);
     }
   }
@@ -290,19 +308,21 @@
     const rows=[...models].sort(metric==='tokens'?(a,b)=>b.total-a.total||b.cost-a.cost:(a,b)=>b.cost-a.cost||b.total-a.total);
     const peak=Math.max(0,...rows.map(value));
     const body=h('tbody');
-    if(!rows.length)body.append(h('tr',{class:'empty-row'},h('td',{colspan:5},t('noActivity'))));
-    rows.forEach((m,i)=>{
+    if(!rows.length)body.append(h('tr',{class:'empty-row'},h('td',{colspan:4},t('noActivity'))));
+    rows.forEach(m=>{
       const id=m.source??providers[0],v=value(m),bar=v>0&&peak>0;
       const share=metric==='tokens'?(totals.total>0?m.total/totals.total:null):(unknownCost(m)||!(totals.cost>0)?null:m.cost/totals.cost);
+      // Rows are already ranked, so the share bar does the work a rank column would.
       body.append(h('tr',{},
-        h('td',{},i+1),
-        h('td',{},h('div',{class:'model-name',style:bar?'':'padding:4px 0'},mark(id,14),h('span',{},m.name)),
-          bar?h('div',{class:'model-bar','aria-hidden':'true'},h('div',{style:`width:max(0.5rem, ${v/peak*100}%);background:${presentation(id).color}`})):null),
+        h('td',{},h('div',{class:'model-name'},mark(id,14),h('span',{title:m.name},modelName(m.name)))),
+        h('td',{class:'share-col'},h('span',{class:'share-cell'},
+          // The track is the whole window, so the bar's length is the share printed beside it.
+          h('span',{class:'model-bar','aria-hidden':'true'},bar&&share!=null?h('span',{style:`width:${Math.max(1,share*100)}%;background:${presentation(id).color}`}):null),
+          h('span',{class:'share-value'},share==null?'':percent(share)))),
         h('td',{class:'cost',title:usd(m.cost)},unknownCost(m)?h('span',{class:'muted'},t('unpriced')):usd(m.cost)),
-        h('td',{class:'share-col'},share==null?'':percent(share)),
         h('td',{title:count(m.total)},tokens(m.total))));
     });
-    return h('table',{class:'models'},h('thead',{},h('tr',{},h('th',{},'#'),h('th',{},t('model')),h('th',{},t('cost')),h('th',{class:'share-col'},t('share')),h('th',{},t('tokens')))),body);
+    return h('table',{class:'models'},h('thead',{},h('tr',{},h('th',{},t('model')),h('th',{class:'share-col'},t('share')),h('th',{},t('cost')),h('th',{},t('tokens')))),body);
   }
   function dayTable(){
     const body=h('tbody');
@@ -325,7 +345,7 @@
     document.title=`QuotaBar · ${t('usage')}`;
     document.querySelectorAll('[data-i18n]').forEach(n=>{const v=t(n.dataset.i18n);if(typeof v==='string')n.textContent=v;});
     derive();
-    const binds={periodName:t('periodName')(days.length),windowLabel:days.length?t('range')(dayShort(days[0].day),dayShort(days.at(-1).day)):''};
+    const binds={windowLabel:days.length?t('range')(dayShort(days[0].day),dayShort(days.at(-1).day)):''};
     document.querySelectorAll('[data-bind]').forEach(n=>n.textContent=binds[n.dataset.bind]??'');
     document.querySelector('[data-metric-group]').setAttribute('aria-label',t('metric'));
     document.querySelector('[data-language-group]').setAttribute('aria-label',t('language'));

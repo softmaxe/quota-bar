@@ -71,7 +71,7 @@ try{
     const metrics=await layout();
     assert(metrics.scrollWidth<=metrics.width+2,'Desktop overflow');
     assert.equal(metrics.escaped,0,'Content escapes the page');
-    assert.equal(await page.locator('[data-chart=daily] svg path').count()>0||snapshot.totals.total===0,true,'Daily chart draws its series');
+    assert.equal(await page.locator('[data-chart=daily] svg rect:not([visibility])').count()>0||snapshot.days.every(day=>day.total===0),true,'Daily chart draws its nonzero columns');
     await page.screenshot({path:join(output,'native-'+language+'.png'),fullPage:true});
     results.push({case:'native-'+language,...metrics});
   }
@@ -97,17 +97,21 @@ try{
   assert.equal(await hero(),usd(sumCost(33,40)));
   await page.locator('[data-period="30"]').click();
   assert.equal(await hero(),usd(sumCost(10,40)));
-  assert.equal(await page.locator('.crumb.current').textContent(),'30 days');
+  const observedCosts=series.slice(10,40).filter(v=>v!==null).map(v=>v/100);
+  assert.equal(await page.locator('.avg-tick').textContent(),'avg '+usd(observedCosts.reduce((a,b)=>a+b,0)/observedCosts.length),'A missing day must not count as zero in the average');
+  assert.equal(await page.locator('[data-period="30"]').getAttribute('aria-pressed'),'true');
   await page.locator('[data-period=custom]').click();
   assert(await page.locator('[data-range-inputs]').isVisible(),'Custom period shows its date fields');
   await page.locator('[data-range-from]').fill('2026-08-01');await page.locator('[data-range-from]').dispatchEvent('change');
   assert.equal(await hero(),usd(sumCost(0,40)),'Custom period covers the whole history');
-  assert.equal(await page.locator('.crumb.current').textContent(),'40 days');
+  assert.equal(await page.locator('[data-range-to]').inputValue(),'2026-09-09');
   await page.locator('[data-breakdown=day]').click();
   assert.equal(await page.locator('.days tbody tr.missing').count(),1,'A missing date stays distinct from recorded zero');
   assert.equal(await page.locator('.days tbody tr.missing td').last().textContent(),'No record');
   await page.reload();
-  assert.equal(await page.locator('.crumb.current').textContent(),'40 days','Custom period persists for the exported file');
+  assert.equal(await page.locator('[data-period=custom]').getAttribute('aria-pressed'),'true','Custom period persists for the exported file');
+  assert.equal(await page.locator('[data-range-from]').inputValue(),'2026-08-01');
+  assert.equal(await page.locator('[data-range-to]').inputValue(),'2026-09-09');
   await page.goto(pathToFileURL(reportFile).href+'?lang=en&from=2026-08-10&to=2026-08-01');
   assert.equal(await hero(),usd(sumCost(0,10)),'A reversed custom period is read in date order');
   await page.screenshot({path:join(output,'custom-period.png'),fullPage:true});
@@ -117,6 +121,14 @@ try{
   assert.equal(await hero(),'$0.00');
   assert(!(await page.locator('body').innerText()).includes('NaN'));
   results.push({case:'recorded-zero',passed:true});
+  await load(fixture(Array(7).fill(37)));
+  assert.equal(await page.locator('.avg-tick').textContent(),'avg $0.37','A sub-dollar average keeps its cents');
+  results.push({case:'sub-dollar-average',passed:true});
+  const unusualModel=fixture(Array(7).fill(100));
+  for(const day of unusualModel.days)day.models[0].name='gpt-4o-';
+  await load(unusualModel);
+  assert.equal(await page.locator('.model-name').first().textContent(),'gpt-4o-','An unusual model ID remains readable without breaking the report');
+  results.push({case:'unusual-model-id',passed:true});
   await load(fixture(Array(7).fill(100),{unpriced:true}));
   assert.equal(await hero(),'Unpriced');
   assert.equal(await page.locator('.models td.cost').first().textContent(),'Unpriced');
@@ -127,7 +139,7 @@ try{
   await page.screenshot({path:join(output,'long-model.png'),fullPage:true});
   results.push({case:'long-model',passed:true});
   await load(fixture(Array(7).fill(1e12)));
-  assert((await page.locator('.metric .value').first().textContent()).endsWith('T'));
+  assert((await page.locator('.metrics .metric .value').first().textContent()).endsWith('T'));
   results.push({case:'large-values',passed:true});
   assert.deepEqual(errors,[]);assert.equal(external,0);
   writeFileSync(join(output,'verification.json'),JSON.stringify({results,errors,external},null,2)+'\n');

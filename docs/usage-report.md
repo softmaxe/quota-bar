@@ -15,7 +15,7 @@ The top bar picks the period: **7 days**, **30 days**, or **Custom** with a star
 For the chosen period the page shows:
 
 - the total and each usage source's share, with the number of days it has records
-- a daily line per source, with a hover readout of each source and the day's total
+- daily stacked columns split by source, with a mean reference and a hover readout of each source and the day's total
 - totals for processed tokens, cached input, uncached input, output, and cache savings
 - cost by token type and, when Fast usage exists, cost by speed with the Fast premium
 - a breakdown by model, marked with the source that used it most, or by day and source

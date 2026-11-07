@@ -49,10 +49,6 @@ struct SettingsSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("QuotaBar")
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
             ForEach(SettingsTab.allCases) { tab in
                 self.row(tab)
             }

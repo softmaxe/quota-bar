@@ -100,9 +100,9 @@ Reading Claude credentials may trigger a macOS Keychain prompt. If a manual **Re
 
 ### Quota windows and usage pace
 
-Each quota window shows the percentage left and its reset time. Click a reset time and choose **Show reset date** or **Show countdown** to change the display for both windows. Unlimited sessions show **Session ∞** and **No limit**. An empty window shows **Limit reached**.
+Each quota window shows the percentage left and its reset time. Click a reset time and choose **Show reset date** or **Show countdown** to change the display for both windows. Unlimited sessions show **No limit**. An empty window shows **Limit reached**.
 
-Each bar carries a pace marker where the fill would sit at an even pace: red when you are spending faster than that, green when you have a reserve. QuotaBar compares usage with time elapsed. Once a few days of samples exist, weekly pace counts the hours you are usually active rather than the raw clock. A session that stops moving shows the working time left instead of a run-out time. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
+Each bar carries a pace marker where the fill would sit at an even pace. The neutral marker shares the **Expected remaining** key; a warning below a window names a projected shortfall. QuotaBar compares usage with time elapsed. Once a few days of samples exist, weekly pace counts the hours you are usually active rather than the raw clock. A session that stops moving shows the working time left instead of a run-out time. After at least three comparable recorded weekly windows, it also uses that history to estimate weekly pace. Quota samples are kept for 56 days.
 
 After QuotaBar detects a reset, opening the card plays a brief bar animation while the headline shows the new reading. The app respects macOS Reduce Motion.
 
@@ -230,7 +230,7 @@ Choose **Usage…** in the card, or press ⌘U, to open the usage window. If not
   <img src="docs/images/usage-report.png" width="760" alt="English view of the usage window, with a Chinese/English switch and sample data">
 </p>
 
-The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, a daily line per source, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
+The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
 
 While the window is open, QuotaBar scans every source's local logs once a minute and updates the figures in place, keeping the period, metric, breakdown, and language you chose. It uses the same pricing rules as the card and marks unpriced usage. See [Usage window](docs/usage-report.md) for how it reads and refreshes data.
 

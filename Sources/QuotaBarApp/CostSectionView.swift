@@ -5,12 +5,18 @@ import SwiftUI
 struct CostSectionView: View {
     let snapshot: CostSnapshot
 
+    @Environment(\.displayScale) private var displayScale
+
     private static let maxBars = 10
     private static let chartHeight: CGFloat = 56
     /// A day with no value keeps a low neutral stub on the baseline so the row stays continuous.
     /// Nonzero bars start one point taller and in the accent, so small usage never reads as none.
-    private static let emptyStubHeight: CGFloat = 3
+    private static let emptyStubHeight: CGFloat = 1.5
     private static let minimumBarHeight: CGFloat = 4
+    /// Room above the bars for the tallest day's value.
+    private static let peakLabelBand: CGFloat = 13
+    /// Wide enough for the average's key at its longest, "avg $1,234".
+    private static let averageKeyWidth: CGFloat = 54
     /// How far the day summary's hover highlight reaches past its text.
     private static let summaryInset: CGFloat = 6
     /// A row is a line of text over its share bar.
@@ -80,7 +86,7 @@ struct CostSectionView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Local usage")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(QuotaHeadline.font)
                 Spacer(minLength: 8)
                 UsageUnitSwitch(selection: self.selectedLabelMode) { self.changeMode(to: $0) }
                     .frame(width: 130)
@@ -192,14 +198,84 @@ struct CostSectionView: View {
         VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geometry in
                 let slotWidth = geometry.size.width / CGFloat(max(1, self.bars.count))
-                HStack(alignment: .bottom, spacing: 0) {
-                    ForEach(self.bars, id: \.dayKey) { day in
-                        self.dayButton(day)
-                            .frame(width: slotWidth)
+                ZStack(alignment: .topLeading) {
+                    // The average sits behind the bars, so it reads in the gaps without
+                    // crossing a bar; its value is named on the axis below.
+                    if let average = self.averageLine {
+                        let rawY = Self.peakLabelBand + Self.chartHeight * (1 - CGFloat(average.fraction))
+                        let scale = max(self.displayScale, 1)
+                        // Align the one-point stroke's edges to pixels so it stays crisp at 1× too.
+                        let y = ((rawY - 0.5) * scale).rounded() / scale + 0.5
+                        let tops = self.barTops(slotWidth: slotWidth)
+                        // One continuous rule, with a 2pt clearance cut around every bar, so a
+                        // bar ending just under it never looks outlined by it.
+                        Canvas { context, _ in
+                            var line = Path()
+                            line.move(to: CGPoint(x: 0, y: y))
+                            line.addLine(to: CGPoint(x: geometry.size.width, y: y))
+                            context.stroke(
+                                line,
+                                with: .color(Theme.chartReference),
+                                style: StrokeStyle(lineWidth: 1, dash: [2, 3])
+                            )
+                            context.blendMode = .destinationOut
+                            for (index, top) in tops.enumerated() {
+                                guard let top else { continue }
+                                let clearance = CGRect(
+                                    x: slotWidth * CGFloat(index) + 2,
+                                    y: top - 2.5,
+                                    width: slotWidth - 4,
+                                    height: Self.peakLabelBand + Self.chartHeight - top + 2.5
+                                )
+                                context.fill(Path(clearance), with: .color(.white))
+                            }
+                        }
+                        .allowsHitTesting(false)
+                        // Named at the line's own left end, as the window names it on its axis,
+                        // where the first days leave room; otherwise in the top corner.
+                        let clear = self.barTops(slotWidth: slotWidth).prefix(2).allSatisfy { ($0 ?? .infinity) > y + 2 }
+                        Text("avg \(average.label)")
+                            .font(.system(size: 10))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.chartReference)
+                            .fixedSize()
+                            .frame(width: geometry.size.width, alignment: .leading)
+                            .position(x: geometry.size.width / 2, y: clear ? y - 7 : Self.peakLabelBand / 2 - 1)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                    HStack(alignment: .bottom, spacing: 0) {
+                        ForEach(self.bars, id: \.dayKey) { day in
+                            self.dayButton(day)
+                                .frame(width: slotWidth)
+                        }
+                    }
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    // The tallest day carries its value, which gives the whole chart a scale.
+                    if let peak = self.peakBar {
+                        // Centered over its bar, held to the right edge near it, and clear of
+                        // the average's key on the left.
+                        let barCenter = slotWidth * (CGFloat(peak.index) + 0.5)
+                        // Only a label that would actually meet the key moves, and only far enough.
+                        let center = self.averageLine == nil ? barCenter : max(barCenter, Self.averageKeyWidth + 26)
+                        let alignment: Alignment = center < 30 ? .leading
+                            : center > geometry.size.width - 30 ? .trailing : .center
+                        Text(peak.label)
+                            .font(.system(size: 10, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .frame(width: 60, alignment: alignment)
+                            .position(
+                                x: min(max(30, center), geometry.size.width - 30),
+                                y: Self.peakLabelBand / 2 - 1
+                            )
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
             }
-            .frame(height: Self.chartHeight + CostChartHoverMotion.markerBand)
+            .frame(height: Self.peakLabelBand + Self.chartHeight + CostChartHoverMotion.markerBand)
             .onMoveCommand { direction in
                 switch direction {
                 case .left: self.moveSelection(by: -1)
@@ -211,7 +287,10 @@ struct CostSectionView: View {
             HStack {
                 Text(self.bars.first.map { self.rangeLabel($0.dayKey) } ?? "")
                 Spacer(minLength: 4)
+                // Today is named at its own end of the axis, so the bar needs no standing marker.
                 Text(self.bars.last.map { self.rangeLabel($0.dayKey) } ?? "")
+                    .fontWeight(self.marksToday ? .semibold : .regular)
+                    .foregroundStyle(self.marksToday ? Color.primary : Color.secondary)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
@@ -233,19 +312,13 @@ struct CostSectionView: View {
                     if value > 0 {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(Theme.accent(for: self.snapshot.provider))
-                            .opacity(CostChartHighlightPolicy.opacity(
-                                dayKey: day.dayKey,
-                                selectedDayKey: self.selectedDayKey
-                            ))
+                            .opacity(self.barOpacity(day.dayKey))
                             .animation(CostChartHoverMotion.selection, value: selected)
                             .frame(height: max(Self.minimumBarHeight, height))
                             .padding(.horizontal, 2)
                     } else {
                         self.emptyStub(for: day)
-                            .opacity(CostChartHighlightPolicy.opacity(
-                                dayKey: day.dayKey,
-                                selectedDayKey: self.selectedDayKey
-                            ))
+                            .opacity(self.barOpacity(day.dayKey))
                             .animation(CostChartHoverMotion.selection, value: selected)
                             .frame(height: Self.emptyStubHeight)
                             .padding(.horizontal, 2)
@@ -253,9 +326,9 @@ struct CostSectionView: View {
                 }
                 .frame(height: Self.chartHeight)
                 Capsule()
-                    .fill(Theme.accent(for: self.snapshot.provider))
+                    .fill(Color.primary.opacity(0.8))
                     .frame(width: 12, height: CostChartHoverMotion.markerHeight)
-                    .opacity(selected ? 1 : 0)
+                    .opacity(selected && self.isPointing ? 1 : 0)
                     .animation(CostChartHoverMotion.selection, value: selected)
                     .frame(height: CostChartHoverMotion.markerBand)
             }
@@ -289,6 +362,54 @@ struct CostSectionView: View {
         .accessibilityValue(self.accessibleDayValue(day))
         .accessibilityHint("Select day. Use Left and Right Arrow to change day.")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The tallest bar and its value in the chosen unit, or nil when every day is empty.
+    private var peakBar: (index: Int, label: String)? {
+        let values = self.bars.map { CostChartHighlightPolicy.value(for: $0, mode: self.selectedLabelMode) }
+        guard let peak = values.max(), peak > 0, let index = values.firstIndex(of: peak) else { return nil }
+        return (index, self.compactValue(peak))
+    }
+
+    /// Each day's bar top in the chart's space, or nil for a day drawn as a stub.
+    private func barTops(slotWidth: CGFloat) -> [CGFloat?] {
+        let maxValue = CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
+        return self.bars.map { day in
+            let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
+            guard value > 0, maxValue > 0 else { return nil }
+            let height = max(Self.minimumBarHeight, Self.chartHeight * CGFloat(value / maxValue))
+            return Self.peakLabelBand + Self.chartHeight - height
+        }
+    }
+
+    /// The mean of known observations, as a fraction of the tallest bar, with its label.
+    private var averageLine: (fraction: Double, label: String)? {
+        let peak = CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
+        guard peak > 0, let mean = CostChartHighlightPolicy.meanValue(
+            for: self.bars, mode: self.selectedLabelMode, excluding: self.unobservedDayKeys
+        ), mean > 0 else { return nil }
+        return (mean / peak, self.compactValue(mean))
+    }
+
+    /// Chart annotations stay short: whole dollars once a value reaches ten.
+    private func compactValue(_ value: Double) -> String {
+        guard self.selectedLabelMode == .cost else { return Formatters.tokens(Int(value)) }
+        return value >= 10 ? "$\(Int(value.rounded()).formatted())" : Formatters.cost(value)
+    }
+
+    /// At rest every day reads at full strength; only pointing at or pinning a day fades the rest.
+    /// The axis names today only while nothing else is being pointed at.
+    private var marksToday: Bool {
+        self.bars.last?.dayKey == self.todayDayKey && !self.isPointing
+    }
+
+    private var isPointing: Bool {
+        self.hoveredDayKey != nil || self.pinnedDayKey != nil || self.focusedDayKey != nil
+    }
+
+    private func barOpacity(_ dayKey: String) -> Double {
+        guard self.isPointing else { return 1 }
+        return CostChartHighlightPolicy.opacity(dayKey: dayKey, selectedDayKey: self.selectedDayKey)
     }
 
     /// A known zero is a solid stub; a day whose value is unknown is only outlined.
@@ -399,6 +520,7 @@ struct CostSectionView: View {
     @ViewBuilder
     private var dayDetail: some View {
         let ranked = self.selectedDay?.rankedModels(by: self.selectedLabelMode) ?? []
+        let mixedSources = Set(ranked.map(\.key.source)).count > 1
         let dayTotal = ranked.reduce(0) { $0 + self.breakdownValue($1.usage) }
         // A day with no models has nothing to open, unless the list is already open and has to
         // close again.
@@ -443,6 +565,7 @@ struct CostSectionView: View {
                         ForEach(ranked, id: \.key) { entry in
                             self.breakdownRow(
                                 entry,
+                                showsSource: mixedSources,
                                 share: dayTotal > 0 ? self.breakdownValue(entry.usage) / dayTotal : 0
                             )
                                 .frame(height: CGFloat(Self.breakdownLayout.rowHeight), alignment: .leading)
@@ -501,23 +624,27 @@ struct CostSectionView: View {
         let day = self.shownDay
         let tokens = self.isUnobserved(day.dayKey) ? TokenTotals() : day.tokens
         let accent = Theme.accent(for: self.snapshot.provider)
-        let parts: [(label: String, count: Int, color: Color)] = [
-            ("Cache read", tokens.cacheRead, accent),
-            ("Cache write", tokens.cacheWrite, accent.opacity(0.45)),
-            ("Input", tokens.input, Color.primary.opacity(0.5)),
-            ("Output", tokens.output, Color.primary.opacity(0.25)),
+        let parts: [(label: String, count: Int)] = [
+            ("Cache read", tokens.cacheRead),
+            ("Cache write", tokens.cacheWrite),
+            ("Input", tokens.input),
+            ("Output", tokens.output),
         ]
-        let inputTokens = tokens.input + tokens.cacheWrite + tokens.cacheRead
+        // The bar is the day's input, split the way the hit rate above it is: what the cache
+        // served, and what it did not. Output is not input, so it stays in the tooltip.
+        let uncached = tokens.cacheWrite + tokens.input
+        let restColor = Color.primary.opacity(0.45)
+        let inputTokens = uncached + tokens.cacheRead
         let rate = tokens.cacheHitRate.map(Self.hitRateLabel) ?? "—"
         return VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
                 Text("Cache hit").foregroundStyle(.secondary)
-                Text(rate).fontWeight(.medium)
+                Text(rate)
                 Spacer(minLength: 4)
                 if inputTokens > 0 {
-                    Text("\(Formatters.tokens(tokens.cacheRead)) of \(Formatters.tokens(inputTokens)) input")
+                    Text("\(Formatters.tokens(inputTokens)) input")
                         .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
             .font(.system(size: 11))
@@ -525,14 +652,16 @@ struct CostSectionView: View {
             .lineLimit(1)
 
             GeometryReader { geometry in
-                let shown = parts.filter { $0.count > 0 }
-                let gaps = CGFloat(max(0, shown.count - 1))
-                let width = max(0, geometry.size.width - gaps)
-                HStack(spacing: 1) {
-                    ForEach(shown, id: \.label) { part in
-                        Rectangle()
-                            .fill(part.color)
-                            .frame(width: max(2, width * CGFloat(part.count) / CGFloat(tokens.total)))
+                let total = max(1, inputTokens)
+                let readWidth = tokens.cacheRead > 0
+                    ? max(2, geometry.size.width * CGFloat(tokens.cacheRead) / CGFloat(total))
+                    : 0
+                HStack(spacing: uncached > 0 && tokens.cacheRead > 0 ? 1 : 0) {
+                    if tokens.cacheRead > 0 {
+                        Rectangle().fill(accent).frame(width: uncached > 0 ? min(readWidth, geometry.size.width - 3) : geometry.size.width)
+                    }
+                    if uncached > 0 {
+                        Rectangle().fill(restColor)
                     }
                 }
                 .frame(width: geometry.size.width, alignment: .leading)
@@ -542,18 +671,27 @@ struct CostSectionView: View {
             }
             .frame(height: 4)
 
-            HStack(spacing: 8) {
-                ForEach(parts, id: \.label) { part in
-                    HStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(part.color)
-                            .frame(width: 6, height: 6)
-                        Text(part.label)
+            // Each key sits at the end of the bar its segment starts from.
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(accent).frame(width: 6, height: 6)
+                    Text("Cache read")
+                    if inputTokens > 0 {
+                        Text(Formatters.tokens(tokens.cacheRead))
+                    }
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 1.5).fill(restColor).frame(width: 6, height: 6)
+                    Text("Uncached")
+                    if inputTokens > 0 {
+                        Text(Formatters.tokens(uncached))
                     }
                 }
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
+            .monospacedDigit()
             .lineLimit(1)
         }
         .help(parts.map { "\($0.label) \(Formatters.tokens($0.count))" }.joined(separator: " · "))
@@ -573,9 +711,11 @@ struct CostSectionView: View {
         return "\(percent)%"
     }
 
-    /// The tool's mark and the model's name over a bar of its share of the day, in the chosen unit.
+    /// The model's name over a bar of its share of the day, in the chosen unit. When the day mixes
+    /// tools, each row also names the tool it came from, in words and by its mark.
     private func breakdownRow(
         _ entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage),
+        showsSource: Bool,
         share: Double
     ) -> some View {
         let name = Formatters.modelName(entry.model)
@@ -584,9 +724,14 @@ struct CostSectionView: View {
         let showsCost = self.selectedLabelMode == .cost
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                SourceMark(source: entry.key.source, size: 12)
                 Text(name)
                     .truncationMode(.middle)
+                    .layoutPriority(0.5)
+                if showsSource {
+                    Text("· \(entry.key.source.displayName)")
+                        .foregroundStyle(.secondary)
+                        .truncationMode(.tail)
+                }
                 if entry.key.isFast {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 8))
@@ -594,12 +739,12 @@ struct CostSectionView: View {
                 }
                 Spacer(minLength: 4)
                 Text(showsCost ? amount : tokens)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11))
                     .foregroundStyle(showsCost && entry.usage.costUSD == nil ? .secondary : .primary)
                     .layoutPriority(1)
                 Text(showsCost ? tokens : amount)
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .frame(minWidth: 34, alignment: .trailing)
                     .layoutPriority(1)
             }
@@ -617,8 +762,7 @@ struct CostSectionView: View {
                 }
             }
             .frame(height: 3)
-            // Under the name, clear of the mark.
-            .padding(.leading, 18)
+
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(self.breakdownLabel(entry.key, name: name))
@@ -650,25 +794,25 @@ struct CostSectionView: View {
 /// Codex's pay-as-you-go credit balance. Claude does not report one.
 struct CreditsSectionView: View {
     let credits: CreditsSnapshot
-    private static let cap: Double = 1000
 
+    /// A footnote to the plan's windows rather than a window of its own.
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Credits").font(.system(size: 13, weight: .semibold))
-            UsageProgressBar(
-                percent: self.credits.unlimited ? 100 : min(100, (self.credits.balance ?? 0) / Self.cap * 100),
-                tint: Theme.accent(for: .codex)
-            )
-            HStack {
-                Text(self.leftLabel).font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text("1K tokens").font(.system(size: 11)).foregroundStyle(.secondary)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text("Credits")
+            Spacer(minLength: 8)
+            Text(self.leftLabel)
+                .monospacedDigit()
         }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        // Set apart from the windows above, as a footnote is.
+        .padding(.top, 4)
+        .accessibilityElement(children: .combine)
     }
 
     private var leftLabel: String {
         if self.credits.unlimited { return "Unlimited" }
-        return "\(Int((self.credits.balance ?? 0).rounded())) left"
+        let balance = Int((self.credits.balance ?? 0).rounded())
+        return "\(balance.formatted()) left"
     }
 }
