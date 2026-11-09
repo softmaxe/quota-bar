@@ -315,10 +315,6 @@ jobs:
           echo "--- updated cask ---"
           cat "$cask"
 
-          # Developer mode turns deprecated cask DSL calls into errors.
-          brew info --cask "$cask"
-          brew fetch --cask "$cask"
-
           git -C "$TAP_DIR" config user.name "github-actions[bot]"
           git -C "$TAP_DIR" config user.email "github-actions[bot]@users.noreply.github.com"
           git -C "$TAP_DIR" add Casks/quota-bar.rb
@@ -332,6 +328,10 @@ jobs:
           # clones the local checkout, so this runs after the commit.
           brew tap softmaxe/tap "$TAP_DIR"
           brew trust softmaxe/tap
+          # Load the registered cask: Homebrew rejects source paths outside its taps.
+          # Developer mode turns deprecated cask DSL calls into errors.
+          brew info --cask softmaxe/tap/quota-bar
+          brew fetch --cask softmaxe/tap/quota-bar
           brew style --cask softmaxe/tap/quota-bar
           brew audit --strict --cask softmaxe/tap/quota-bar
 
