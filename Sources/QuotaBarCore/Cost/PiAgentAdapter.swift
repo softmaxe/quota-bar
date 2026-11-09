@@ -24,7 +24,7 @@ package struct PiAgentAdapter: SnapshotAdapter {
     }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        ExternalAgentEligibility.survey(
+        let survey = ExternalAgentEligibility.survey(
             installedAt: self.sessionsDirectory,
             authFile: self.agentDirectory.appendingPathComponent("auth.json"),
             entry: "openai-codex",
@@ -38,6 +38,10 @@ package struct PiAgentAdapter: SnapshotAdapter {
             }
             return self.stamp(of: files)
         }
+        // Pi Agent can retain sessions after sign-out. Keep recorded history quietly and
+        // recheck its sign-in on the next refresh so recording resumes automatically.
+        if case .failed(.auth) = survey { return .skipped }
+        return survey
     }
 
     package func requests() throws -> [ObservedRequest] {

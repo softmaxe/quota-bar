@@ -15,6 +15,7 @@ enum SnapshotRecordingTests {
         Self.nonOAuthSignInIsNotIncluded()
         Self.uncheckableSignInRecordsNothingUntilItRecovers()
         Self.openCodeSignOutKeepsHistoryAndResumesAutomatically()
+        Self.piSignOutKeepsHistoryAndResumesAutomatically()
         Self.excludedRowsStayExcluded()
         Self.unreadableSourceKeepsRecordedUsage()
         Self.removedSourceIsIdleAndKeepsRecordedUsage()
@@ -104,6 +105,54 @@ enum SnapshotRecordingTests {
         fixture.record(.codex)
         Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "background refresh catches up after sign-in without double counting")
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "automatic recovery remains quiet")
+    }
+
+    /// Pi Agent pauses on an uncheckable sign-in, preserving history until an ordinary refresh
+    /// can verify the account again. Recovery must catch up even if sessions no longer change.
+    private static func piSignOutKeepsHistoryAndResumesAutomatically() {
+        let fixture = RecorderFixture(name: "snapshot-pi-sign-out")
+        defer { fixture.remove() }
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "Pi Agent history is initially recorded")
+
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [
+            PiSessionFile.message("one", input: 10),
+            PiSessionFile.message("two", input: 5),
+        ])
+        let auth = fixture.root.appendingPathComponent("pi/auth.json")
+        do {
+            try FileManager.default.removeItem(at: auth)
+            for signIn: String? in [nil, "{}", #"{"openai-codex":null}"#, "invalid json", #"{"openai-codex":{"type":"oauth"}}"#] {
+                if let signIn { try signIn.write(to: auth, atomically: true, encoding: .utf8) }
+                fixture.record(.codex)
+                Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "Pi sign-out retains history without adding unchecked usage")
+                Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "Pi sign-out does not report a scan failure")
+            }
+        } catch {
+            Harness.expect(false, "changing the Pi Agent fixture sign-in failed: \(error)")
+            return
+        }
+
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        fixture.record(.codex)
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "background refresh catches up Pi usage after sign-in without double counting")
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "Pi automatic recovery remains quiet")
+
+        // Once authentication recovers, unreadable sessions must still report a scan failure.
+        let sessions = fixture.root.appendingPathComponent("pi/sessions")
+        do {
+            try FileManager.default.removeItem(at: sessions)
+            try Data().write(to: sessions)
+        } catch {
+            Harness.expect(false, "replacing the Pi Agent fixture sessions failed: \(error)")
+            return
+        }
+        fixture.record(.codex)
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .error("sessions"), "Pi session failures are still reported")
+        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "Pi session failures retain recorded history")
     }
 
     /// Whether a request counts is settled when it is first recorded. Signing in to the Codex
