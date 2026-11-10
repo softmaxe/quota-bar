@@ -65,7 +65,7 @@ After any edit, update `checkedAt` for the provider or model you compared, then 
 make test
 ```
 
-`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It also pins the published rates of the current models on 2026-09-25, so editing an old period fails; a new period does not. It prints a note when a provider was last checked more than 45 days ago.
+`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It pins historical rates on 2026-09-25, the additions checked on 2026-11-11, and the GPT-5.6 Sol promotion ending on 2026-11-30, including Fast and long-context rates. Editing an old period fails; adding a new period does not. It prints a note when a provider was last checked more than 45 days ago.
 
 ## Models outside the book
 
