@@ -74,6 +74,46 @@ private actor CodexRefreshTransport: HTTPTransport {
     }
 }
 
+private actor CodexRotatingTransport: HTTPTransport {
+    private var refreshTokens: [String] = []
+    private var usageTokens: [String] = []
+    private var usageAccounts: [String?] = []
+    private var rejectUsage = false
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let status: Int
+        let body: String
+        if request.httpMethod == "POST" {
+            let payload = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: String]
+            let token = payload["refresh_token"]!
+            let reused = self.refreshTokens.contains(token)
+            self.refreshTokens.append(token)
+            let generation = self.refreshTokens.count
+            // Let overlapping polls reach the provider while the refresh is in flight.
+            await Task.yield()
+            status = reused ? 400 : 200
+            body = reused
+                ? #"{"error":{"code":"refresh_token_reused"}}"#
+                : """
+                  {"access_token":"test-access-\(generation)","refresh_token":"test-refresh-\(generation)"}
+                  """
+        } else {
+            self.usageTokens.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
+            self.usageAccounts.append(request.value(forHTTPHeaderField: "ChatGPT-Account-Id"))
+            status = self.rejectUsage ? 401 : 200
+            body = #"{"rate_limit":{"primary_window":{"used_percent":12}}}"#
+            self.rejectUsage = false
+        }
+        return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status,
+                                               httpVersion: nil, headerFields: nil)!)
+    }
+
+    func rejectNextUsage() { self.rejectUsage = true }
+    func refreshedTokens() -> [String] { self.refreshTokens }
+    func usedTokens() -> [String] { self.usageTokens }
+    func usedAccounts() -> [String?] { self.usageAccounts }
+}
+
 enum CodexRefreshTests {
     static func run() async {
         Self.retryAfterFormats()
@@ -84,6 +124,105 @@ enum CodexRefreshTests {
         await Self.longRateLimitIsHonored(replies: [.unauthorized, .refreshedToken, .longRateLimit])
         await Self.credentialReadFailureIsNotSignedOut()
         await Self.forbiddenResponseIsNotSignedOut()
+        do {
+            try await Self.rotatedCredentialsSurvivePolls()
+        } catch {
+            Harness.expect(false, "Codex credential cache regression threw: \(error)")
+        }
+        await Self.concurrentPollsShareRefresh()
+    }
+
+    private static func rotatedCredentialsSurvivePolls() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let authFile = directory.appendingPathComponent("auth.json")
+        let original = Data(#"{"tokens":{"access_token":"test-expired-access","refresh_token":"test-disk-refresh","account_id":"test-account"},"last_refresh":"2000-01-01T00:00:00Z"}"#.utf8)
+        try original.write(to: authFile)
+        let transport = CodexRotatingTransport()
+        let gate = UsageRateLimitGate()
+        func fetch() async -> ProviderState {
+            await CodexProvider.fetch(env: ["CODEX_HOME": directory.path], transport: transport, gate: gate)
+        }
+
+        for _ in 0..<2 {
+            guard case .loaded = await fetch() else {
+                Harness.expect(false, "consecutive polls load usage with rotated credentials")
+                return
+            }
+        }
+        Harness.expectEqual(await transport.refreshedTokens(), ["test-disk-refresh"],
+                            "unchanged expired disk credentials refresh only once across polls")
+        Harness.expectEqual(await transport.usedTokens(), ["Bearer test-access-1", "Bearer test-access-1"],
+                            "later polls use the refreshed access token")
+        Harness.expectEqual(try Data(contentsOf: authFile), original, "refresh never writes the CLI credential file")
+
+        await transport.rejectNextUsage()
+        guard case .loaded = await fetch(), case .loaded = await fetch() else {
+            Harness.expect(false, "an expired cached access token recovers and remains cached")
+            return
+        }
+        Harness.expectEqual(await transport.refreshedTokens(), ["test-disk-refresh", "test-refresh-1"],
+                            "401 recovery exchanges the in-memory rotated refresh token")
+        Harness.expectEqual(await transport.usedTokens().last, "Bearer test-access-2",
+                            "401 recovery retains refreshed credentials for later polls")
+
+        try FileManager.default.removeItem(at: authFile)
+        let usageCount = await transport.usedTokens().count
+        guard case .signedOut = await fetch() else {
+            Harness.expect(false, "removing disk credentials reports sign-out despite the cache")
+            return
+        }
+        Harness.expectEqual(await transport.usedTokens().count, usageCount, "sign-out makes no usage request")
+        try original.write(to: authFile)
+        let refreshCount = await transport.refreshedTokens().count
+        _ = await fetch()
+        Harness.expectEqual(await transport.refreshedTokens().count, refreshCount + 1,
+                            "sign-out discards the cached session even if the same file returns")
+
+        // Start a fresh disk identity, refresh it, then let the CLI replace it again.
+        let replacement = Data(#"{"tokens":{"access_token":"test-cli-access","refresh_token":"test-cli-refresh","account_id":"test-new-account"},"last_refresh":"2099-01-01T00:00:00Z"}"#.utf8)
+        try replacement.write(to: authFile)
+        await transport.rejectNextUsage()
+        guard case .loaded = await fetch() else {
+            Harness.expect(false, "new disk credentials can establish a refreshed session")
+            return
+        }
+        let latest = Data(#"{"tokens":{"access_token":"test-latest-access","refresh_token":"test-latest-refresh","account_id":"test-latest-account"},"last_refresh":"2099-01-01T00:00:00Z"}"#.utf8)
+        try latest.write(to: authFile)
+        guard case .loaded = await fetch() else {
+            Harness.expect(false, "changed disk credentials load usage")
+            return
+        }
+        Harness.expectEqual(await transport.usedTokens().last, "Bearer test-latest-access",
+                            "changed disk credentials replace the cached access token")
+        Harness.expectEqual(await transport.usedAccounts().last!, "test-latest-account",
+                            "changed disk credentials replace the cached account")
+    }
+
+    private static func concurrentPollsShareRefresh() async {
+        let transport = CodexRotatingTransport()
+        let gate = UsageRateLimitGate()
+        let credentials = CodexCredentials(accessToken: "test-concurrent-expired", refreshToken: "test-concurrent-refresh",
+                                           accountId: "test-concurrent-account", lastRefresh: nil)
+        await withTaskGroup(of: ProviderState.self) { group in
+            for _ in 0..<10 {
+                group.addTask {
+                    await CodexProvider.fetch(env: ["CODEX_HOME": "/nonexistent"], transport: transport,
+                                              gate: gate, credentialLoader: { credentials })
+                }
+            }
+            for await state in group {
+                guard case .loaded = state else {
+                    Harness.expect(false, "concurrent polls load usage with a shared refresh")
+                    continue
+                }
+            }
+        }
+        Harness.expectEqual(await transport.refreshedTokens(), ["test-concurrent-refresh"],
+                            "concurrent polls exchange a rotating refresh token only once")
+        Harness.expectEqual(await transport.usedTokens(), Array(repeating: "Bearer test-access-1", count: 10),
+                            "concurrent polls all use the refreshed token")
     }
 
     private static func retryAfterFormats() {
