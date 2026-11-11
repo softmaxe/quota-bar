@@ -13,11 +13,15 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         let read: @Sendable () throws -> UsageReportSnapshot
         let render: @Sendable (UsageReportSnapshot) throws -> String
 
-        static let live = Operations(
-            // The window opens on 30 days unless the page remembers another choice.
-            read: { try UsageReportReader.read(windowDays: 30, rateCard: RateCard.onDisk()) },
-            render: { try UsageReportHTMLRenderer.render($0) }
-        )
+        static func database(_ databaseURL: URL) -> Operations {
+            Operations(
+                // The window opens on 30 days unless the page remembers another choice.
+                read: {
+                    try UsageReportReader.read(databaseURL: databaseURL, windowDays: 30, rateCard: RateCard.onDisk())
+                },
+                render: { try UsageReportHTMLRenderer.render($0) }
+            )
+        }
     }
 
     /// How often an open window rescans local logs. Scans are incremental, so after the first
@@ -46,9 +50,9 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
     /// relaunches. Nothing is written there; the page is loaded from memory.
     private static let pageURL = AppSupport.directory.appendingPathComponent("usage-report.html")
 
-    init(store: UsageStore?, operations: Operations = .live) {
+    init(store: UsageStore?, operations: Operations? = nil) {
         self.store = store
-        self.operations = operations
+        self.operations = operations ?? .database(store?.costService.databaseURL ?? CostService.defaultDatabaseURL)
     }
 
     func show() {
@@ -226,6 +230,10 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
     }
 
 #if DEBUG
+    func debugReadSnapshot() throws -> UsageReportSnapshot {
+        try self.operations.read()
+    }
+
     /// Waits for all requested reads, including a coalesced follow-up, to be applied.
     func debugWaitForPendingReads() async {
         while let task = self.readTask { await task.value }

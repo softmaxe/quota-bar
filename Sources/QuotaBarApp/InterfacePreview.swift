@@ -107,7 +107,10 @@ enum InterfacePreview {
                 store.debugSetDisplay(display, for: .claude)
             }
             self.store = store
-            self.controller = StatusItemController(store: store, settings: settings, pricing: pricing)
+            self.controller = StatusItemController(
+                store: store, settings: settings, pricing: pricing,
+                reportOperations: UsageReportDumps.sampleOperations
+            )
             super.init()
         }
 

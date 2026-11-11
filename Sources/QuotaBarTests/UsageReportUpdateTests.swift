@@ -17,6 +17,25 @@ enum UsageReportUpdateTests {
     }
 
     static func run() async {
+        await AppCheck.run("report uses its store database and preview uses sample usage") {
+            let fixture = try RecordedUsageFixture()
+            let suite = "QuotaBarReportIsolationTests"
+            let defaults = EphemeralDefaults.make(suite)
+            defer { EphemeralDefaults.clear(suite) }
+            let store = UsageStore(
+                settings: SettingsStore(defaults: defaults),
+                costService: CostService(databaseURL: fixture.databaseURL, rateCard: RateCard()),
+                recoveryDefaults: defaults
+            )
+            let report = UsageReportWindowController(store: store)
+            let expected = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: RateCard.onDisk())
+            try AppCheck.require(try report.debugReadSnapshot() == expected,
+                                 "report did not read the store's isolated database")
+            let preview = UsageReportWindowController(store: store, operations: UsageReportDumps.sampleOperations)
+            let sample = try preview.debugReadSnapshot()
+            try AppCheck.require(sample == UsageReportDumps.sampleSnapshot() && sample.hasRecordedUsage,
+                                 "interface preview report did not use populated sample data")
+        }
         await AppCheck.run("report reads follow scan completions and displays publish atomically") {
             let suite = "QuotaBarReportUpdateTests"
             let defaults = EphemeralDefaults.make(suite)

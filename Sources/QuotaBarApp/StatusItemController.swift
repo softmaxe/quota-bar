@@ -43,6 +43,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var presentedProvider: Provider?
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingTableModel,
+         reportOperations: UsageReportWindowController.Operations? = nil,
          now: @escaping () -> Date = { Date() },
          openMenuClockInterval: TimeInterval = 15, refreshRowClockInterval: TimeInterval = 1,
          useSystemStatusItemSession: Bool = true,
@@ -50,7 +51,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing, store: store)
-        self.usageWindow = UsageReportWindowController(store: store)
+        self.usageWindow = UsageReportWindowController(store: store, operations: reportOperations)
         self.now = now
         self.openMenuClockInterval = openMenuClockInterval
         self.refreshRowClockInterval = refreshRowClockInterval
