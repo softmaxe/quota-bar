@@ -686,6 +686,21 @@ enum ClaudeRefreshTests {
             "/opt/homebrew/bin/claude",
             "the common Homebrew path is searched"
         )
+
+        let environment = ["HOME": "/Users/fixture", "PATH": "/usr/bin:/bin"]
+        for location in [".local/bin/claude", ".claude/local/claude"] {
+            let executable = "/Users/fixture/\(location)"
+            let local = ClaudeCLILocator(isExecutable: { $0 == executable })
+            Harness.expectEqual(local.locate(in: environment), executable, "GUI launch finds \(location) under the supplied HOME")
+        }
+        let all = ClaudeCLILocator(isExecutable: { _ in true })
+        Harness.expectEqual(all.locate(in: environment), "/usr/bin/claude", "PATH still precedes user-local installs")
+        Harness.expectEqual(all.locate(in: ["HOME": "/Users/fixture"]), "/opt/homebrew/bin/claude", "Homebrew still precedes user-local installs")
+        Harness.expectEqual(
+            ClaudeCLILocator(isExecutable: { $0.hasPrefix("/Users/fixture/") }).locate(
+                in: environment.merging(["CLAUDE_CLI_PATH": "/missing/claude"]) { _, new in new }
+            ), nil, "an unavailable explicit override still prevents fallback"
+        )
     }
 
     private static func credentials(accessToken: String, expiresIn: TimeInterval) -> ClaudeCredentials {

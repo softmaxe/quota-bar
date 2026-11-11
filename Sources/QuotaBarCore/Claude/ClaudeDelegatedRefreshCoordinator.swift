@@ -66,6 +66,12 @@ public struct ClaudeCLILocator: Sendable {
         for candidate in Self.commonHomebrewPaths where self.isExecutable(candidate) {
             return candidate
         }
+        let home = Self.nonEmpty(environment["HOME"]).map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        for location in [".local/bin/claude", ".claude/local/claude"] {
+            let candidate = home.appendingPathComponent(location).path
+            if self.isExecutable(candidate) { return candidate }
+        }
         return nil
     }
 
