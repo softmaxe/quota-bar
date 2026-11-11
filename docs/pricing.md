@@ -1,6 +1,6 @@
 # Maintaining the price book
 
-Claude and OpenAI models that are on their makers' current price lists and still supported are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model, retired Claude and OpenAI models included, is priced from models.dev through a local cache (see [Models outside the book](#models-outside-the-book)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs.
+Claude and OpenAI models that are on their makers' current price lists and still supported are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model, retired Claude and OpenAI models included, is priced from models.dev through a local cache (see [Models outside the book](#models-outside-the-book)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs. Rates and aliases are resolved again, but the stored long-context classification is retained; see [Historical thresholds](#historical-thresholds).
 
 ## Layout
 
@@ -81,3 +81,17 @@ Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex
 - The **models.dev** switch in **Settings → Pricing** turns this off. Usage of models outside the book is then unpriced and nothing is downloaded.
 
 `ThirdPartyRatesTests` covers the parsing, the choice between listings, and the dated cache.
+
+## Historical thresholds
+
+The recorder decides each request's long-context tier against the rate card available at scan time. A later model entry, alias, or threshold correction changes the rates used to read old usage, but does not reclassify that usage. For example, an unlisted Standard request with 250K input tokens is stored above the default 200K threshold. Adding an alias to a model with a 272K threshold leaves that row in the long-context tier even though it should now use base rates.
+
+This limitation is not migrated automatically. Codex rows sum requests by path, day, model, and tier; neither their individual input sizes nor their timestamps survive. Classifying a daily sum would mistake many short requests for one long request. Merely invalidating scan caches is insufficient: a Claude replay only replaces a row when output grows, and OpenCode/Pi upserts do not replace an otherwise unchanged row just because its tier changed. Source logs may also be truncated, deleted, or absent from an imported backup.
+
+Options for a future change:
+
+- Reclassify Claude, OpenCode, and Pi rows from their stored per-record token counts before aggregation. This can recover their tiers without logs, but leaves Codex using a different historical policy and requires changing the reader/pricer boundary.
+- Rebuild Codex rows from verified complete source logs, atomically replacing only the data that can be reconstructed and checking every token bucket before committing. Preserve the existing tier for rows without complete logs. This can repair some history, but needs explicit provenance and completeness checks; an arbitrary rescan can lose retained usage or count old ID-less Claude records again.
+- Store compact per-request token counts, context size, and timestamps for future usage, then classify against the resolved model and dated rate card at read time. This supports future threshold changes and time-zone rebucketing, at the cost of a schema, import, reader, and storage-size change.
+
+The recommendation is the per-request representation for new usage, with a separately reviewed, verified backfill where enough evidence survives. Keep unrecoverable legacy rows and their tiers, and expose that limitation rather than guessing a classification. No threshold migration or new persistence format is included in the recording audit fixes.

@@ -42,6 +42,20 @@ The page uses the same pricing rules as the menu. Models the price book lists us
 
 Rows without a usable price contribute tokens but no cost. The page labels a fully unpriced total or model as **Unpriced**, and an info mark beside the total gives the share of unpriced tokens. Cost by token type prices each token type of a row alone at that row's rates, so the types add up to the row's cost.
 
+## Historical time zones
+
+Changing the Mac's time zone currently affects sources differently. Unchanged Claude and Codex logs retain their scan cursors and stored days. OpenCode and Pi snapshot identities include the time zone, so a successful rescan assigns their available records to days in the new zone. Rows whose source records are gone retain their saved days. New usage always uses the current local time zone.
+
+The recording audit confirms this inconsistency but does not rebucket stored history. The database keeps day strings, not original timestamps or recording time zones. Even knowing the old zone would not locate a request within a day's aggregate, and Claude's replay merge deliberately retains equal-output rows. Remote mirror eviction and backup imports also mean that complete source logs cannot be assumed to exist.
+
+Options for a future change:
+
+- Freeze each record's first stored day, or choose a persistent time zone per database. This makes history stable but no longer follows the current local zone. It requires a consistent policy for snapshot updates, Codex file rewrites, imports, and historical rows whose original zone is unknown; removing the snapshot cache's time-zone field alone does not achieve it.
+- Rebucket only records recoverable from verified complete logs. Use a transaction and reconcile token buckets before replacing rows; leave unrecoverable rows unchanged. This preserves tokens but deliberately mixes current-zone days with legacy days and needs provenance to explain the difference.
+- Retain per-request timestamps for future records and derive Gregorian local days when reading. This gives all sources a consistent current-zone view but expands the persistence model. It can share the per-request representation needed for [historical threshold corrections](pricing.md#historical-thresholds).
+
+The recommendation is to retain timestamps for new usage and separately backfill only verified recoverable records. Keep unrecoverable history unchanged and distinguish it from rebucketable history. Until that design is implemented, the existing source-specific time-zone behavior remains.
+
 ## Implementation
 
 `UsageReportWindowController` reads the snapshot away from the main thread and shows it in a `WKWebView`. The first read loads the rendered page; later reads that differ are passed to `window.updateReport`. Reads requested during a read coalesce into one more. The web view refuses every navigation after the first load.
