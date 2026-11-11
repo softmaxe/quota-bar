@@ -2,6 +2,7 @@ import QuotaBarCore
 @testable import QuotaBarApp
 import Foundation
 import Darwin
+import Combine
 
 /// Mirroring other machines' logs: what reaches ssh and rsync, how a failure surfaces, and that
 /// mirrored logs count once alongside this Mac's own.
@@ -24,6 +25,7 @@ enum RemoteLogMirrorTests {
         await Self.failedCopyReportsItsLastLine()
         await Self.cancellationStopsFurtherCommands()
         await Self.removeAndReaddWaitsForCancellation()
+        await Self.removedHostPublishesTaskCompletion()
         await Self.nativeCommandCancellationCleansUp()
         Self.sessionsOnBothMachinesCountOnce()
         Self.mirroredLogsResumeWhereTheyStopped()
@@ -461,6 +463,38 @@ enum RemoteLogMirrorTests {
             }
             model.stop()
         }
+    }
+
+    @MainActor
+    private static func removedHostPublishesTaskCompletion() async {
+        let fixture = RecorderFixture(name: "remote-remove-publication")
+        defer { fixture.remove() }
+        let suite = "RemoteRemovePublication"
+        let settings = SettingsStore(defaults: EphemeralDefaults.make(suite))
+        defer { EphemeralDefaults.clear(suite) }
+        settings.remoteHosts = ["host", "idle-host"]
+        let commands = SuspendedRemoteCommand(suspended: 1)
+        let model = RemoteSyncModel(
+            settings: settings, mirror: RemoteLogMirror(root: fixture.root, run: commands.run), didSync: {}
+        )
+        var publications = 0
+        let observer = model.objectWillChange.sink { publications += 1 }
+        defer {
+            commands.release()
+            model.stop()
+            withExtendedLifetime(observer) {}
+        }
+        model.sync("host")
+        let started = await Self.eventually { commands.isSuspended }
+        Harness.expect(started, "removed-host fixture reaches suspended command")
+        model.remove("host")
+        Harness.expect(model.isSyncing, "removing a host keeps its winding-down write tracked")
+        Harness.expectEqual(model.state(of: "idle-host"), .idle, "other host stays idle")
+        let beforeCompletion = publications
+        commands.release()
+        let finished = await Self.eventually { !model.isSyncing }
+        Harness.expect(finished, "cancelled host finishes within the test deadline")
+        Harness.expect(publications > beforeCompletion, "task completion must invalidate Sync now's disabled state")
     }
 
     private static func nativeCommandCancellationCleansUp() async {
