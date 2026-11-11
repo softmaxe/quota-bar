@@ -10,15 +10,17 @@ While the window is open, QuotaBar keeps it current. Opening it shows what is sa
 
 ## What the page shows
 
-The top bar picks the period: **7 days**, **30 days**, or **Custom** with a start and end date anywhere in the saved history. Every figure is summed in the page from the snapshot's days, so a new period needs no new read. Beside it, **Cost** and **Tokens** choose the metric and the language control switches between Simplified Chinese and English.
+The top bar picks the period: **7 days**, **30 days**, or **Custom** with a start and end date anywhere in the saved history. Every figure is summed in the page from the snapshot's days, so a new period needs no new read. Next, **Tokens** and **Cost** choose the metric; the quiet text toggle at the end switches between Simplified Chinese and English. The date range uses an en dash.
 
 For the chosen period the page shows:
 
-- the total and each usage source's share, with the number of days it has records
-- daily stacked columns split by source, with a mean reference and a hover readout of each source and the day's total
-- totals for processed tokens, cached input, uncached input, output, and cache savings
-- cost by token type and, when Fast usage exists, cost by speed with the Fast premium
-- a breakdown by model, marked with the source that used it most, or by day and source
+- the active total, with smaller units, and a second line with recorded days and the other metric; cost values carry an API estimate tooltip
+- a thin source-share bar and source rows showing the active value, its share, and the other metric, closed by the period's daily average and peak day
+- daily stacked columns split by source, capped at 28 pixels wide with rounded tops; centered date labels mark each day in short periods, and about six dates in longer periods, naming the month only on the first day and on the first of a month
+- every scale tick and gridline, plus a dashed mean reference keyed in the legend; hovering a day shows its source values and total while dimming the other columns
+- one full-width **Tokens by type** or **Cost by type** bar, with cells showing each nonzero type's value, share, and other metric; hovering a segment highlights its cell
+- cache savings beside the type cells, and, in cost mode when Fast usage exists, a smaller cost-by-speed block below with the Fast premium
+- a compact breakdown by model, marked with the source that used it most, or by day and source with muted weekdays; the active metric's column is emphasized
 
 Cache savings is what cache-read tokens would have cost at the input rate, minus what they cost. The Fast premium is what Fast usage cost above the same tokens at Standard rates. A day without saved records shows **No record** in the day breakdown, distinct from recorded zero usage.
 
@@ -75,6 +77,11 @@ A debug build can open the usage window on 29 sample days, hand it the thirtieth
 ```sh
 .build/debug/QuotaBar --dump-usage-window build/usage-window
 ```
+
+The dump also clicks the page's controls and forces the window appearance to capture
+`en-cost-30-dark.png`, `en-tokens-7-dark.png`, `zh-cost-30-light.png`,
+`en-tokens-7-light.png`, and `en-cost-30-day-dark.png`. The last image scrolls to the
+day breakdown; every image waits for layout to settle and keeps the existing window size.
 
 It can also open only the usage window on the saved usage, beside an installed QuotaBar. Without its own scans, that window rereads the database every minute; closing it quits.
 

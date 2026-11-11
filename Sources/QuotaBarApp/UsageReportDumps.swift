@@ -107,22 +107,78 @@ enum UsageReportDumps {
             fputs("Usage window kept \(lastDay ?? "nothing") after the live update\n", stderr)
             exit(1)
         }
-        var image: NSImage?
-        webView.takeSnapshot(with: nil) { snapshot, _ in image = snapshot }
-        guard spin(until: { image != nil }), let tiff = image?.tiffRepresentation,
-              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
-            fputs("Usage window snapshot failed\n", stderr)
-            exit(1)
+        func evaluate(_ script: String) -> Any? {
+            var finished = false
+            var result: Any?
+            var failure: Error?
+            webView.evaluateJavaScript(script) { value, error in
+                result = value
+                failure = error
+                finished = true
+            }
+            guard spin(until: { finished }), failure == nil else {
+                fputs("Usage window script failed: \(failure?.localizedDescription ?? "timed out")\n", stderr)
+                exit(1)
+            }
+            return result
         }
-        do {
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            let url = root.appendingPathComponent("usage-window.png")
-            try png.write(to: url)
-            print("Wrote \(url.path)")
-        } catch {
-            fputs("Usage window snapshot failed: \(error)\n", stderr)
-            exit(1)
+        func settle() {
+            // An occluded WKWebView may suspend animation frames, so wait on the native run loop.
+            webView.layoutSubtreeIfNeeded()
+            _ = evaluate("document.getAnimations().forEach(animation=>animation.finish());document.documentElement.getBoundingClientRect().height")
+            let deadline = Date().addingTimeInterval(0.3)
+            while Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
         }
+        func capture(_ name: String) {
+            settle()
+            var image: NSImage?
+            webView.takeSnapshot(with: nil) { snapshot, _ in image = snapshot }
+            guard spin(until: { image != nil }), let tiff = image?.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+                fputs("Usage window snapshot failed\n", stderr)
+                exit(1)
+            }
+            do {
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                let url = root.appendingPathComponent(name)
+                try png.write(to: url)
+                print("Wrote \(url.path)")
+            } catch {
+                fputs("Usage window snapshot failed: \(error)\n", stderr)
+                exit(1)
+            }
+        }
+        // Additional states must not replace the view the user had saved before the dump.
+        _ = evaluate("window.__usageDumpStoredState=localStorage.getItem('quotabar-report:'+location.pathname);true;")
+        capture("usage-window.png")
+        for (name, language, metric, period, appearance, breakdown) in [
+            ("en-cost-30-dark.png", "en", "cost", "30", NSAppearance.Name.darkAqua, "model"),
+            ("en-tokens-7-dark.png", "en", "tokens", "7", .darkAqua, "model"),
+            ("zh-cost-30-light.png", "zh", "cost", "30", .aqua, "model"),
+            ("en-tokens-7-light.png", "en", "tokens", "7", .aqua, "model"),
+            ("en-cost-30-day-dark.png", "en", "cost", "30", .darkAqua, "day"),
+        ] {
+            webView.window?.appearance = NSAppearance(named: appearance)
+            _ = evaluate("""
+                document.querySelector('[data-language="\(language)"]').click();
+                document.querySelector('[data-metric="\(metric)"]').click();
+                document.querySelector('[data-period="\(period)"]').click();
+                document.querySelector('[data-breakdown="\(breakdown)"]').click();
+                window.scrollTo(0,0);
+                true;
+                """)
+            if breakdown == "day" {
+                _ = evaluate("window.scrollTo(0,document.querySelector('.breakdown').offsetTop-68);true;")
+            }
+            capture(name)
+        }
+        _ = evaluate("""
+            if(window.__usageDumpStoredState===null)localStorage.removeItem('quotabar-report:'+location.pathname);
+            else localStorage.setItem('quotabar-report:'+location.pathname,window.__usageDumpStoredState);
+            true;
+            """)
     }
 
     /// Opens only the usage window, on the saved usage, beside an installed QuotaBar that keeps

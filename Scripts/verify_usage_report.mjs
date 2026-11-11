@@ -98,7 +98,7 @@ try{
   await page.locator('[data-period="30"]').click();
   assert.equal(await hero(),usd(sumCost(10,40)));
   const observedCosts=series.slice(10,40).filter(v=>v!==null).map(v=>v/100);
-  assert.equal(await page.locator('.avg-tick').textContent(),'avg '+usd(observedCosts.reduce((a,b)=>a+b,0)/observedCosts.length),'A missing day must not count as zero in the average');
+  assert.equal(await page.locator('.summary-foot .foot-row').first().locator('.num').textContent(),usd(observedCosts.reduce((a,b)=>a+b,0)/observedCosts.length),'A missing day must not count as zero in the average');
   assert.equal(await page.locator('[data-period="30"]').getAttribute('aria-pressed'),'true');
   await page.locator('[data-period=custom]').click();
   assert(await page.locator('[data-range-inputs]').isVisible(),'Custom period shows its date fields');
@@ -122,7 +122,7 @@ try{
   assert(!(await page.locator('body').innerText()).includes('NaN'));
   results.push({case:'recorded-zero',passed:true});
   await load(fixture(Array(7).fill(37)));
-  assert.equal(await page.locator('.avg-tick').textContent(),'avg $0.37','A sub-dollar average keeps its cents');
+  assert.equal(await page.locator('.summary-foot .foot-row').first().locator('.num').textContent(),'$0.37','A sub-dollar average keeps its cents');
   results.push({case:'sub-dollar-average',passed:true});
   const unusualModel=fixture(Array(7).fill(100));
   for(const day of unusualModel.days)day.models[0].name='gpt-4o-';
@@ -139,7 +139,8 @@ try{
   await page.screenshot({path:join(output,'long-model.png'),fullPage:true});
   results.push({case:'long-model',passed:true});
   await load(fixture(Array(7).fill(1e12)));
-  assert((await page.locator('.metrics .metric .value').first().textContent()).endsWith('T'));
+  await page.locator('[data-metric=tokens]').click();
+  assert((await hero()).endsWith('T'));
   results.push({case:'large-values',passed:true});
   assert.deepEqual(errors,[]);assert.equal(external,0);
   writeFileSync(join(output,'verification.json'),JSON.stringify({results,errors,external},null,2)+'\n');
