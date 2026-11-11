@@ -330,7 +330,8 @@ struct AddHostSheet: View {
     let add: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
+    @State var query = ""
+    @State private var selectedHost: String?
 
     private static let listHeight: CGFloat = 150
 
@@ -341,17 +342,26 @@ struct AddHostSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("SSH host or alias")
                     .font(.system(size: 12, weight: .medium))
-                TextField("Search hosts or type devbox", text: self.$query)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(self.addTyped)
+                HostSearchField(text: self.$query, submit: self.addSelected, move: self.moveSelection)
+                    .frame(height: 22)
             }
-            if !self.matches.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(self.matches.enumerated()), id: \.element) { index, host in
-                            if index > 0 { Divider() }
-                            AddHostRow(host: host) { self.finish(host) }
+            if !self.choices.hosts.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array(self.choices.hosts.enumerated()), id: \.element) { index, host in
+                                if index > 0 { Divider() }
+                                AddHostRow(
+                                    host: host,
+                                    isTyped: host == self.choices.typedOption,
+                                    isSelected: host == self.resolvedHost
+                                ) { self.finish(host) }
+                                .id(host)
+                            }
                         }
+                    }
+                    .onChange(of: self.resolvedHost) { _, host in
+                        if let host { proxy.scrollTo(host) }
                     }
                 }
                 .frame(maxHeight: Self.listHeight)
@@ -363,27 +373,27 @@ struct AddHostSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { self.dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Add", action: self.addTyped)
+                Button("Add", action: self.addSelected)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!RemoteLogMirror.isValidHost(self.typedHost))
+                    .disabled(self.resolvedHost == nil)
             }
         }
         .padding(18)
         .frame(width: 400)
+        .onChange(of: self.query) { self.selectedHost = nil }
     }
 
-    private var typedHost: String {
-        self.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var choices: AddHostChoices { AddHostChoices(query: self.query, hosts: self.hosts) }
+
+    private var resolvedHost: String? { self.choices.resolve(selection: self.selectedHost) }
+
+    private func moveSelection(_ offset: Int) {
+        self.selectedHost = self.choices.moved(selection: self.selectedHost, by: offset)
     }
 
-    private var matches: [String] {
-        guard !self.typedHost.isEmpty else { return self.hosts }
-        return self.hosts.filter { $0.localizedCaseInsensitiveContains(self.typedHost) }
-    }
-
-    private func addTyped() {
-        guard RemoteLogMirror.isValidHost(self.typedHost) else { return }
-        self.finish(self.typedHost)
+    private func addSelected() {
+        guard let host = self.resolvedHost else { return }
+        self.finish(host)
     }
 
     private func finish(_ host: String) {
@@ -394,21 +404,24 @@ struct AddHostSheet: View {
 
 private struct AddHostRow: View {
     let host: String
+    let isTyped: Bool
+    let isSelected: Bool
     let action: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         Button(action: self.action) {
-            Text(self.host)
+            Text(self.isTyped ? "Add \"\(self.host)\" as typed" : self.host)
                 .font(.system(size: 13))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .frame(height: 30)
-                .background(Color.primary.opacity(self.isHovered ? 0.06 : 0))
+                .background(self.isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(self.isHovered ? 0.06 : 0))
                 .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .onHover { self.isHovered = $0 }
+        .accessibilityAddTraits(self.isSelected ? [.isSelected] : [])
     }
 }
