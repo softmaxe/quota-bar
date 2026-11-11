@@ -8,6 +8,7 @@ enum PriceBookTests {
         Self.bundledBookIsComplete()
         Self.reportsStaleSources()
         Self.publishedRates()
+        Self.novemberPublishedRates()
         Self.rejectsMalformedBooks()
     }
 
@@ -251,6 +252,76 @@ enum PriceBookTests {
         )
         for id in ["claude-opus-4-7", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"] {
             Harness.expect(rates(id, .claude, fast: true) == nil, "\(id) has no Fast price")
+        }
+    }
+
+    /// Pin the November additions and the confirmed promotion boundary without changing the
+    /// historical assertions above.
+    private static func novemberPublishedRates() {
+        let book = PriceBook.bundled
+        for id in ["claude-fable-5-2", "claude-mythos-5-2"] {
+            let standard = book.rates(for: id, provider: .claude, day: "2026-11-11")
+            let fast = book.rates(for: id, provider: .claude, day: "2026-11-11", fast: true)
+            Harness.expectEqual(
+                standard,
+                ModelPricing(input: 8, output: 40, cacheWrite: 10, cacheRead: 0.2),
+                "\(id) Standard rates match the November price list without a long-context surcharge"
+            )
+            Harness.expectEqual(
+                fast,
+                ModelPricing(input: 16, output: 80, cacheWrite: 20, cacheRead: 0.4),
+                "\(id) Fast doubles every rate including the discounted cache reads"
+            )
+            Harness.expectClose(standard?.cacheWrite1hRate(longContext: false), 16, "\(id) one-hour cache writes")
+            Harness.expectClose(fast?.cacheWrite1hRate(longContext: false), 32, "\(id) Fast one-hour cache writes")
+        }
+
+        Harness.expectEqual(
+            book.rates(for: "gpt-6-cyber", provider: .codex, day: "2026-11-11"),
+            ModelPricing(
+                input: 20, output: 100, cacheWrite: 25, cacheRead: 2,
+                thresholdTokens: 272_000, inputAbove: 40, outputAbove: 150, cacheReadAbove: 4
+            ),
+            "gpt-6-cyber includes only the published long-context rates"
+        )
+        Harness.expectEqual(
+            book.rates(for: "gpt-6-astra-law", provider: .codex, day: "2026-11-11"),
+            ModelPricing(input: 10, output: 50, cacheRead: 1),
+            "gpt-6-astra-law keeps its introductory rates"
+        )
+        for id in ["gpt-6-cyber", "gpt-6-astra-law"] {
+            Harness.expect(
+                book.rates(for: id, provider: .codex, day: "2026-11-11", fast: true) == nil,
+                "\(id) has no published Fast rate"
+            )
+        }
+        Harness.expectEqual(
+            RateCard().modelID(for: "gpt-5.5-cyber-preview", provider: .codex),
+            "gpt-5.5-cyber",
+            "the published cyber preview name resolves to its existing usage history"
+        )
+
+        let promotion = ModelPricing(
+            input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4,
+            thresholdTokens: 272_000,
+            inputAbove: 8, outputAbove: 30, cacheWriteAbove: 10, cacheReadAbove: 0.8
+        )
+        let regular = ModelPricing(
+            input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5,
+            thresholdTokens: 272_000,
+            inputAbove: 10, outputAbove: 45, cacheWriteAbove: 12.5, cacheReadAbove: 1
+        )
+        for fast in [false, true] {
+            Harness.expectEqual(
+                book.rates(for: "gpt-5.6-sol", provider: .codex, day: "2026-11-30", fast: fast),
+                fast ? promotion.scaled(by: 2) : promotion,
+                "gpt-5.6-sol keeps promotional rates through November 30, including Fast and long context"
+            )
+            Harness.expectEqual(
+                book.rates(for: "gpt-5.6-sol", provider: .codex, day: "2026-12-01", fast: fast),
+                fast ? regular.scaled(by: 2) : regular,
+                "gpt-5.6-sol resumes regular rates on December 1, including Fast and long context"
+            )
         }
     }
 
