@@ -391,7 +391,7 @@ struct CostSectionView: View {
     private func compactValue(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
         guard self.selectedLabelMode == .cost else { return Formatters.tokens(value) }
-        return value >= 10 ? "$\(Formatters.wholeNumber(value))" : Formatters.cost(value)
+        return Formatters.cost(value)
     }
 
     /// At rest every day reads at full strength; only pointing at or pinning a day fades the rest.

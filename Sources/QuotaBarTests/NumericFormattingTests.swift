@@ -72,7 +72,10 @@ enum NumericFormattingTests {
     }
 
     private static func formatting() {
-        Harness.expectEqual(Formatters.cost(12.5), "$12.50", "ordinary currency formatting")
+        for (value, expected) in [(0.0, "$0.00"), (0.01, "$0.01"), (1.23, "$1.23"), (9.99, "$9.99"),
+                                  (10.0, "$10"), (10.49, "$10"), (10.5, "$11"), (446.0, "$446")] {
+            Harness.expectEqual(Formatters.cost(value), expected, "currency precision at \(value)")
+        }
         Harness.expectEqual(Formatters.tokens(123), "123", "ordinary token formatting")
         Harness.expectEqual(Formatters.tokens(999_600), "1M", "thousands roll over to millions")
         Harness.expectEqual(Formatters.tokens(999_700_000), "1.0B", "millions roll over to billions")

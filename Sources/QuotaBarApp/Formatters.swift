@@ -64,9 +64,10 @@ enum Formatters {
         "\(Int(value.rounded()))%"
     }
 
-    /// "$0.00", "$507.13". Cents matter here because a day can be genuinely tiny.
+    /// Keep cents for small days; from $10, whole dollars fit the card and chart alike.
     static func cost(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
+        if value >= 10 { return "$\(Self.wholeNumber(value))" }
         return String(format: "$%.2f", value)
     }
 
