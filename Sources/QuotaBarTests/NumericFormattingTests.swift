@@ -77,7 +77,14 @@ enum NumericFormattingTests {
             Harness.expectEqual(Formatters.cost(value), expected, "currency precision at \(value)")
         }
         Harness.expectEqual(Formatters.tokens(123), "123", "ordinary token formatting")
-        Harness.expectEqual(Formatters.tokens(999_600), "1M", "thousands roll over to millions")
+        for (value, expected) in [(999, "999"), (1_000, "1.0K"), (7_400, "7.4K"), (9_949, "9.9K"),
+                                  (9_950, "10K"), (10_000, "10K"), (999_499, "999K"), (999_500, "1.0M"),
+                                  (1_200_000, "1.2M"), (9_949_000, "9.9M"), (9_950_000, "10M"),
+                                  (10_000_000, "10M"), (999_499_999, "999M"), (999_500_000, "1.0B"),
+                                  (1_200_000_000, "1.2B"), (9_950_000_000, "10B"), (10_000_000_000, "10B")] {
+            Harness.expectEqual(Formatters.tokens(value), expected, "token precision and rollover at \(value)")
+        }
+        Harness.expectEqual(Formatters.tokens(999_600), "1.0M", "thousands roll over to millions")
         Harness.expectEqual(Formatters.tokens(999_700_000), "1.0B", "millions roll over to billions")
         Harness.expectEqual(Formatters.tokens(Double(Int.max)), Formatters.tokens(Int.max),
                             "chart token conversion preserves the upper integer boundary")

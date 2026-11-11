@@ -103,7 +103,7 @@ enum Formatters {
         return model
     }
 
-    /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
+    /// Small unit counts retain a decimal so model and cache shares remain distinguishable.
     static func tokens(_ count: Int) -> String {
         self.tokens(Double(count))
     }
@@ -111,9 +111,14 @@ enum Formatters {
     static func tokens(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
         // Each unit starts where the one below would round up to "1000".
-        if value >= 999_500_000 { return String(format: "%.1fB", value / 1_000_000_000) }
-        if value >= 999_500 { return String(format: "%.0fM", value / 1_000_000) }
-        if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
+        if value >= 999_500_000 { return Self.tokenUnit(value / 1_000_000_000, suffix: "B") }
+        if value >= 999_500 { return Self.tokenUnit(value / 1_000_000, suffix: "M") }
+        if value >= 1_000 { return Self.tokenUnit(value / 1_000, suffix: "K") }
         return String(format: "%.0f", value.rounded(.towardZero))
+    }
+
+    private static func tokenUnit(_ value: Double, suffix: String) -> String {
+        // Drop the decimal as it would round to ten, avoiding a transitional "10.0K".
+        String(format: value < 9.95 ? "%.1f%@" : "%.0f%@", value, suffix)
     }
 }
