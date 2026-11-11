@@ -216,7 +216,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 已保存用量不依赖会话日志，但 QuotaBar 自己的数据也被删除后就没有了。打开 **Settings → Usage**，可以查看已保存多少数据，并留一份副本。
 
 - **Export…** 把数据保存为一个 `.sqlite` 文件，位置由你选择，例如移动硬盘或同步文件夹。备份只能恢复到导出那一刻。
-- **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。导入不会删除用量：两边都有的消息或 rollout 保留更完整的记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
+- **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。Claude 消息冲突时保留输出 token 更多的副本；Codex rollout 冲突时保留扫描得更远的副本。OpenCode 和 Pi Agent 保留这台 Mac 已有的记录，只要任一副本曾计入用量，就保留其计入资格；后续扫描仅在源数据变化时重写该记录。导入不会删除记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
 
 备份包含 token 数量、日期、模型、计价档位、记录 ID、扫描位置和本地会话路径，分享前请留意。备份不包含提示词或回复。额度节奏样本和缓存的 models.dev 费率也不在备份内：节奏会随着 QuotaBar 重新采样而恢复，第三方模型的历史费用使用这台 Mac 已下载的费率。
 
@@ -238,7 +238,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/usage-report.png" width="760" alt="用量窗口的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
+页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。没有已保存的语言选择或 `lang` 查询参数时，系统首选语言为中文就使用中文，否则使用英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
 
 窗口打开期间，QuotaBar 每分钟扫描一次各来源的本地日志，原地更新数字，保留你选择的时段、指标、明细和语言。计价规则与卡片相同，并标注未计价用量。数据的读取与刷新方式见[用量窗口](docs/usage-report.md)。
 

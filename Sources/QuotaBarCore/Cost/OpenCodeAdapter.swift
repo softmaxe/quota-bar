@@ -50,10 +50,10 @@ package struct OpenCodeAdapter: SnapshotAdapter {
         defer { sqlite3_close(db) }
 
         do {
-            try Self.validateSchema(db)
+            let hasSessionColumn = try Self.validateSchema(db)
             // One read transaction, so the parts and the Fast toggles come from the same state.
             try Self.exec(db, "BEGIN")
-            let requests = try Self.readRequests(db)
+            let requests = try Self.readRequests(db, hasSessionColumn: hasSessionColumn)
             try Self.exec(db, "COMMIT")
             return requests
         } catch {
@@ -89,7 +89,8 @@ package struct OpenCodeAdapter: SnapshotAdapter {
         return home.appendingPathComponent(".local/share/opencode", isDirectory: true)
     }
 
-    private static func validateSchema(_ db: OpaquePointer) throws {
+    private static func validateSchema(_ db: OpaquePointer) throws -> Bool {
+        var hasSessionColumn = false
         for table in ["part", "message"] {
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
@@ -102,14 +103,19 @@ package struct OpenCodeAdapter: SnapshotAdapter {
             }
             let required: Set<String> = table == "part" ? ["id", "message_id", "data"] : ["id", "data"]
             guard required.isSubset(of: columns) else { throw ScanError.schema }
+            if table == "message" { hasSessionColumn = columns.contains("session_id") }
         }
+        return hasSessionColumn
     }
 
-    private static func readRequests(_ db: OpaquePointer) throws -> [ObservedRequest] {
+    private static func readRequests(_ db: OpaquePointer, hasSessionColumn: Bool) throws -> [ObservedRequest] {
         // Native OpenAI responses can leave the effective tier in part metadata. The
         // opencodex-fast plugin injects the request after that metadata is built, so its ignored
         // ON/OFF messages are the only durable state signal and act as a fallback.
-        let fastToggles = try self.readFastToggles(db)
+        // OpenCode stores session_id in a column, not in message JSON. Older schemas can still
+        // supply tokens and explicit tiers, but cannot safely infer Fast from another message.
+        let session = hasSessionColumn ? "m.session_id" : "NULL"
+        let fastToggles = hasSessionColumn ? try self.readFastToggles(db) : [:]
         let sql = """
         SELECT p.id,
                json_extract(m.data, '$.time.created'),
@@ -136,7 +142,8 @@ package struct OpenCodeAdapter: SnapshotAdapter {
                        ORDER BY mp.id DESC
                        LIMIT 1
                    )
-               )
+               ),
+               \(session)
         FROM part p
         JOIN message m ON m.id = p.message_id
         WHERE json_extract(p.data, '$.type') = 'step-finish'
@@ -162,22 +169,23 @@ package struct OpenCodeAdapter: SnapshotAdapter {
             let seconds = rawTime > 10_000_000_000 ? rawTime / 1000 : rawTime
             guard seconds > 0 else { continue }
             let explicitTier = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+            let sessionID = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
             requests.append(ObservedRequest(
                 key: String(cString: keyText),
                 timestamp: Date(timeIntervalSince1970: seconds),
                 model: String(cString: modelText),
                 tokens: totals,
                 isFast: explicitTier.map { CostPricing.CodexServiceTier.parse($0).isFast }
-                    ?? self.fastMode(at: rawTime, toggles: fastToggles)
+                    ?? self.fastMode(at: rawTime, toggles: sessionID.flatMap { fastToggles[$0] } ?? [])
             ))
         }
         guard sqlite3_errcode(db) == SQLITE_OK || sqlite3_errcode(db) == SQLITE_DONE else { throw ScanError.read }
         return requests
     }
 
-    private static func readFastToggles(_ db: OpaquePointer) throws -> [FastToggle] {
+    private static func readFastToggles(_ db: OpaquePointer) throws -> [String: [FastToggle]] {
         let sql = """
-        SELECT json_extract(m.data, '$.time.created'), json_extract(p.data, '$.text')
+        SELECT json_extract(m.data, '$.time.created'), json_extract(p.data, '$.text'), m.session_id
         FROM message m
         JOIN part p ON p.message_id = m.id
         WHERE json_extract(m.data, '$.role') = 'user'
@@ -189,10 +197,13 @@ package struct OpenCodeAdapter: SnapshotAdapter {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw ScanError.schema }
-        var toggles: [FastToggle] = []
+        var toggles: [String: [FastToggle]] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
-            guard let text = sqlite3_column_text(stmt, 1) else { continue }
-            toggles.append(FastToggle(
+            guard let text = sqlite3_column_text(stmt, 1),
+                  let sessionText = sqlite3_column_text(stmt, 2) else { continue }
+            let sessionID = String(cString: sessionText)
+            guard !sessionID.isEmpty else { continue }
+            toggles[sessionID, default: []].append(FastToggle(
                 created: sqlite3_column_double(stmt, 0),
                 isFast: String(cString: text) == "Fast mode is now ON."
             ))

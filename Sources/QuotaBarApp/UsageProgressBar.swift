@@ -33,6 +33,7 @@ struct UsageProgressBar: View {
     /// Where the bar publishes the frame it is drawing, so the headline above it can render the
     /// same choreography. The bar stays the only clock; nothing else decides when a reset plays.
     let celebrationRelay: QuotaCelebrationRelay?
+    private let reduceMotion: () -> Bool
 
     @Environment(\.displayScale) private var displayScale
 
@@ -70,7 +71,8 @@ struct UsageProgressBar: View {
         celebrationToken: Int = 0,
         celebrationStartPercent: Double? = nil,
         allowsCelebrationReplay: Bool = false,
-        celebrationRelay: QuotaCelebrationRelay? = nil
+        celebrationRelay: QuotaCelebrationRelay? = nil,
+        reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     ) {
         self.percent = percent
         self.tint = tint
@@ -83,6 +85,7 @@ struct UsageProgressBar: View {
         self.celebrationStartPercent = celebrationStartPercent
         self.allowsCelebrationReplay = allowsCelebrationReplay
         self.celebrationRelay = celebrationRelay
+        self.reduceMotion = reduceMotion
         self._displayedPercent = State(initialValue: min(100, max(0, percent)))
     }
 
@@ -296,7 +299,7 @@ struct UsageProgressBar: View {
         else { return false }
         // Reduce Motion turns the whole thing off: a bar springing and glowing in the menu bar is
         // exactly what that setting exists to stop.
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard !self.reduceMotion() else {
             self.snapDisplayedPercent()
             return true
         }
@@ -314,7 +317,7 @@ struct UsageProgressBar: View {
         guard self.allowsCelebrationReplay,
               self.animatesFill,
               !self.celebration.isRunning,
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+              !self.reduceMotion()
         else { return }
 
         self.replayStartPercent = self.clamped
@@ -332,20 +335,43 @@ struct UsageProgressBar: View {
 
     /// Snaps to empty, then sweeps left to right. Used for a window rollover.
     private func sweepFromEmpty() {
-        self.snapDisplayedPercent(to: 0)
-        // The empty state has to reach the renderer before the sweep is queued, or SwiftUI
-        // coalesces both writes and interpolates from the old value instead of from zero.
-        DispatchQueue.main.async {
-            guard !self.celebration.isRunning else { return }
-            withAnimation(.easeOut(duration: Self.rolloverDuration)) { self.displayedPercent = self.clamped }
-        }
+        self.moveFill(fromEmpty: true)
     }
 
     /// Moves from wherever the bar already sits, the way a value normally drifts.
     private func glide() {
-        // The app's shared curve: the bar moves most of the way at once, then settles.
-        withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: Self.glideDuration)) {
-            self.displayedPercent = self.clamped
+        self.moveFill(fromEmpty: false)
+    }
+
+    private func moveFill(fromEmpty: Bool) {
+        Self.moveFill(to: self.clamped, fromEmpty: fromEmpty, reduceMotion: self.reduceMotion()) { value, animation in
+            guard !self.celebration.isRunning else { return }
+            if let animation {
+                withAnimation(animation) { self.displayedPercent = value }
+            } else {
+                self.snapDisplayedPercent(to: value)
+            }
+        }
+    }
+
+    /// Scheduling is injectable so the rollover's deferred write can be checked without a frame clock.
+    static func moveFill(
+        to value: Double,
+        fromEmpty: Bool,
+        reduceMotion: Bool,
+        update: @escaping (Double, Animation?) -> Void,
+        schedule: (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }
+    ) {
+        guard !reduceMotion else {
+            update(value, nil)
+            return
+        }
+        if fromEmpty {
+            update(0, nil)
+            // The empty state must reach the renderer before SwiftUI queues the sweep.
+            schedule { update(value, .easeOut(duration: Self.rolloverDuration)) }
+        } else {
+            update(value, .timingCurve(0.16, 1, 0.3, 1, duration: Self.glideDuration))
         }
     }
 
