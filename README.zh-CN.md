@@ -238,7 +238,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/usage-report.png" width="760" alt="用量窗口的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
+页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。没有已保存的语言选择或 `lang` 查询参数时，系统首选语言为中文就使用中文，否则使用英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
 
 窗口打开期间，QuotaBar 每分钟扫描一次各来源的本地日志，原地更新数字，保留你选择的时段、指标、明细和语言。计价规则与卡片相同，并标注未计价用量。数据的读取与刷新方式见[用量窗口](docs/usage-report.md)。
 

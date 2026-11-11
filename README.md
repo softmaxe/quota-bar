@@ -235,7 +235,7 @@ Choose **Usage…** in the card, or press ⌘U, to open the usage window. If not
   <img src="docs/images/usage-report.png" width="760" alt="English view of the usage window, with a Chinese/English switch and sample data">
 </p>
 
-The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. It shows each source's share, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
+The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. Without a saved language choice or a `lang` query parameter, it starts in Chinese when the system's first preferred language is Chinese, and English otherwise. It shows each source's share, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
 
 While the window is open, QuotaBar scans every source's local logs once a minute and updates the figures in place, keeping the period, metric, breakdown, and language you chose. It uses the same pricing rules as the card and marks unpriced usage. See [Usage window](docs/usage-report.md) for how it reads and refreshes data.
 

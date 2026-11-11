@@ -24,7 +24,7 @@ For the chosen period the page shows:
 
 Cache savings is what cache-read tokens would have cost at the input rate, minus what they cost. The Fast premium is what Fast usage cost above the same tokens at Standard rates. A day without saved records shows **No record** in the day breakdown, distinct from recorded zero usage.
 
-The page keeps the period, metric, breakdown, and language in the web view's local storage, under the path `~/Library/Application Support/QuotaBar/usage-report.html`. Nothing is written to that path. The page follows the system light or dark appearance and reflows for narrow windows. Hover a table cell for its exact value.
+The page keeps the period, metric, breakdown, and language in the web view's local storage, under the path `~/Library/Application Support/QuotaBar/usage-report.html`. A `lang` query parameter wins over the saved language. Without either, the web view's first preferred language selects Chinese for Chinese and English otherwise. Nothing is written to that path. The page follows the system light or dark appearance and reflows for narrow windows. Hover a table cell for its exact value.
 
 The snapshot holds, for every calendar day from the first saved record through today, input, output, cache-read, cache-write, and one-hour cache-write token counts, split by source and by model and source, with each day's estimated cost, cost by token type, cache savings, Fast cost, Fast premium, and unpriced-token count. History reaches back at most ten years. It holds no prompts, responses, reasoning text, credentials, account IDs, session paths, or stable record IDs.
 
@@ -70,7 +70,7 @@ make test
 
 The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to another full Xcode installation's `Contents/Developer` directory if needed. The project does not change the global `xcode-select` setting.
 
-The Swift checks cover the calendar windows, the snapshot history and its per-day source and model splits, supported sources, WAL-visible records, missing and zero dates, dated and unpriced costs, numeric bounds, safe JSON insertion, live-update encoding, and resource bundling.
+The Swift checks cover the calendar windows, the snapshot history and its per-day source and model splits, supported sources, WAL-visible records, missing and zero dates, dated and unpriced costs, numeric bounds, safe JSON insertion, live-update encoding, and resource bundling. JavaScriptCore checks the report's startup language precedence without a browser dependency.
 
 A debug build can open the usage window on 29 sample days, hand it the thirtieth as a live update, check that the page took it, and write what it shows to `<directory>/usage-window.png`:
 

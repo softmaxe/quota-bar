@@ -444,7 +444,8 @@
   let stored={};
   try{stored=JSON.parse(localStorage.getItem(STORE)??'{}')??{};}catch{}
   const params=new URLSearchParams(location.search);
-  language=(params.get('lang')??stored.language)==='en'?'en':'zh';
+  const preferredLanguage=navigator.languages?.[0]??navigator.language??'en';
+  language=(params.get('lang')??stored.language??(/^zh(?:-|$)/i.test(preferredLanguage)?'zh':'en'))==='en'?'en':'zh';
   metric=(params.get('metric')??stored.metric)==='tokens'?'tokens':'cost';
   breakdown=(params.get('breakdown')??stored.breakdown)==='day'?'day':'model';
   const isDay=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v);
