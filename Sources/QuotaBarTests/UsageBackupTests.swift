@@ -16,6 +16,7 @@ enum UsageBackupTests {
         await Self.sessionUnderAnotherPathCountsOnce()
         await Self.importKeepsTheDatabaseAsItStood()
         await Self.legacyBackupIsUpgraded()
+        await Self.requestContextSurvivesBackupAndLegacyImport()
         await Self.unusableFilesChangeNothing()
         await Self.invalidCursorsChangeNothing()
         await Self.invalidTokenCountsChangeNothing()
@@ -27,6 +28,51 @@ enum UsageBackupTests {
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000002.jsonl"
     private static let codexTier = RecordedTier(model: "gpt-5.6-sol", longContext: false, isFast: false)
     private static let claudeTier = RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)
+
+    private static func requestContextSurvivesBackupAndLegacyImport() async {
+        let source = BackupFixture(name: "context-source")
+        let restored = BackupFixture(name: "context-restored")
+        let legacyRestored = BackupFixture(name: "context-legacy-restored")
+        defer { source.remove(); restored.remove(); legacyRestored.remove() }
+        do {
+            let db = try TestDatabase(source.logs.databaseURL)
+            try db.exec("""
+                INSERT INTO claude_message (\(RecordedUsageFixture.claudeColumns), context_input) VALUES
+                ('claude', '/gone', '2026-09-01', 'tier-model', 1, 0, 250000, 0, 0, 0, 0, 250000);
+                INSERT INTO opencode_part (\(RecordedUsageFixture.openCodeColumns), context_input) VALUES
+                ('open', 1, 0, '2026-09-01', 'tier-model', 1, 0, 250000, 0, 0, 0, 0, 250000);
+                INSERT INTO pi_message (\(RecordedUsageFixture.piColumns), context_input) VALUES
+                ('pi', 1, '2026-09-01', 'tier-model', 1, 250000, 0, 0, 0, 0, 250000);
+                """)
+            await Self.export(source)
+            let legacy = source.logs.root.appendingPathComponent("legacy-context.sqlite")
+            try FileManager.default.copyItem(at: source.backup, to: legacy)
+            for table in ["claude_message", "opencode_part", "pi_message"] {
+                try TestDatabase(legacy).exec("ALTER TABLE \(table) DROP COLUMN context_input")
+            }
+            let currentResult = await Self.importBackup(source.backup, into: restored)
+            let legacyResult = await Self.importBackup(legacy, into: legacyRestored)
+            Harness.expectEqual(currentResult?.added, 3, "a new backup restores all keyed sources")
+            Harness.expectEqual(legacyResult?.added, 3, "a backup with the previous schema upgrades and imports")
+            let rates = ModelPricing(input: 1, output: 1, thresholdTokens: 272_000, inputAbove: 2, outputAbove: 2)
+            let card = RateCard.fixture(codex: ["tier-model": rates], claude: ["tier-model": rates])
+            for (fixture, expectedTier, expectedCost) in [(restored, false, 0.75), (legacyRestored, true, 1.5)] {
+                let reader = try RecordedUsageReader(databaseURL: fixture.logs.databaseURL)
+                let rows = try PricedUsage.price(
+                    try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-01", rateCard: card), on: card)
+                Harness.expectEqual(rows.count, 3, "backup import retains every keyed source")
+                Harness.expect(rows.allSatisfy { $0.key.longContext == expectedTier },
+                               "new backups retain read-time context; old backups retain the stored tier")
+                Harness.expectClose(rows.reduce(0) { $0 + ($1.cost ?? 0) }, expectedCost,
+                                    "imported rows use their available tier information without logs")
+            }
+            Harness.expectEqual(try TestDatabase(legacy, readOnly: true).scalarInt(
+                "SELECT COUNT(*) FROM pragma_table_info('claude_message') WHERE name = 'context_input'"), 0,
+                "upgrading the staged backup leaves the old backup file untouched")
+        } catch {
+            Harness.expect(false, "request-context backup fixture failed: \(error)")
+        }
+    }
 
     /// The case the feature exists for: the logs and the app's data are both gone.
     private static func exportRestoresUsageWhoseLogsAreGone() async {
@@ -370,7 +416,8 @@ enum UsageBackupTests {
             await fixture.scan()
         }
         for mutation in ["input = -1", "input = 'invalid'", "input = 1.5",
-                         "cache_write_1h = 1, cache_write = 0", "input = 9223372036854775807"] {
+                         "cache_write_1h = 1, cache_write = 0", "input = 9223372036854775807",
+                         "context_input = -1", "context_input = 'invalid'", "context_input = 1.5"] {
             await Self.export(source)
             do {
                 try TestDatabase(source.backup).exec("UPDATE claude_message SET \(mutation)")

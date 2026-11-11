@@ -83,7 +83,7 @@ public struct RateCard: Sendable {
     }
 
     /// Whether one request's input and cache tokens cross the model's long-context threshold.
-    /// Scanners settle this per request, since rows are aggregated per day afterwards.
+    /// Recording and reading both classify per request, before tokens are aggregated per day.
     ///
     /// models.dev only ever describes a tier above 200K tokens, so a request for a model the book
     /// does not list is classified against that threshold whether or not its rates have been
@@ -112,6 +112,16 @@ public struct RateCard: Sendable {
             remaining -= count
         }
         return false
+    }
+
+    /// SQL needs only these boundaries, not each distinct request size. A bucket's lower bound
+    /// gives the same tier as any request in it on this card, for every model, day, and speed.
+    /// Int.max cannot be crossed by a stored count and needs no bucket above it.
+    func contextThresholds(provider: Provider) -> [Int] {
+        let thresholds = self.book.models(for: provider).flatMap { model in
+            model.periods.compactMap(\.rates.thresholdTokens)
+        } + [ModelsDevCatalog.longContextThreshold]
+        return Set(thresholds).filter { $0 < Int.max }.sorted(by: >)
     }
 
     /// Cost in USD, or nil for unpriced usage: tokens whose model has no rate on their day.

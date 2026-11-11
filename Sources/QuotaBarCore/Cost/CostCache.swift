@@ -175,6 +175,11 @@ final class CostCache {
         // because the transcripts behind them may already be gone.
         try self.addColumnIfMissing(table: "claude_message", name: "is_fast", definition: "INTEGER NOT NULL DEFAULT 0")
 
+        // NULL preserves the stored tier of older rows; logs are never replayed to backfill it.
+        for table in ["claude_message", "opencode_part", "pi_message"] {
+            try self.addColumnIfMissing(table: table, name: "context_input", definition: "INTEGER")
+        }
+
         try self.dropStoredCostColumns()
     }
 
@@ -363,7 +368,8 @@ final class CostCache {
             output = excluded.output,
             cache_write = excluded.cache_write,
             cache_write_1h = excluded.cache_write_1h,
-            cache_read = excluded.cache_read
+            cache_read = excluded.cache_read,
+            context_input = excluded.context_input
         -- Streaming writes the same message several times as it completes; only the chunk
         -- that grew the reply supersedes what is already stored. Everything else is a replay
         -- of a message this cache already has, and must not overwrite the finished figure.
@@ -435,13 +441,14 @@ final class CostCache {
         model: String,
         longContext: Bool,
         isFast: Bool,
-        totals: TokenTotals
+        totals: TokenTotals,
+        contextInput: Int?
     ) throws {
         let stmt = try self.reusable("""
             INSERT INTO claude_message
                 (key, path, day, model, long_context, is_fast, input, output, cache_write,
-                 cache_write_1h, cache_read)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_write_1h, cache_read, context_input)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             \(Self.claudeConflict)
             """)
         defer { sqlite3_reset(stmt) }
@@ -452,6 +459,7 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 6, isFast ? 1 : 0)
         self.bindUsage(stmt, from: 7, totals: totals)
+        if let contextInput { sqlite3_bind_int64(stmt, 12, Int64(contextInput)) }
         try self.step(stmt)
     }
 
@@ -470,14 +478,15 @@ final class CostCache {
         model: String,
         longContext: Bool,
         isFast: Bool,
-        totals: TokenTotals
+        totals: TokenTotals,
+        contextInput: Int?
     ) throws {
         // A changed snapshot updates content, never the day already assigned to this identity.
         let stmt = try self.reusable("""
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
-                 output, cache_write, cache_write_1h, cache_read)
-            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 output, cache_write, cache_write_1h, cache_read, context_input)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 model = excluded.model,
                 long_context = excluded.long_context,
@@ -486,7 +495,8 @@ final class CostCache {
                 output = excluded.output,
                 cache_write = excluded.cache_write,
                 cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read
+                cache_read = excluded.cache_read,
+                context_input = excluded.context_input
             WHERE excluded.model IS NOT opencode_part.model
                OR excluded.is_fast IS NOT opencode_part.is_fast
                OR excluded.input IS NOT opencode_part.input
@@ -503,6 +513,7 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
         sqlite3_bind_int64(stmt, 6, isFast ? 1 : 0)
         self.bindUsage(stmt, from: 7, totals: totals)
+        if let contextInput { sqlite3_bind_int64(stmt, 12, Int64(contextInput)) }
         try self.step(stmt)
     }
 
@@ -512,19 +523,21 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
-        totals: TokenTotals
+        totals: TokenTotals,
+        contextInput: Int?
     ) throws {
         // A changed snapshot updates content, never the day already assigned to this identity.
         let stmt = try self.reusable("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
-                 cache_write_1h, cache_read)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_write_1h, cache_read, context_input)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
                 model = excluded.model, long_context = excluded.long_context,
                 input = excluded.input, output = excluded.output,
                 cache_write = excluded.cache_write, cache_write_1h = excluded.cache_write_1h,
-                cache_read = excluded.cache_read
+                cache_read = excluded.cache_read,
+                context_input = excluded.context_input
             WHERE excluded.model IS NOT pi_message.model
                OR excluded.input IS NOT pi_message.input
                OR excluded.output IS NOT pi_message.output
@@ -539,6 +552,7 @@ final class CostCache {
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
         self.bindUsage(stmt, from: 6, totals: totals)
+        if let contextInput { sqlite3_bind_int64(stmt, 11, Int64(contextInput)) }
         try self.step(stmt)
     }
 
@@ -614,15 +628,15 @@ final class CostCache {
     private func mergeKeyedRows() throws -> (added: Int, updated: Int) {
         let openCodeColumns = """
             key, included, day, model, long_context, is_fast, input, output, cache_write,
-            cache_write_1h, cache_read
+            cache_write_1h, cache_read, context_input
             """
         let piColumns = """
             key, included, day, model, long_context, input, output, cache_write, cache_write_1h,
-            cache_read
+            cache_read, context_input
             """
         let claudeColumns = """
             key, path, day, model, long_context, is_fast, input, output, cache_write,
-            cache_write_1h, cache_read
+            cache_write_1h, cache_read, context_input
             """
         let merges = [
             ("claude_message", """

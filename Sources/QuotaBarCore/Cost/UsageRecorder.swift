@@ -41,7 +41,7 @@ struct RecordingAccess {
 }
 
 /// Turns what Usage sources' logs report into Recorded usage. It owns every recording rule: the
-/// local-calendar day, the Long-context tier, resuming files, transactions, and each Usage
+/// local-calendar day, the fallback Long-context tier, request context, resuming files, transactions, and each Usage
 /// source's merge rule. Long-lived and used serially by the cost module.
 package final class UsageRecorder {
     /// Recorded usage storage. Only the recorder holds a connection that writes it.
@@ -210,6 +210,11 @@ private struct RecordedRow {
     let longContext: Bool
     let isFast: Bool
     let tokens: TokenTotals
+
+    // The one-hour cache-write count is already part of cacheWrite; output never sets the tier.
+    var contextInput: Int? {
+        self.tokens.hasValidCounts ? self.tokens.input + self.tokens.cacheRead + self.tokens.cacheWrite : nil
+    }
 }
 
 extension UsageRecorder {
@@ -253,7 +258,8 @@ extension UsageRecorder {
                 model: row.model,
                 longContext: row.longContext,
                 isFast: row.isFast,
-                totals: row.tokens
+                totals: row.tokens,
+                contextInput: row.contextInput
             )
         case .codex:
             // Codex turns have no identity, so they accumulate per path, day, model, and tier. A
@@ -282,7 +288,8 @@ extension UsageRecorder {
                 model: row.model,
                 longContext: row.longContext,
                 isFast: row.isFast,
-                totals: row.tokens
+                totals: row.tokens,
+                contextInput: row.contextInput
             )
         case .piAgent:
             // One row per message, rewritten only when its content changes. `included` is written
@@ -293,7 +300,8 @@ extension UsageRecorder {
                 day: row.day,
                 model: row.model,
                 longContext: row.longContext,
-                totals: row.tokens
+                totals: row.tokens,
+                contextInput: row.contextInput
             )
         }
     }
@@ -311,10 +319,8 @@ extension UsageRecorder {
         // usage is read, so an alias a later price book adds still prices this usage.
         let model = request.model.map { ModelNames.stripped($0, provider: provider) } ?? CostPricing.unknownModel
         let day = DayKey.make(from: request.timestamp)
-        // The Long-context tier is a property of the individual request, so it has to be decided
-        // here, against the model this rate card resolves the name to; deciding it from a day's
-        // aggregate would rewrite history. The price is not: it is derived from the stored
-        // tokens whenever they are read.
+        // Aggregate-only storage keeps this tier. Keyed storage also keeps the request's
+        // context input, so a later price book can classify it again before daily aggregation.
         let longContext = rateCard.isLongContext(
             request.tokens,
             model: model,

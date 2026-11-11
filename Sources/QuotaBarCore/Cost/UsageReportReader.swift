@@ -217,6 +217,7 @@ public enum UsageReportReader {
             rows = try PricedUsage.price(try reader.reportUsage(
                 fromDay: calendarDays[0],
                 throughDay: calendarDays[calendarDays.count - 1],
+                rateCard: rateCard,
                 afterSchemaDiscovery: afterSchemaDiscovery
             ), on: rateCard)
         } catch let error as RecordedUsageReaderError {

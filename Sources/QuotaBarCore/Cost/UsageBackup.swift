@@ -104,8 +104,9 @@ enum UsageBackup {
     /// Run after migration has supplied historical columns, before touching live data or undo.
     static func validateTokens(_ reader: RecordedUsageReader, schema: String) throws {
         for table in ["codex_day", "claude_message", "opencode_part", "pi_message"] {
+            let contextInput = table == "codex_day" ? "NULL" : "context_input"
             try reader.query("""
-                SELECT input, output, cache_write, cache_write_1h, cache_read FROM \(schema).\(table)
+                SELECT input, output, cache_write, cache_write_1h, cache_read, \(contextInput) FROM \(schema).\(table)
                 """) { statement in
                 var counts: [Int] = []
                 for column in Int32(0)..<Int32(5) {
@@ -120,6 +121,12 @@ enum UsageBackup {
                       TokenTotals(input: counts[0], output: counts[1], cacheWrite: counts[2],
                                   cacheWrite1h: counts[3], cacheRead: counts[4]).hasValidCounts else {
                     throw UsageBackupError.unreadable
+                }
+                if sqlite3_column_type(statement, 5) != SQLITE_NULL {
+                    guard sqlite3_column_type(statement, 5) == SQLITE_INTEGER,
+                          sqlite3_column_int64(statement, 5) >= 0 else {
+                        throw UsageBackupError.unreadable
+                    }
                 }
             }
         }

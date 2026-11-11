@@ -5,7 +5,34 @@ import QuotaBarCore
 /// without losing usage whose source logs are gone.
 enum CostSchemaUpgradeTests {
     static func run() async throws {
+        try self.upgradesRequestContextWithoutBackfill()
         try await self.upgradesLegacyUsageSchema()
+    }
+
+    private static func upgradesRequestContextWithoutBackfill() throws {
+        let fixture = try RecordedUsageFixture()
+        let tables = ["claude_message", "opencode_part", "pi_message"]
+        for table in tables {
+            try fixture.database.exec("ALTER TABLE \(table) DROP COLUMN context_input")
+        }
+        let card = try RecordedUsageFixture.rateCard()
+        let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+        let before = try PricedUsage.price(
+            try reader.reportUsage(fromDay: "0000-00-00", throughDay: "9999-12-31", rateCard: card), on: card)
+        let recorder = try UsageRecorder(databaseURL: fixture.databaseURL)
+        for table in tables {
+            Harness.expectEqual(try fixture.database.scalarInt("SELECT COUNT(*) FROM \(table) WHERE context_input IS NOT NULL"),
+                                0, "upgrading the previous schema does not infer request context from legacy rows")
+        }
+        let after = try PricedUsage.price(
+            try reader.reportUsage(fromDay: "0000-00-00", throughDay: "9999-12-31", rateCard: card), on: card)
+        Harness.expectEqual(after, before, "schema upgrade preserves every legacy token count, day, tier, and price")
+        Harness.expectEqual(recorder.record(.claude, rateCard: card, env: isolatedEnvironment(root: fixture.directory)), 0,
+                            "schema upgrade does not request a log backfill")
+        // Opening again is harmless and still does not fill legacy context values.
+        _ = try UsageRecorder(databaseURL: fixture.databaseURL)
+        Harness.expectEqual(try fixture.database.scalarInt("SELECT COUNT(*) FROM claude_message WHERE context_input IS NOT NULL"),
+                            0, "reopening does not backfill legacy requests")
     }
 
     private static func upgradesLegacyUsageSchema() async throws {
