@@ -38,7 +38,7 @@ struct UsageUnitSwitch: View {
                     .buttonStyle(ControlFeedbackStyle())
                     .focused(self.$focusedMode, equals: mode)
                     .overlay {
-                        RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset)
+                        RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                             .strokeBorder(Color.accentColor, lineWidth: 2)
                             .opacity(self.focusedMode == mode ? 1 : 0)
                             .allowsHitTesting(false)
@@ -85,7 +85,7 @@ struct UsageUnitSwitch: View {
             .animation(emphasisAnimation, value: isEmphasized)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous)
+                RoundedRectangle(cornerRadius: Theme.cardControlRadius, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
                     .opacity(self.hovered == mode && !isSelected ? 1 : 0)
                     .animation(emphasisAnimation, value: self.hovered)

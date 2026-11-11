@@ -255,6 +255,7 @@ struct CostSectionView: View {
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
+            .monospacedDigit()
 
             self.chartSummary
                 .padding(.top, 4)
@@ -336,7 +337,7 @@ struct CostSectionView: View {
         .frame(maxWidth: .infinity)
         .focused(self.$focusedDayKey, equals: day.dayKey)
         .overlay {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                 .strokeBorder(
                     Theme.accent(for: self.snapshot.provider),
                     lineWidth: self.focusedDayKey == day.dayKey ? 1.5 : 0
@@ -535,7 +536,7 @@ struct CostSectionView: View {
                 .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
                 .background(
                     self.summaryHovered ? Color.primary.opacity(0.06) : .clear,
-                    in: RoundedRectangle(cornerRadius: 5)
+                    in: RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                 )
                 .animation(
                     CostChartHoverMotion.systemReduceMotion ? nil : .easeOut(duration: 0.10),
@@ -793,19 +794,27 @@ struct CostSectionView: View {
 /// Codex's pay-as-you-go credit balance. Claude does not report one.
 struct CreditsSectionView: View {
     let credits: CreditsSnapshot
+    var isStale = false
 
     /// A footnote to the plan's windows rather than a window of its own.
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text("Credits")
             Spacer(minLength: 8)
-            Text(self.leftLabel)
-                .monospacedDigit()
+            if !self.credits.unlimited, let balance = self.credits.balance {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(Formatters.wholeNumber(balance))
+                        .font(.system(size: 13, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(self.isStale ? Color.secondary : Color.primary)
+                    Text("left")
+                }
+            } else {
+                Text(self.leftLabel)
+            }
         }
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        // Set apart from the windows above, as a footnote is.
-        .padding(.top, 4)
         .accessibilityElement(children: .combine)
     }
 

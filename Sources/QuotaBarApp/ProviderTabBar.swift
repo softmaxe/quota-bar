@@ -54,7 +54,7 @@ struct ProviderTabBar: View {
                     .keyboardShortcut(Self.shortcutKey(for: provider), modifiers: .command)
                     .focused(self.$focusedProvider, equals: provider)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 5)
+                        RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                             .strokeBorder(Color.accentColor, lineWidth: 2)
                             .opacity(self.focusedProvider == provider ? 1 : 0)
                             .allowsHitTesting(false)
@@ -128,7 +128,7 @@ struct ProviderTabBar: View {
         .background {
             // The wash an unselected segment carries under the pointer: it says "clickable"
             // without reading as a second selection.
-            RoundedRectangle(cornerRadius: Self.cornerRadius - Self.inset, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.cardControlRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
                 .opacity(self.hovered == provider && !isSelected ? 1 : 0)
                 .animation(emphasisAnimation, value: self.hovered)

@@ -34,7 +34,7 @@ final class MenuPopoverModel: ObservableObject {
         self.card = card
         self.provider = provider
     }
-    var footerHeight: CGFloat { self.showsRefresh ? 109 : 85 }
+    var footerHeight: CGFloat { self.showsRefresh ? 113 : 89 }
     var viewportHeight: CGFloat { max(1, min(self.contentHeight, self.maximumHeight - self.footerHeight)) }
 }
 
@@ -99,7 +99,9 @@ struct MenuPopoverView: View {
                     MenuPopoverAction(
                         title: self.model.refreshState.title, symbol: "arrow.clockwise",
                         trailing: self.model.refreshState.trailingText ?? "⌘R",
-                        isWorking: self.model.refreshState.isInProgress, action: self.model.onRefresh
+                        isWorking: self.model.refreshState.isInProgress,
+                        trailingIsShortcut: self.model.refreshState.trailingText == nil,
+                        action: self.model.onRefresh
                     )
                     .disabled(!self.model.refreshState.isEnabled)
                     .keyboardShortcut("r", modifiers: .command)
@@ -108,11 +110,11 @@ struct MenuPopoverView: View {
                     .keyboardShortcut("u", modifiers: .command)
                 MenuPopoverAction(title: "Settings…", symbol: "gearshape", trailing: "⌘,", action: self.model.onSettings)
                     .keyboardShortcut(",", modifiers: .command)
-                MenuPopoverAction(title: "Quit", symbol: "xmark.rectangle", trailing: "⌘Q", action: self.model.onQuit)
+                MenuPopoverAction(title: "Quit", symbol: "power", trailing: "⌘Q", action: self.model.onQuit)
                     .keyboardShortcut("q", modifiers: .command)
             }
             .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            .padding(.vertical, 8)
         }
         .frame(width: 280)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -128,6 +130,7 @@ private struct MenuPopoverAction: View {
     let symbol: String
     let trailing: String
     var isWorking = false
+    var trailingIsShortcut = true
     let action: () -> Void
     @State private var hovered = false
     @FocusState private var focused: Bool
@@ -142,7 +145,10 @@ private struct MenuPopoverAction: View {
                     Text(self.title)
                 }
                 Spacer()
-                Text(self.trailing).foregroundStyle(.secondary).accessibilityHidden(true)
+                Text(self.trailing)
+                    .foregroundStyle(self.trailingIsShortcut ? .tertiary : .secondary)
+                    .monospacedDigit()
+                    .accessibilityHidden(true)
             }
             .font(.system(size: 12))
             .padding(.horizontal, 8)
@@ -152,11 +158,11 @@ private struct MenuPopoverAction: View {
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .foregroundStyle(self.isEnabled ? .primary : .tertiary)
         .background(self.isEnabled && self.hovered ? Color.primary.opacity(0.06) : .clear,
-                    in: RoundedRectangle(cornerRadius: 5))
+                    in: RoundedRectangle(cornerRadius: Theme.cardControlRadius))
         .animation(self.reduceMotion ? nil : .easeOut(duration: 0.10), value: self.isEnabled && self.hovered)
         .focused(self.$focused)
         .overlay {
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                 .strokeBorder(Color.accentColor, lineWidth: 2)
                 .opacity(self.isEnabled && self.focused ? 1 : 0)
                 .allowsHitTesting(false)

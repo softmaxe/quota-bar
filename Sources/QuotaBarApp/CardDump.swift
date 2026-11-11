@@ -12,11 +12,25 @@ enum CardDump {
         let root = OffscreenCapture.directory(directory)
         let now = Date()
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
+            let card = MenuCardView(
+                provider: .codex,
+                display: ProviderDisplay(snapshot: Self.loadedSnapshot(.codex), cost: Self.sampleCost(.codex)),
+                isRefreshing: false, animatesFill: false
+            )
             Self.capture(
-                MenuCardView(provider: .codex,
-                             display: ProviderDisplay(snapshot: Self.loadedSnapshot(.codex), cost: Self.sampleCost(.codex)),
-                             isRefreshing: false, animatesFill: false),
+                card,
                 named: appearance == .aqua ? "main-light" : "main-dark", into: root,
+                appearance: NSAppearance(named: appearance)
+            )
+            // Seed the measured height before capture so the complete card and footer fit.
+            let probe = NSHostingView(rootView: card)
+            probe.appearance = NSAppearance(named: appearance)
+            let model = MenuPopoverModel(card: card, provider: .codex)
+            model.contentHeight = probe.fittingSize.height.rounded(.up)
+            model.maximumHeight = model.contentHeight + model.footerHeight
+            Self.capture(
+                MenuPopoverView(model: model).frame(height: model.maximumHeight),
+                named: appearance == .aqua ? "popover-light" : "popover-dark", into: root,
                 appearance: NSAppearance(named: appearance)
             )
         }
@@ -77,6 +91,12 @@ enum CardDump {
             into: root
         )
         Self.captureSettings(
+            AnyView(SettingsView(settings: settings, pricing: pricing, store: store, backup: backup)),
+            named: "settings-light",
+            into: root,
+            appearance: .aqua
+        )
+        Self.captureSettings(
             AnyView(UsageSettingsView(settings: settings, store: store, remote: store.remoteSync, backup: backup)),
             named: "settings-usage-empty",
             into: root
@@ -104,6 +124,12 @@ enum CardDump {
             AnyView(PricingSettingsView(settings: settings, model: pricing)),
             named: "settings-pricing",
             into: root
+        )
+        Self.captureSettings(
+            AnyView(PricingSettingsView(settings: settings, model: pricing, isLoadEnabled: false)),
+            named: "settings-pricing-light",
+            into: root,
+            appearance: .aqua
         )
         // Folded, so every source's heading and the models.dev switch fit in one capture.
         pricing.foldAll()
@@ -142,12 +168,17 @@ enum CardDump {
     /// The settings window is a sidebar beside a pane and the pricing pane is that pane on its
     /// own, so the size comes from the view rather than from a constant here. The pane loads its
     /// rows asynchronously, so the capture lets the run loop turn first.
-    private static func captureSettings(_ view: AnyView, named name: String, into root: URL) {
+    private static func captureSettings(
+        _ view: AnyView,
+        named name: String,
+        into root: URL,
+        appearance: NSAppearance.Name = .darkAqua
+    ) {
         Self.capture(
             view,
             named: name,
             into: root,
-            appearance: NSAppearance(named: .darkAqua),
+            appearance: NSAppearance(named: appearance),
             titled: true,
             settle: 3
         )
