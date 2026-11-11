@@ -72,8 +72,20 @@ enum NumericFormattingTests {
     }
 
     private static func formatting() {
-        Harness.expectEqual(Formatters.cost(12.5), "$12.50", "ordinary currency formatting")
+        for (value, expected) in [(0.0, "$0.00"), (0.01, "$0.01"), (1.23, "$1.23"), (9.99, "$9.99"),
+                                  (10.0, "$10"), (10.49, "$10"), (10.5, "$11"), (446.0, "$446")] {
+            Harness.expectEqual(Formatters.cost(value), expected, "currency precision at \(value)")
+        }
         Harness.expectEqual(Formatters.tokens(123), "123", "ordinary token formatting")
+        for (value, expected) in [(999, "999"), (1_000, "1K"), (7_400, "7.4K"), (9_949, "9.9K"),
+                                  (9_950, "10K"), (10_000, "10K"), (999_499, "999K"), (999_500, "1M"),
+                                  (1_200_000, "1.2M"), (9_949_000, "9.9M"), (9_950_000, "10M"),
+                                  (10_000_000, "10M"), (999_499_999, "999M"), (999_500_000, "1B"),
+                                  (1_200_000_000, "1.2B"), (9_950_000_000, "10B"), (10_000_000_000, "10B")] {
+            Harness.expectEqual(Formatters.tokens(value), expected, "token precision and rollover at \(value)")
+        }
+        Harness.expectEqual(Formatters.tokens(999_600), "1M", "thousands roll over to millions")
+        Harness.expectEqual(Formatters.tokens(999_700_000), "1B", "millions roll over to billions")
         Harness.expectEqual(Formatters.tokens(Double(Int.max)), Formatters.tokens(Int.max),
                             "chart token conversion preserves the upper integer boundary")
         for value in [Double(Int.max), 1e100, Double.greatestFiniteMagnitude] {

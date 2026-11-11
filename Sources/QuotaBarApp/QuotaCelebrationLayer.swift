@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Drives a celebration frame by frame. A `Timer` in `.common` mode rather than `TimelineView`:
-/// the card lives inside an `NSMenu`, and menu tracking runs the run loop in its own mode where
-/// anything scheduled on the default mode never fires.
+/// the card's popover opens native menus, and menu tracking runs the run loop in its own mode
+/// where anything scheduled on the default mode never fires.
 @MainActor
 final class CelebrationClock: ObservableObject {
     /// Seconds into the sequence, or nil when nothing is playing.

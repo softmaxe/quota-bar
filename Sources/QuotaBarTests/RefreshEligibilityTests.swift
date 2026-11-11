@@ -111,10 +111,9 @@ enum RefreshEligibilityTests {
             RefreshEligibility.Row(title: "Check sign-in", trailingText: nil, isEnabled: true),
             "a signed-out provider offers to check sign-in"
         )
-        Harness.expectEqual(
-            eligibility.row(.codex, given: .init(isRefreshing: true, isSignedOut: true), uptime: 1_059, now: Self.now).title,
-            "Checking…",
-            "and says it is checking while it does"
+        Harness.expect(
+            eligibility.row(.codex, given: .init(isRefreshing: true, isSignedOut: true), uptime: 1_059, now: Self.now).isInProgress,
+            "and reports the check as work while it runs"
         )
         Harness.expectEqual(
             eligibility.row(

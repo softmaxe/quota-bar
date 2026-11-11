@@ -6,6 +6,7 @@ import Foundation
 enum QuotaRecoveryTests {
     @MainActor
     static func run() {
+        Self.providerSwitchDoesNotReplay()
         let suite = "QuotaBarQuotaRecoveryTests"
         let defaults = EphemeralDefaults.make(suite)
         defer { EphemeralDefaults.clear(suite) }
@@ -176,6 +177,53 @@ enum QuotaRecoveryTests {
             resetsAt: epoch.addingTimeInterval(14 * 24 * 3600)
         )
         Harness.expect(tracker.pendingRecoveries(for: .codex).isEmpty, "a stale response manufactured a weekly reset")
+    }
+
+    @MainActor
+    private static func providerSwitchDoesNotReplay() {
+        let suite = "QuotaBarRecoveryPresentationTests"
+        let defaults = EphemeralDefaults.make(suite)
+        defer { EphemeralDefaults.clear(suite) }
+        let settings = SettingsStore(defaults: defaults)
+        settings.menuBarProvider = .claude
+        settings.refreshFrequency = .manual
+        let service = CostService(rateCard: RateCard())
+        let store = UsageStore(
+            settings: settings, costService: service,
+            fetchState: { _, _ in .failed("Offline fixture") }, fetchCost: { _ in nil },
+            updateThirdPartyRates: { false }, recoveryDefaults: defaults
+        )
+        let controller = StatusItemController(
+            store: store, settings: settings, pricing: PricingTableModel(costService: service)
+        )
+        defer {
+            controller.debugEndPresentation()
+            store.stop()
+        }
+        let tracker = QuotaRecoveryTracker(defaults: defaults)
+        let epoch = Date(timeIntervalSince1970: 2_000_000_000)
+        func reset(_ provider: Provider, offset: TimeInterval) {
+            tracker.observe(provider: provider, kind: .session, remainingPercent: 20,
+                            resetsAt: epoch.addingTimeInterval(offset), now: epoch)
+            tracker.observe(provider: provider, kind: .session, remainingPercent: 100,
+                            resetsAt: epoch.addingTimeInterval(offset + 3600), now: epoch)
+        }
+        reset(.claude, offset: 3600)
+        reset(.codex, offset: 3600)
+        controller.debugBeginPresentation()
+        Harness.expect(controller.debugPresentedRecoveries[.session] != nil, "opening claims Claude's reset")
+        settings.menuBarProvider = .codex
+        Harness.expect(controller.debugPresentedRecoveries[.session] != nil, "Codex keeps its own queued reset")
+        settings.menuBarProvider = .claude
+        Harness.expect(controller.debugPresentedRecoveries.isEmpty, "returning to Claude must not replay its reset")
+        settings.menuBarProvider = .codex
+        Harness.expect(controller.debugPresentedRecoveries.isEmpty, "returning to Codex must not replay its reset")
+        reset(.claude, offset: 10800)
+        settings.menuBarProvider = .claude
+        Harness.expect(controller.debugPresentedRecoveries[.session] != nil, "a new reset while hidden still plays")
+        controller.debugEndPresentation()
+        controller.debugBeginPresentation()
+        Harness.expect(controller.debugPresentedRecoveries.isEmpty, "reopening must not replay a claimed reset")
     }
 
     private static func snapshot(

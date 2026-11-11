@@ -4,6 +4,8 @@ public typealias CodexCredentialLoader = @Sendable () throws -> CodexCredentials
 
 /// Loads credentials, refreshes when stale, and maps `wham/usage` onto a `UsageSnapshot`.
 public enum CodexProvider {
+    private static let credentialCache = CodexCredentialCache()
+
     public static func fetch(
         env: [String: String] = ProcessInfo.processInfo.environment,
         transport: any HTTPTransport = URLSessionTransport(),
@@ -18,9 +20,9 @@ public enum CodexProvider {
             )
         }
 
-        var credentials: CodexCredentials
+        let session: CodexCredentialSession
         do {
-            credentials = try credentialLoader?() ?? CodexCredentialsStore.load(env: env)
+            session = try await Self.credentialCache.load(env: env, credentialLoader: credentialLoader)
         } catch let error as CodexCredentialsError {
             switch error {
             case .notFound, .missingTokens:
@@ -32,9 +34,10 @@ public enum CodexProvider {
             return .failed(error.localizedDescription)
         }
 
+        var credentials = await session.credentials
         if credentials.needsRefresh {
             do {
-                credentials = try await CodexTokenRefresher.refresh(credentials, transport: transport)
+                credentials = try await session.refresh(credentials, transport: transport)
                 Log.codex.debug("Refreshed Codex access token")
             } catch {
                 // A refresh failure is not fatal on its own: the stored access token may still be
@@ -63,7 +66,7 @@ public enum CodexProvider {
         } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
             // The stored token was stale after all — refresh once, then retry.
             do {
-                let refreshed = try await CodexTokenRefresher.refresh(credentials, transport: transport)
+                let refreshed = try await session.refresh(credentials, transport: transport)
                 let response = try await CodexUsageFetcher.fetchUsage(
                     accessToken: refreshed.accessToken,
                     accountId: refreshed.accountId,

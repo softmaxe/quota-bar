@@ -35,7 +35,11 @@ enum OffscreenCapture {
             return .failed("failed to encode \(name)")
         }
         let url = root.appendingPathComponent("\(name).png")
-        try? data.write(to: url)
+        do {
+            try data.write(to: url)
+        } catch {
+            return .failed("failed to write \(url.path): \(error.localizedDescription)")
+        }
         return .written(url)
     }
 

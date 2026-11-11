@@ -30,8 +30,9 @@ enum Formatters {
             to: calendar.startOfDay(for: date)
         ).day ?? 0
 
-        if days <= 0 { return time }
-        if days < 7 {
+        if days == 0 { return time }
+        // A reset already past, kept on a saved reading, names its date like a distant one.
+        if days > 0, days < 7 {
             let weekday = Self.style(calendar, locale).weekday(.abbreviated).format(date)
             return "\(weekday) \(time)"
         }
@@ -52,7 +53,7 @@ enum Formatters {
     /// "just now", "5m ago", "2h ago".
     static func relativeAge(since date: Date, now: Date = Date()) -> String {
         let seconds = Int(max(0, now.timeIntervalSince(date)))
-        if seconds < 45 { return "just now" }
+        if seconds < 60 { return "just now" }
         if seconds < 3_600 { return "\(seconds / 60)m ago" }
         if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
         return "\(seconds / 86_400)d ago"
@@ -63,9 +64,10 @@ enum Formatters {
         "\(Int(value.rounded()))%"
     }
 
-    /// "$0.00", "$507.13". Cents matter here because a day can be genuinely tiny.
+    /// Keep cents for small days; from $10, whole dollars fit the card and chart alike.
     static func cost(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
+        if value >= 10 { return "$\(Self.wholeNumber(value))" }
         return String(format: "$%.2f", value)
     }
 
@@ -101,16 +103,27 @@ enum Formatters {
         return model
     }
 
-    /// "67M", "637M", "1.2B" — token counts are large enough that digits stop being readable.
+    /// Small unit counts retain a decimal so model and cache shares remain distinguishable.
     static func tokens(_ count: Int) -> String {
         self.tokens(Double(count))
     }
 
     static func tokens(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
-        if value >= 1_000_000_000 { return String(format: "%.1fB", value / 1_000_000_000) }
-        if value >= 1_000_000 { return String(format: "%.0fM", value / 1_000_000) }
-        if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
+        // Each unit starts where the one below would round up to "1000".
+        if value >= 999_500_000 { return Self.tokenUnit(value / 1_000_000_000, suffix: "B") }
+        if value >= 999_500 { return Self.tokenUnit(value / 1_000_000, suffix: "M") }
+        if value >= 1_000 { return Self.tokenUnit(value / 1_000, suffix: "K") }
         return String(format: "%.0f", value.rounded(.towardZero))
+    }
+
+    private static func tokenUnit(_ value: Double, suffix: String) -> String {
+        // Drop the decimal as it would round to ten, avoiding a transitional "10.0K", and when
+        // it would be a bare ".0": "3M" beside "8.9M" reads as a round figure, not a lost digit.
+        guard value < 9.95 else { return String(format: "%.0f%@", value, suffix) }
+        let tenths = (value * 10).rounded()
+        return tenths.truncatingRemainder(dividingBy: 10) == 0
+            ? String(format: "%.0f%@", tenths / 10, suffix)
+            : String(format: "%.1f%@", tenths / 10, suffix)
     }
 }

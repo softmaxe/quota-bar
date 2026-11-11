@@ -256,7 +256,7 @@ final class UsageStore: ObservableObject {
     /// New rates only affect local costs. Coalesce changes during a scan into one follow-up
     /// so its earlier snapshot cannot hide the result of the new rates.
     func refreshCostsAfterPricingChange() {
-        self.refreshCosts(for: self.settings.menuBarProvider, repeatingRunningScan: true)
+        self.refreshAllLocalUsageAfterChange()
     }
 
     /// Newly mirrored logs and imported usage need a scan that starts after them, so a scan

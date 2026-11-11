@@ -28,13 +28,29 @@ The snapshot holds, for every calendar day from the first saved record through t
 
 ## Data and cost rules
 
-`UsageReportReader` opens QuotaBar's cost database read-only and uses a SQLite transaction to read one committed snapshot, including committed WAL data. The date window follows the Mac's current calendar and ends today.
+`UsageReportReader` opens QuotaBar's cost database read-only and uses a SQLite transaction to read one committed snapshot, including committed WAL data. Recording, date windows, and price-period comparisons use Gregorian dates in the Mac's current time zone, even when the system calendar is Buddhist, Japanese, or another calendar. The date window ends today.
+
+Earlier builds could save day keys in the system calendar. Those existing keys are not automatically converted or forcibly rescanned: the database retains neither the calendar nor the original timestamp, so a year offset cannot safely identify or repair every affected row. Rows outside the report's Gregorian date range remain stored but do not appear in that range. Ordinary source replay rules still apply when logs change; this is not a history migration.
 
 The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. The reader itself does not scan session files or reassess eligibility; the window's scans go through the same `UsageStore` path as the menu.
 
-The page uses the same pricing rules as the menu. Models the price book lists use its rates for each recorded day. Other models use the rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every model outside the book, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
+Claude recording deduplicates messages by their message/request IDs, then by a nonempty transcript UUID. When all IDs are absent, it uses a SHA-256 digest of the complete JSON record with sorted object keys and normalized formatting. Rewriting the file or reading a mirrored copy therefore keeps the same identity. Different session IDs, message content, timestamps, token counts, or other JSON fields keep records distinct; completely identical ID-less records are indistinguishable from replays and count once. Only the digest is stored, not the message content. If Foundation cannot normalize an otherwise decodable record, the digest covers its original bytes instead.
+
+Older randomly generated fallback UUIDs are left untouched, and this change does not reset scan cursors. The stored rows lack the original record content and timestamp needed to match them safely to a digest. Replaying such a legacy record can still add a digest-keyed row beside its old UUID-keyed row; existing duplicates are not automatically removed.
+
+The page uses the same pricing rules as the menu. Claude, OpenCode, and Pi rows with a saved `context_input` are classified into base or long-context tiers from the current rate card, resolved model, recorded day, and Fast flag before their tokens are priced. Rows recorded before this nullable field was added retain their stored tier while the field is NULL; Codex aggregates always retain their stored tier. There is no log backfill or tier migration. See [Historical thresholds](pricing.md#historical-thresholds) for content updates, SQL aggregation, and backup compatibility.
+
+Models the price book lists use its rates for each recorded day. Other models use the rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every model outside the book, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
 
 Rows without a usable price contribute tokens but no cost. The page labels a fully unpriced total or model as **Unpriced**, and an info mark beside the total gives the share of unpriced tokens. Cost by token type prices each token type of a row alone at that row's rates, so the types add up to the row's cost.
+
+## Historical time zones
+
+Changing the Mac's time zone alone does not reread or rebucket any source. Snapshot cache identities for OpenCode and Pi depend on source changes and eligibility, not the time zone. Existing day keys are left as recorded; new requests use Gregorian days in the current local zone.
+
+When changed files are reread, Claude messages, OpenCode parts, and Pi messages keep the day already stored for their request identity, even if their token counts change. A backup merge likewise preserves the local day for an identity already present; newly imported identities keep the backup's recorded day. Earlier rows follow the same rule wherever their identity can still be matched. Legacy random Claude fallback identities cannot be matched safely to a replay and retain the limitation described above.
+
+Codex rollouts are the accepted exception: storage holds only per-path/day/model/tier/Fast aggregates, without individual request identities or timestamps. A rewritten rollout replaces its aggregates and buckets the reread usage in the current zone. A backup import can replace a rollout with the copy scanned further, taking that backup's recorded days; importing alone does not infer dates from aggregate token counts. Both operations can change the rollout's days. No request mapping, timestamp backfill, or history rebucketing is attempted. OpenCode and Pi both have per-request identity, so neither needs this exception.
 
 ## Implementation
 

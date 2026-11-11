@@ -1,8 +1,9 @@
 import Foundation
 import SQLite3
 
-/// Reads recorded tokens without scanning logs, changing schema, or applying rates. Rows keep the
-/// name each model was recorded as; `PricedUsage` resolves and prices them. Each instance uses
+/// Reads recorded tokens without scanning logs or changing schema. With a rate card, request
+/// context inputs determine tiers before aggregation; otherwise the stored tiers are read.
+/// Rows keep their recorded model name; `PricedUsage` resolves and prices them. Each instance uses
 /// one SQLite connection and must be used serially.
 package final class RecordedUsageReader {
     package struct ModelTier: Hashable {
@@ -24,6 +25,7 @@ package final class RecordedUsageReader {
         let table: String
         let supportsFast: Bool
         let includedOnly: Bool
+        var hasContextInput = false
 
         var provider: Provider { self.source.provider }
 
@@ -74,12 +76,19 @@ package final class RecordedUsageReader {
 
     /// The menu requires all of its provider's tables and has no upper date bound.
     /// Both readers reject invalid token domains; the report also bounds JavaScript integers.
-    package func dailyUsage(provider: Provider, fromDay: String) throws -> [DayUsage] {
-        try self.readDailyUsage(
-            tables: Self.sourceTables.filter { $0.provider == provider },
+    package func dailyUsage(provider: Provider, fromDay: String, rateCard: RateCard? = nil) throws -> [DayUsage] {
+        var tables = Self.sourceTables.filter { $0.provider == provider }
+        if rateCard != nil {
+            for index in tables.indices {
+                tables[index].hasContextInput = try self.columns(in: tables[index].table).contains("context_input")
+            }
+        }
+        return try self.readDailyUsage(
+            tables: tables,
             fromDay: fromDay,
             throughDay: nil,
-            validateForReport: false
+            validateForReport: false,
+            rateCard: rateCard
         )
     }
 
@@ -88,6 +97,7 @@ package final class RecordedUsageReader {
     package func reportUsage(
         fromDay: String,
         throughDay: String,
+        rateCard: RateCard? = nil,
         afterSchemaDiscovery: (() throws -> Void)? = nil
     ) throws -> [DayUsage] {
         try self.query("BEGIN TRANSACTION") { _ in }
@@ -102,7 +112,8 @@ package final class RecordedUsageReader {
             tables: tables,
             fromDay: fromDay,
             throughDay: throughDay,
-            validateForReport: true
+            validateForReport: true,
+            rateCard: rateCard
         )
         try self.query("COMMIT") { _ in }
         transactionOpen = false
@@ -123,45 +134,66 @@ package final class RecordedUsageReader {
             objects[name] = type
         }
         var tables: [SourceTable] = []
-        for source in Self.sourceTables {
+        for var source in Self.sourceTables {
             guard let type = objects[source.table] else { continue }
             guard type == "table" else {
                 throw RecordedUsageReaderError.corruptSchema("\(source.table) is a \(type), not a table")
             }
-            var columns: Set<String> = []
-            try self.query("PRAGMA table_info(\(source.table))") { statement in
-                if let name = self.text(statement, column: 1, strict: true) { columns.insert(name) }
-            }
+            let columns = try self.columns(in: source.table)
             let missing = source.requiredColumns.subtracting(columns).sorted()
             guard missing.isEmpty else {
                 throw RecordedUsageReaderError.corruptSchema(
                     "\(source.table) is missing columns: \(missing.joined(separator: ", "))"
                 )
             }
+            source.hasContextInput = columns.contains("context_input")
             tables.append(source)
         }
         return tables
+    }
+
+    private func columns(in table: String) throws -> Set<String> {
+        var columns: Set<String> = []
+        try self.query("PRAGMA table_info(\(table))") { statement in
+            if let name = self.text(statement, column: 1, strict: true) { columns.insert(name) }
+        }
+        return columns
     }
 
     private func readDailyUsage(
         tables: [SourceTable],
         fromDay: String,
         throughDay: String?,
-        validateForReport: Bool
+        validateForReport: Bool,
+        rateCard: RateCard?
     ) throws -> [DayUsage] {
         var rows: [DayUsage] = []
         let sums = Self.tokenColumns.map { "SUM(\($0))" }.joined(separator: ", ")
         let maximum = validateForReport ? Self.reportMaximumSafeInteger : Int64.max
-        let validation = ", MAX(CASE WHEN \(Self.invalidTokens(maximum: maximum)) THEN 1 ELSE 0 END)"
         for source in tables {
             let fast = source.supportsFast ? "is_fast" : "FALSE"
+            let reclassify = source.hasContextInput && source.source != .codex && rateCard != nil
+            // Coarse threshold buckets bound the result size even when every request has a
+            // different input size. Negative buckets preserve legacy tiers without adding
+            // another GROUP BY key. Day filtering still uses the existing day indexes.
+            let bucket: String
+            if reclassify, let rateCard {
+                let boundaries = rateCard.contextThresholds(provider: source.provider).map {
+                    "WHEN context_input > \($0) THEN \($0 + 1)"
+                }.joined(separator: " ")
+                bucket = "CASE WHEN context_input IS NULL THEN CASE WHEN long_context THEN -2 ELSE -1 END \(boundaries) ELSE 0 END"
+            } else {
+                bucket = "long_context"
+            }
+            let invalidContext = source.hasContextInput ? " OR (\(Self.invalidContextInput))" : ""
+            let validation = ", MAX(CASE WHEN \(Self.invalidTokens(maximum: maximum))\(invalidContext) THEN 1 ELSE 0 END)"
             let bounds = throughDay == nil ? "day >= ?" : "day BETWEEN ? AND ?"
             let bindings = [fromDay] + (throughDay.map { [$0] } ?? [])
             try self.query("""
-                SELECT day, model, long_context, \(fast), \(sums)\(validation)
+                SELECT day, model, \(bucket), \(fast), \(sums)\(validation)
                 FROM \(source.table)
                 WHERE \(source.includedOnly ? "included = 1 AND " : "")\(bounds)
-                GROUP BY day, model, long_context, \(fast)
+                GROUP BY day, model, \(bucket), \(fast)
                 """, bindings: bindings) { statement in
                 guard let day = self.text(statement, column: 0, strict: validateForReport),
                       let model = self.text(statement, column: 1, strict: validateForReport) else {
@@ -172,11 +204,22 @@ package final class RecordedUsageReader {
                         "\(source.source.displayName) contains invalid values on \(day)"
                     )
                 }
+                let isFast = sqlite3_column_int64(statement, 3) != 0
+                let contextBucket = sqlite3_column_int64(statement, 2)
+                let longContext: Bool
+                if reclassify, contextBucket >= 0, let rateCard {
+                    longContext = rateCard.isLongContext(
+                        TokenTotals(input: Int(contextBucket)),
+                        model: model, provider: source.provider, day: day, fast: isFast
+                    )
+                } else {
+                    longContext = reclassify ? contextBucket == -2 : contextBucket != 0
+                }
                 let tier = ModelTier(
                     source: source.source,
                     model: model,
-                    longContext: sqlite3_column_int64(statement, 2) != 0,
-                    isFast: sqlite3_column_int64(statement, 3) != 0
+                    longContext: longContext,
+                    isFast: isFast
                 )
                 rows.append(DayUsage(day: day, tier: tier,
                                      tokens: try self.tokens(statement, validateForReport: validateForReport)))
@@ -184,6 +227,8 @@ package final class RecordedUsageReader {
         }
         return rows
     }
+
+    private static let invalidContextInput = "context_input IS NOT NULL AND (typeof(context_input) != 'integer' OR context_input < 0)"
 
     private static func invalidTokens(maximum: Int64) -> String {
         let fields = Self.tokenColumns.map { column in

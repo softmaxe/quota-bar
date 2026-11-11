@@ -17,6 +17,62 @@ enum UsageReportUpdateTests {
     }
 
     static func run() async {
+        await AppCheck.run("report page retries failed loads and confirms only successful updates") {
+            var page = UsageReportPageState()
+            let first = UsageReportDumps.sampleSnapshot(days: 28)
+            let second = UsageReportDumps.sampleSnapshot(days: 29)
+            let third = UsageReportDumps.sampleSnapshot()
+            guard case .load = page.request(first) else { throw CheckFailure(description: "first read did not load") }
+            try AppCheck.require(page.shownSnapshot == nil, "an unfinished navigation was marked shown")
+            try AppCheck.require(page.request(second) == nil, "loading did not defer a newer read")
+            // Both provisional and committed navigation failures reset the same page state.
+            page.reset()
+            guard case .load = page.request(second) else { throw CheckFailure(description: "failed load was not retried") }
+            _ = page.didFinishLoading()
+            try AppCheck.require(page.shownSnapshot == second && page.isReady, "completed page was not confirmed")
+            guard case let .update(failedGeneration) = page.request(third) else {
+                throw CheckFailure(description: "new snapshot did not update the page")
+            }
+            try AppCheck.require(page.shownSnapshot == second, "unfinished script changed the confirmed snapshot")
+            _ = page.didFinishUpdate(generation: failedGeneration, succeeded: false)
+            guard case let .update(retryGeneration) = page.request(third) else {
+                throw CheckFailure(description: "same snapshot was not retried after a script failure")
+            }
+            // A newer read waits until the current JavaScript call has settled.
+            try AppCheck.require(page.request(first) == nil, "scripts were allowed to overlap")
+            let pending = page.didFinishUpdate(generation: retryGeneration, succeeded: true)
+            try AppCheck.require(page.shownSnapshot == third && pending == first, "update lost the coalesced read")
+            guard case let .update(oldGeneration) = page.request(first) else {
+                throw CheckFailure(description: "coalesced snapshot did not update")
+            }
+            // Process termination invalidates even a successful callback from the old page.
+            page.reset()
+            guard case .load = page.request(second) else { throw CheckFailure(description: "terminated page did not reload") }
+            _ = page.didFinishUpdate(generation: oldGeneration, succeeded: true)
+            try AppCheck.require(page.shownSnapshot == nil && !page.isReady, "old process confirmed the replacement page")
+            _ = page.didFinishLoading()
+            try AppCheck.require(page.shownSnapshot == second, "replacement page lost its snapshot")
+            try AppCheck.require(page.request(second) == nil, "confirmed identical data was needlessly updated")
+        }
+        await AppCheck.run("report uses its store database and preview uses sample usage") {
+            let fixture = try RecordedUsageFixture()
+            let suite = "QuotaBarReportIsolationTests"
+            let defaults = EphemeralDefaults.make(suite)
+            defer { EphemeralDefaults.clear(suite) }
+            let store = UsageStore(
+                settings: SettingsStore(defaults: defaults),
+                costService: CostService(databaseURL: fixture.databaseURL, rateCard: RateCard()),
+                recoveryDefaults: defaults
+            )
+            let report = UsageReportWindowController(store: store)
+            let expected = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: RateCard.onDisk())
+            try AppCheck.require(try report.debugReadSnapshot() == expected,
+                                 "report did not read the store's isolated database")
+            let preview = UsageReportWindowController(store: store, operations: UsageReportDumps.sampleOperations)
+            let sample = try preview.debugReadSnapshot()
+            try AppCheck.require(sample == UsageReportDumps.sampleSnapshot() && sample.hasRecordedUsage,
+                                 "interface preview report did not use populated sample data")
+        }
         await AppCheck.run("report reads follow scan completions and displays publish atomically") {
             let suite = "QuotaBarReportUpdateTests"
             let defaults = EphemeralDefaults.make(suite)

@@ -61,6 +61,7 @@ enum SettingsWindowTests {
             try AppCheck.require(settings.settingsWindowPosition == .init(x: moved.x, y: moved.y),
                                  "moving the window did not save immediately")
             window.close()
+            try AppCheck.require(!first.clock.isRunning, "closing settings left its clock running")
             first.show()
             try AppCheck.require(window.frame.origin == moved, "reopening centered the moved window")
             window.close()

@@ -85,6 +85,12 @@ private final class ClaudePTYProcess: @unchecked Sendable {
         self.process.standardError = self.slave
     }
 
+    /// A run cancelled before it starts never reaches `finish`, which otherwise closes these.
+    deinit {
+        if !self.masterClosed { try? self.master.close() }
+        if !self.slaveClosed { try? self.slave.close() }
+    }
+
     func run() async throws {
         let timeoutNanoseconds = self.timeoutNanoseconds
         let timeoutTask = Task { [weak self] in
@@ -227,8 +233,9 @@ private final class ClaudePTYProcess: @unchecked Sendable {
             root: rootIdentity,
             descendants: descendants
         )
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self else { return }
+        // Held strongly: the caller resumes as soon as the root exits, and a descendant that
+        // ignored SIGTERM still has to be killed after the runner is otherwise released.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.25) {
             self.lock.lock()
             let group = self.processGroupID
             let root = self.rootIdentity

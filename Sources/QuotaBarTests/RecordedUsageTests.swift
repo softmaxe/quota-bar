@@ -4,6 +4,7 @@ import QuotaBarCore
 enum RecordedUsageTests {
     static func run() async {
         do {
+            try await ReadTimeTierTests.run()
             try self.dailyUsage()
             try self.modelUsage()
             try self.queryFailures()

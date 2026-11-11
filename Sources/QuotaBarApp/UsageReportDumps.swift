@@ -6,6 +6,12 @@ import QuotaBarCore
 /// Renders the usage report on sample data, for the README image and for checking the usage window.
 @MainActor
 enum UsageReportDumps {
+    /// The interface preview shares the report fixtures without ever reading the live database.
+    static var sampleOperations: UsageReportWindowController.Operations {
+        let snapshot = Self.sampleSnapshot()
+        return .init(read: { snapshot }, render: { try UsageReportHTMLRenderer.render($0) })
+    }
+
     /// Builds documentation data without reading credentials, logs, or the usage database.
     static func dumpSampleReport(directory: String) {
         let root = URL(fileURLWithPath: directory, isDirectory: true)

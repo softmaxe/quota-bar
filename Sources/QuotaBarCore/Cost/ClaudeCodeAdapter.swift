@@ -6,6 +6,7 @@
 // cache_read_input_tokens,speed}` and `usage.cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens`,
 // plus a top-level `requestId` and `timestamp`. `speed` is `"standard"` or `"fast"`.
 
+import CryptoKit
 import Foundation
 
 /// Turns Claude Code transcript lines into observed requests.
@@ -89,8 +90,11 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
             let requestId = root.requestId.loose() ?? ""
             let key: String
             if messageId.isEmpty, requestId.isEmpty {
-                // Nothing stable to dedupe on; fall back to the line's own uuid.
-                key = "uuid:\(root.uuid.loose() ?? UUID().uuidString)"
+                if let uuid = root.uuid.loose(), !uuid.isEmpty {
+                    key = "uuid:\(uuid)"
+                } else {
+                    key = Self.contentKey(for: line)
+                }
             } else {
                 key = "\(messageId)|\(requestId)"
             }
@@ -105,9 +109,22 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
                 isFast: usage.speed.loose()?.lowercased() == "fast"
             )
         }
+
+        private static func contentKey(for line: UnsafeRawBufferPointer) -> String {
+            // A replay or mirrored copy has no path-independent identity without an API id or
+            // UUID. Hash the whole record so different replies with equal usage stay distinct,
+            // while JSON formatting and object-key order do not turn a replay into new usage.
+            let data = Data(line)
+            let object = try? JSONSerialization.jsonObject(with: data)
+            let normalized = object.flatMap {
+                try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys])
+            } ?? data
+            let digest = SHA256.hash(data: normalized).map { String(format: "%02x", $0) }.joined()
+            return "sha256:\(digest)"
+        }
     }
 
-    /// The fields of a transcript line the adapter reads. Everything else is skipped unparsed.
+    /// The fields needed for usage. Other fields are read only for an ID-less record's digest.
     private struct Line: Decodable {
         let type: LooseValue<String>?
         let timestamp: LooseValue<String>?

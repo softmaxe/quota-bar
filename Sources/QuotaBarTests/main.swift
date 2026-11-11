@@ -219,12 +219,13 @@ UsageReportTests.run()
 runUsageReportRendererTests()
 
 // App: stores, controllers, and views driven through the QuotaBarApp library.
+await MainActor.run { AddHostChoicesTests.run() }
 await SettingsWindowTests.run()
 QuotaResetLabelTests.run()
 CostChartHighlightTests.run()
 ModelNameFormatTests.run()
 QuotaRecoveryTests.run()
-PricingListTests.run()
+await PricingListTests.run()
 await PricingModelFilterTests.run()
 await PopoverInputActivationTests.run()
 await ProviderStateTests.run()

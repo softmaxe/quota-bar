@@ -22,6 +22,7 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var selection: SettingsSelection = SettingsSelection()
+    @ObservedObject var clock: SettingsClock = SettingsClock()
     /// The pricing pane reads the cost database when it first appears.
     /// All panes live in the hierarchy so the switch can cross-fade, so that work is gated on
     /// the tab having actually been opened rather than on the view existing.
@@ -42,6 +43,7 @@ struct SettingsView: View {
             )
             Divider()
             self.panes
+                .environment(\.settingsNow, self.clock.now)
         }
         .frame(height: Self.paneHeight)
         // The sidebar runs up behind the transparent title bar.
@@ -124,6 +126,8 @@ struct GeneralSettingsView: View {
                         }
                     }
                 }
+                // Keeps a row's hover wash inside the box's corners.
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .settingsGroup()
             }
 
@@ -342,6 +346,22 @@ extension View {
                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
         )
     }
+
+    /// The wash a clickable settings row carries under the pointer.
+    func settingsRowHover() -> some View {
+        self.modifier(SettingsRowHover())
+    }
+}
+
+private struct SettingsRowHover: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(Color.primary.opacity(self.isHovered && self.isEnabled ? 0.04 : 0))
+            .onHover { self.isHovered = $0 }
+    }
 }
 
 /// Opens QuotaBar when the user logs in, through the system's login item for this app. The
@@ -365,6 +385,10 @@ struct LaunchAtLoginRow: View {
             .labelsHidden()
         }
         .onAppear { self.isEnabled = SMAppService.mainApp.status == .enabled }
+        // The panes stay mounted, so coming back from System Settings is what rereads it.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            self.isEnabled = SMAppService.mainApp.status == .enabled
+        }
     }
 
     private func apply(_ enable: Bool) {
@@ -388,8 +412,6 @@ struct ProviderChoiceRow: View {
     let display: ProviderDisplay
     let isSelected: Bool
     let select: () -> Void
-
-    @State private var isHovered = false
 
     var body: some View {
         Button(action: self.select) {
@@ -415,11 +437,10 @@ struct ProviderChoiceRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(self.isHovered ? 0.04 : 0))
             .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
-        .onHover { self.isHovered = $0 }
+        .settingsRowHover()
         .accessibilityLabel("\(self.provider.displayName), \(self.display.quotaReading)")
         .accessibilityAddTraits(self.isSelected ? [.isSelected] : [])
     }

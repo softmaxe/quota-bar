@@ -10,6 +10,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let store: UsageStore
     private let backup: UsageBackupModel
     private let selection = SettingsSelection()
+    let clock = SettingsClock()
     private(set) var window: NSWindow?
     private var isPositioning = false
 
@@ -40,6 +41,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        self.updateClock(window)
         // The window outlives being closed, so a reopened window rereads its rates.
         self.selection.windowShows += 1
         if self.selection.tab == .pricing { self.selection.pricingReloads += 1 }
@@ -51,8 +53,18 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        self.clock.setActive(false)
         guard let window = notification.object as? NSWindow else { return }
         self.savePosition(window)
+    }
+
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        self.updateClock(window)
+    }
+
+    private func updateClock(_ window: NSWindow) {
+        self.clock.setActive(window.isVisible && window.occlusionState.contains(.visible))
     }
 
     private func savePosition(_ window: NSWindow) {
@@ -62,7 +74,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private func makeWindow() -> NSWindow {
         let hosting = NSHostingController(
             rootView: SettingsView(settings: self.settings, pricing: self.pricing,
-                                   store: self.store, backup: self.backup, selection: self.selection)
+                                   store: self.store, backup: self.backup, selection: self.selection, clock: self.clock)
         )
         // SwiftUI would add the title bar's safe area to the height, but the sidebar runs up
         // behind the title bar, so the window is sized here instead.

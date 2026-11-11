@@ -217,6 +217,7 @@ public enum UsageReportReader {
             rows = try PricedUsage.price(try reader.reportUsage(
                 fromDay: calendarDays[0],
                 throughDay: calendarDays[calendarDays.count - 1],
+                rateCard: rateCard,
                 afterSchemaDiscovery: afterSchemaDiscovery
             ), on: rateCard)
         } catch let error as RecordedUsageReaderError {
@@ -312,22 +313,17 @@ public enum UsageReportReader {
         guard now.timeIntervalSinceReferenceDate.isFinite else {
             throw UsageReportReaderError.invalidData("capture date is not finite")
         }
+        let calendar = DayKey.gregorianCalendar(in: calendar.timeZone)
         let end = calendar.startOfDay(for: now)
         guard let start = calendar.date(byAdding: .day, value: 1 - windowDays, to: end) else {
             throw UsageReportReaderError.invalidData("could not calculate report date range")
         }
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-
         var keys: [String] = []
         for offset in 0 ..< windowDays {
             guard let date = calendar.date(byAdding: .day, value: offset, to: start) else {
                 throw UsageReportReaderError.invalidData("could not calculate report day \(offset + 1)")
             }
-            keys.append(formatter.string(from: date))
+            keys.append(DayKey.make(from: date, calendar: calendar))
         }
         guard Set(keys).count == windowDays else {
             throw UsageReportReaderError.invalidData("calendar produced duplicate report days")

@@ -30,7 +30,7 @@ final class RemoteSyncModel: ObservableObject {
     private var timer: Timer?
     private var taskIDs: [String: UUID] = [:]
     private var generations: [String: UUID] = [:]
-    private var tasks: [String: Task<Void, Never>] = [:]
+    @Published private var tasks: [String: Task<Void, Never>] = [:]
 
     /// `readUsage` runs off the main actor and returns nil when the usage cannot be read.
     init(

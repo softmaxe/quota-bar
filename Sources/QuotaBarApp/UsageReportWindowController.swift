@@ -4,6 +4,58 @@ import QuotaBarCore
 import SwiftUI
 import WebKit
 
+/// Only completed page work counts as shown. Updates are serialized so an older callback cannot
+/// overwrite a newer snapshot, and a new page invalidates callbacks from a terminated process.
+struct UsageReportPageState {
+    enum Request {
+        case load
+        case update(UUID)
+    }
+
+    private(set) var isReady = false
+    private(set) var shownSnapshot: UsageReportSnapshot?
+    private var isRequested = false
+    private var loadingSnapshot: UsageReportSnapshot?
+    private var updatingSnapshot: UsageReportSnapshot?
+    private var pendingSnapshot: UsageReportSnapshot?
+    private var generation = UUID()
+
+    mutating func request(_ snapshot: UsageReportSnapshot) -> Request? {
+        guard self.isRequested else {
+            self.isRequested = true
+            self.loadingSnapshot = snapshot
+            return .load
+        }
+        self.pendingSnapshot = snapshot
+        guard self.isReady, self.updatingSnapshot == nil else { return nil }
+        self.pendingSnapshot = nil
+        guard snapshot != self.shownSnapshot else { return nil }
+        self.updatingSnapshot = snapshot
+        return .update(self.generation)
+    }
+
+    mutating func didFinishLoading() -> UsageReportSnapshot? {
+        guard self.isRequested else { return nil }
+        self.isReady = true
+        self.shownSnapshot = self.loadingSnapshot
+        self.loadingSnapshot = nil
+        return self.pendingSnapshot
+    }
+
+    mutating func didFinishUpdate(generation: UUID, succeeded: Bool) -> UsageReportSnapshot? {
+        guard generation == self.generation else { return nil }
+        if succeeded { self.shownSnapshot = self.updatingSnapshot }
+        self.updatingSnapshot = nil
+        let pending = self.pendingSnapshot
+        self.pendingSnapshot = nil
+        return pending
+    }
+
+    mutating func reset() {
+        self = Self()
+    }
+}
+
 /// The usage report, kept current from the cost database while the window is open. New usage
 /// replaces the page's data in place, so the period, metric, breakdown, and language the user
 /// picked stay as they are.
@@ -13,11 +65,15 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         let read: @Sendable () throws -> UsageReportSnapshot
         let render: @Sendable (UsageReportSnapshot) throws -> String
 
-        static let live = Operations(
-            // The window opens on 30 days unless the page remembers another choice.
-            read: { try UsageReportReader.read(windowDays: 30, rateCard: RateCard.onDisk()) },
-            render: { try UsageReportHTMLRenderer.render($0) }
-        )
+        static func database(_ databaseURL: URL) -> Operations {
+            Operations(
+                // The window opens on 30 days unless the page remembers another choice.
+                read: {
+                    try UsageReportReader.read(databaseURL: databaseURL, windowDays: 30, rateCard: RateCard.onDisk())
+                },
+                render: { try UsageReportHTMLRenderer.render($0) }
+            )
+        }
     }
 
     /// How often an open window rescans local logs. Scans are incremental, so after the first
@@ -32,23 +88,19 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
     private var scanObserver: AnyCancellable?
     private var timer: Timer?
 
-    /// The page has run its script and can take `updateReport`.
-    private var isPageReady = false
-    private var isPageRequested = false
+    private var page = UsageReportPageState()
+    private var navigation: WKNavigation?
+    private var hasRetriedFailedLoad = false
     private var readTask: Task<Void, Never>?
     private var needsAnotherRead = false
-    /// What the page shows, so an unchanged read leaves it alone.
-    private var shownSnapshot: UsageReportSnapshot?
-    /// Arrived while the page was still loading.
-    private var pendingSnapshot: UsageReportSnapshot?
 
     /// The page keeps its view choices in local storage under this path, so they survive
     /// relaunches. Nothing is written there; the page is loaded from memory.
     private static let pageURL = AppSupport.directory.appendingPathComponent("usage-report.html")
 
-    init(store: UsageStore?, operations: Operations = .live) {
+    init(store: UsageStore?, operations: Operations? = nil) {
         self.store = store
-        self.operations = operations
+        self.operations = operations ?? .database(store?.costService.databaseURL ?? CostService.defaultDatabaseURL)
     }
 
     func show() {
@@ -118,7 +170,7 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         case let .failure(error):
             // A failed read leaves a page that already shows usage as it is.
             Log.ui.error("Usage report read failed: \(error.localizedDescription, privacy: .public)")
-            if self.shownSnapshot == nil { self.showEmpty(message: error.localizedDescription) }
+            if self.page.shownSnapshot == nil { self.showEmpty(message: error.localizedDescription) }
         case let .success(snapshot):
             guard snapshot.hasRecordedUsage else {
                 self.showEmpty(message: nil)
@@ -131,32 +183,33 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
     private func show(_ snapshot: UsageReportSnapshot) {
         guard let webView = self.webView else { return }
         self.emptyView?.isHidden = true
-        guard self.isPageRequested else {
+        switch self.page.request(snapshot) {
+        case .load:
             do {
                 let html = try self.operations.render(snapshot)
-                self.isPageRequested = true
-                self.shownSnapshot = snapshot
-                webView.loadHTMLString(html, baseURL: Self.pageURL)
+                self.navigation = webView.loadHTMLString(html, baseURL: Self.pageURL)
             } catch {
+                self.page.reset()
                 self.showEmpty(message: error.localizedDescription)
             }
-            return
-        }
-        guard self.isPageReady else {
-            self.pendingSnapshot = snapshot
-            return
-        }
-        guard snapshot != self.shownSnapshot else { return }
-        do {
-            let literal = try UsageReportHTMLRenderer.scriptLiteral(snapshot)
-            self.shownSnapshot = snapshot
-            webView.evaluateJavaScript("window.updateReport(\(literal));void 0") { _, error in
-                if let error {
-                    Log.ui.error("Usage report update failed: \(error.localizedDescription, privacy: .public)")
+        case let .update(generation):
+            do {
+                let literal = try UsageReportHTMLRenderer.scriptLiteral(snapshot)
+                webView.evaluateJavaScript("window.updateReport(\(literal));void 0") { [weak self] _, error in
+                    if let error {
+                        Log.ui.error("Usage report update failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                    guard let self else { return }
+                    if let pending = self.page.didFinishUpdate(generation: generation, succeeded: error == nil) {
+                        self.show(pending)
+                    }
                 }
+            } catch {
+                _ = self.page.didFinishUpdate(generation: generation, succeeded: false)
+                Log.ui.error("Usage report encoding failed: \(error.localizedDescription, privacy: .public)")
             }
-        } catch {
-            Log.ui.error("Usage report encoding failed: \(error.localizedDescription, privacy: .public)")
+        case nil:
+            break
         }
     }
 
@@ -207,13 +260,40 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
 
     // MARK: WKNavigationDelegate
 
-    func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-        self.isPageReady = true
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard navigation === self.navigation else { return }
+        self.hasRetriedFailedLoad = false
         webView.isHidden = false
-        if let pending = self.pendingSnapshot {
-            self.pendingSnapshot = nil
-            self.show(pending)
+        if let pending = self.page.didFinishLoading() { self.show(pending) }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard navigation === self.navigation else { return }
+        self.recoverPage(webView, error: error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard navigation === self.navigation else { return }
+        self.recoverPage(webView, error: error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        self.recoverPage(webView, error: nil)
+    }
+
+    private func recoverPage(_ webView: WKWebView, error: Error?) {
+        self.navigation = nil
+        self.page.reset()
+        webView.isHidden = true
+        if let error { Log.ui.error("Usage report page failed: \(error.localizedDescription, privacy: .public)") }
+        // Retry once immediately. A persistent WebKit failure waits for the next normal reload
+        // instead of spinning, with the page reset so that reload can start a fresh navigation.
+        guard !self.hasRetriedFailedLoad else {
+            self.showEmpty(message: error?.localizedDescription ?? "The usage report page could not be loaded.")
+            return
         }
+        self.hasRetriedFailedLoad = true
+        self.reload()
     }
 
     /// The page is self-contained. Nothing it does may navigate the window away.
@@ -222,17 +302,21 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         decidePolicyFor action: WKNavigationAction,
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
-        decisionHandler(self.isPageReady || action.navigationType != .other ? .cancel : .allow)
+        decisionHandler(self.page.isReady || action.navigationType != .other ? .cancel : .allow)
     }
 
 #if DEBUG
+    func debugReadSnapshot() throws -> UsageReportSnapshot {
+        try self.operations.read()
+    }
+
     /// Waits for all requested reads, including a coalesced follow-up, to be applied.
     func debugWaitForPendingReads() async {
         while let task = self.readTask { await task.value }
     }
 
     /// The loaded page, for the preview dump.
-    var debugWebView: WKWebView? { self.isPageReady ? self.webView : nil }
+    var debugWebView: WKWebView? { self.page.isReady ? self.webView : nil }
 #endif
 }
 

@@ -43,6 +43,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var presentedProvider: Provider?
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingTableModel,
+         reportOperations: UsageReportWindowController.Operations? = nil,
          now: @escaping () -> Date = { Date() },
          openMenuClockInterval: TimeInterval = 15, refreshRowClockInterval: TimeInterval = 1,
          useSystemStatusItemSession: Bool = true,
@@ -50,7 +51,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.store = store
         self.settings = settings
         self.settingsWindow = SettingsWindowController(settings: settings, pricing: pricing, store: store)
-        self.usageWindow = UsageReportWindowController(store: store)
+        self.usageWindow = UsageReportWindowController(store: store, operations: reportOperations)
         self.now = now
         self.openMenuClockInterval = openMenuClockInterval
         self.refreshRowClockInterval = refreshRowClockInterval
@@ -410,6 +411,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.debugCardUpdateCount += 1
 #endif
         if self.presentedProvider != provider {
+            // Switching providers destroys the old bars. Their claimed events must not arm
+            // the replacement bars when the user returns during this presentation.
+            if let previous = self.presentedProvider { self.recoveries[previous] = nil }
             self.isCostBreakdownExpanded = false
             self.expandedBreakdownDayKey = nil
             self.presentedProvider = provider
@@ -658,6 +662,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     func debugStartRefreshRowClock() { self.startRefreshRowClock() }
     func debugStopRefreshRowClock() { self.stopRefreshRowClock() }
     func debugStatusLine() -> String? { self.presentation?.card.debugStatusLine }
+    var debugPresentedRecoveries: [QuotaWindowKind: QuotaRecoveryEvent] {
+        self.presentation?.card.recoveries ?? [:]
+    }
     func debugClickRefreshRow() { self.refreshClicked() }
     func debugRefreshRowState() -> (title: String, trailingText: String?, isEnabled: Bool)? {
         guard let state = self.presentation?.refreshState else { return nil }

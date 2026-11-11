@@ -145,9 +145,9 @@ public struct ModelDayUsage: Sendable, Equatable {
     }
 }
 
-/// One local-calendar day of usage, already split by source and model.
+/// One Gregorian day of usage in the local time zone, already split by source and model.
 public struct CostDay: Sendable, Equatable {
-    /// `yyyy-MM-dd` in the local time zone, matching how the chart buckets days.
+    /// Gregorian `yyyy-MM-dd` in the local time zone, matching how the chart buckets days.
     public let dayKey: String
     public let byModel: [ModelUsageKey: ModelDayUsage]
     public let costUSD: Double?
@@ -288,14 +288,21 @@ public struct CostAvailability: Sendable, Equatable {
 }
 
 package enum DayKey {
-    /// Days bucket by the local calendar, so "today" matches what the user's clock says.
+    /// Stored keys and price periods share Gregorian dates, regardless of the system calendar.
+    /// Only the caller's time zone controls which local day a timestamp belongs to.
+    package static func gregorianCalendar(in timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
     package static func make(from date: Date, calendar: Calendar = .current) -> String {
+        let calendar = self.gregorianCalendar(in: calendar.timeZone)
         // Log lines arrive roughly in time order, so consecutive calls nearly always fall on the
         // same day. Reuse that day's key while the date stays inside its interval.
         let timeZone = calendar.timeZone
-        let identifier = calendar.identifier
         self.lock.lock()
-        if let last = self.last, last.identifier == identifier, last.timeZone == timeZone,
+        if let last = self.last, last.timeZone == timeZone,
            last.interval.start <= date, date < last.interval.end {
             self.lock.unlock()
             return last.key
@@ -306,14 +313,13 @@ package enum DayKey {
         let key = String(format: "%04d-%02d-%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0)
         if let interval = calendar.dateInterval(of: .day, for: date) {
             self.lock.lock()
-            self.last = LastDay(identifier: identifier, timeZone: timeZone, interval: interval, key: key)
+            self.last = LastDay(timeZone: timeZone, interval: interval, key: key)
             self.lock.unlock()
         }
         return key
     }
 
     private struct LastDay {
-        let identifier: Calendar.Identifier
         let timeZone: TimeZone
         let interval: DateInterval
         let key: String

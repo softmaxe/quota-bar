@@ -5,6 +5,7 @@ import Foundation
 /// its stat snapshot is unchanged, and flagged by one `included` value per batch.
 enum SnapshotRecordingTests {
     static func run() {
+        Self.timeZoneChangesKeepRecordedDays()
         Self.unchangedSnapshotIsSkipped()
         Self.changedSnapshotRewritesChangedRows()
         Self.fastRequestsAreRecordedAsFast()
@@ -19,6 +20,84 @@ enum SnapshotRecordingTests {
         Self.excludedRowsStayExcluded()
         Self.unreadableSourceKeepsRecordedUsage()
         Self.removedSourceIsIdleAndKeepsRecordedUsage()
+    }
+
+    private static func timeZoneChangesKeepRecordedDays() {
+        let fixture = RecorderFixture(name: "time-zone")
+        defer { fixture.remove() }
+        let previousZone = NSTimeZone.default
+        let previousTZ = ProcessInfo.processInfo.environment["TZ"]
+        func setZone(_ name: String) {
+            setenv("TZ", name, 1)
+            tzset()
+            NSTimeZone.resetSystemTimeZone()
+            NSTimeZone.default = TimeZone(identifier: name)!
+        }
+        defer {
+            if let previousTZ { setenv("TZ", previousTZ, 1) } else { unsetenv("TZ") }
+            tzset()
+            NSTimeZone.resetSystemTimeZone()
+            NSTimeZone.default = previousZone
+        }
+        setZone("UTC")
+        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("old", input: 10)])
+        fixture.writeClaudeTranscript("app/session.jsonl", lines: [
+            ClaudeLine.assistant(id: "old", model: "claude-opus-5", input: 10, output: 1),
+        ])
+        let rollout = "rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000001.jsonl"
+        let codexLines = [CodexLine.turnContext(model: "gpt-5.6-luna"),
+                          CodexLine.tokenCount(input: 10, output: 1, total: 11)]
+        fixture.writeCodexRollout(rollout, lines: codexLines)
+        fixture.record(.claude)
+        fixture.record(.codex)
+        do {
+            let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
+            let before = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
+            Harness.expectEqual(Set(before.map(\.tier.source)), Set([.claude, .codex, .openCode, .piAgent]),
+                                "the time-zone fixture records every source")
+            Harness.expect(before.allSatisfy { $0.day == "2026-09-01" }, "all sources first record the UTC day")
+            setZone("Pacific/Kiritimati")
+            Harness.expectEqual(DayKey.make(from: Date(timeIntervalSince1970: 1_788_264_000)), "2026-09-02",
+                                "the new zone puts the same timestamp on another day")
+            for provider in [Provider.claude, .codex] {
+                Harness.expectEqual(fixture.recorder?.record(provider, rateCard: RateCard(), env: fixture.env), 0,
+                                    "changing only the time zone reads no source again")
+            }
+            let unchanged = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
+            Harness.expectEqual(try PricedUsage.price(unchanged, on: RateCard()),
+                                try PricedUsage.price(before, on: RateCard()),
+                                "a time-zone-only refresh preserves every recorded day and token count")
+
+            guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
+            db.execute("DELETE FROM part WHERE id = 'part-1'")
+            db.execute("DELETE FROM message WHERE id = 'message-part-1'")
+            db.stepFinish("part-1", created: 1_788_264_000_000, model: "gpt-5.6-luna", input: 20)
+            db.stepFinish("new", created: 1_788_264_000_000, model: "gpt-5.6-luna", input: 5)
+            db.close()
+            PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [
+                PiSessionFile.message("old", input: 20), PiSessionFile.message("new", input: 5),
+            ])
+            fixture.writeClaudeTranscript("app/session.jsonl", lines: [
+                ClaudeLine.assistant(id: "old", model: "claude-opus-5", input: 20, output: 2),
+                ClaudeLine.assistant(id: "new", model: "claude-opus-5", input: 5, output: 1),
+            ])
+            fixture.writeCodexRollout(rollout, lines: codexLines)
+            fixture.record(.claude)
+            fixture.record(.codex)
+            let changed = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
+            for source in [CostUsageSource.claude, .openCode, .piAgent] {
+                Harness.expectEqual(changed.first { $0.tier.source == source && $0.day == "2026-09-01" }?.tokens.input, 20,
+                                    "a changed keyed request keeps its first day")
+                Harness.expectEqual(changed.first { $0.tier.source == source && $0.day == "2026-09-02" }?.tokens.input, 5,
+                                    "a newly seen request uses the current zone")
+            }
+            Harness.expectEqual(changed.filter { $0.tier.source == .codex }.map(\.day), ["2026-09-02"],
+                                "a rewritten aggregate-only rollout uses the current zone")
+        } catch {
+            Harness.expect(false, "time-zone recording fixture failed: \(error)")
+        }
     }
 
     /// Recorded usage is durable history: a request the source no longer holds still counts.

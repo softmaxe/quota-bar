@@ -15,6 +15,8 @@ struct UsageSettingsView: View {
     /// mirrors hold.
     var reload = 0
 
+    @Environment(\.settingsNow) private var now
+
     @State private var isAddingHost = false
     /// Read when the sheet opens, so a host added to the config meanwhile shows up.
     @State private var configHosts: [String] = []
@@ -43,7 +45,9 @@ struct UsageSettingsView: View {
 
     /// "56,412 records since Nov 3, 2025 · 27.4 MB", or what is known of it so far.
     private var savedSummary: String {
-        guard let summary = self.backup.summary else { return "Reading what is saved…" }
+        guard let summary = self.backup.summary else {
+            return self.backup.summaryReadFailed ? "Couldn't read saved usage" : "Reading what is saved…"
+        }
         let records = summary.records == 1 ? "1 record" : "\(summary.records.formatted()) records"
         let since = summary.firstDay == nil ? records : "\(records) since \(self.firstDay)"
         return summary.bytes > 0 ? "\(since) · \(self.size)" : since
@@ -108,7 +112,7 @@ struct UsageSettingsView: View {
         let scans = statuses.compactMap { status -> Date? in
             if case let .completed(date) = status { date } else { nil }
         }
-        if let latest = scans.max() { return "Scanned \(Formatters.relativeAge(since: latest))" }
+        if let latest = scans.max() { return "Scanned \(Formatters.relativeAge(since: latest, now: self.now))" }
         for case let .failed(reason) in statuses { return reason }
         return "Waiting for the first scan"
     }
@@ -116,7 +120,7 @@ struct UsageSettingsView: View {
     private func hostRow(_ host: String) -> some View {
         let state = self.remote.state(of: host)
         let usage = self.remote.usage[host]
-        let detail = Self.detail(of: state, usage: usage)
+        let detail = Self.detail(of: state, usage: usage, now: self.now)
         return SettingsRow(
             symbol: "server.rack",
             title: host,
@@ -170,11 +174,11 @@ struct UsageSettingsView: View {
         self.configHosts.filter { !self.settings.remoteHosts.contains($0) }
     }
 
-    private static func detail(of state: RemoteHostSyncState, usage: RemoteHostUsage?) -> String {
+    private static func detail(of state: RemoteHostSyncState, usage: RemoteHostUsage?, now: Date) -> String {
         switch state {
         case .idle: self.joined("Waiting for the next sync", usage)
         case .syncing: "Syncing…"
-        case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date))", usage)
+        case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date, now: now))", usage)
         case let .failed(reason): self.failureSummary(reason)
         }
     }
@@ -240,7 +244,8 @@ struct UsageSettingsView: View {
                         // What is saved, in one line; importing only ever adds to it.
                         Text(self.savedSummary)
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(self.backup.summary == nil && self.backup.summaryReadFailed
+                                ? Color.orange : Color.secondary)
                             .monospacedDigit()
                             .help("Export writes a copy. Import merges one back in and only adds.")
                     }
@@ -330,7 +335,8 @@ struct AddHostSheet: View {
     let add: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
+    @State var query = ""
+    @State private var selectedHost: String?
 
     private static let listHeight: CGFloat = 150
 
@@ -341,48 +347,58 @@ struct AddHostSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text("SSH host or alias")
                     .font(.system(size: 12, weight: .medium))
-                TextField("Search hosts or type devbox", text: self.$query)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(self.addTyped)
+                HostSearchField(text: self.$query, submit: self.addSelected, move: self.moveSelection)
+                    .frame(height: 22)
             }
-            if !self.matches.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(self.matches.enumerated()), id: \.element) { index, host in
-                            if index > 0 { Divider() }
-                            AddHostRow(host: host) { self.finish(host) }
+            if !self.choices.hosts.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(Array(self.choices.hosts.enumerated()), id: \.element) { index, host in
+                                if index > 0 { Divider() }
+                                AddHostRow(
+                                    host: host,
+                                    isTyped: host == self.choices.typedOption,
+                                    isSelected: host == self.resolvedHost
+                                ) { self.finish(host) }
+                                .id(host)
+                            }
                         }
+                    }
+                    .onChange(of: self.resolvedHost) { _, host in
+                        if let host { proxy.scrollTo(host) }
                     }
                 }
                 .frame(maxHeight: Self.listHeight)
                 .fixedSize(horizontal: false, vertical: true)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .settingsGroup()
             }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { self.dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Add", action: self.addTyped)
+                Button("Add", action: self.addSelected)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!RemoteLogMirror.isValidHost(self.typedHost))
+                    .disabled(self.resolvedHost == nil)
             }
         }
         .padding(18)
         .frame(width: 400)
+        .onChange(of: self.query) { self.selectedHost = nil }
     }
 
-    private var typedHost: String {
-        self.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var choices: AddHostChoices { AddHostChoices(query: self.query, hosts: self.hosts) }
+
+    private var resolvedHost: String? { self.choices.resolve(selection: self.selectedHost) }
+
+    private func moveSelection(_ offset: Int) {
+        self.selectedHost = self.choices.moved(selection: self.selectedHost, by: offset)
     }
 
-    private var matches: [String] {
-        guard !self.typedHost.isEmpty else { return self.hosts }
-        return self.hosts.filter { $0.localizedCaseInsensitiveContains(self.typedHost) }
-    }
-
-    private func addTyped() {
-        guard RemoteLogMirror.isValidHost(self.typedHost) else { return }
-        self.finish(self.typedHost)
+    private func addSelected() {
+        guard let host = self.resolvedHost else { return }
+        self.finish(host)
     }
 
     private func finish(_ host: String) {
@@ -393,21 +409,24 @@ struct AddHostSheet: View {
 
 private struct AddHostRow: View {
     let host: String
+    let isTyped: Bool
+    let isSelected: Bool
     let action: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         Button(action: self.action) {
-            Text(self.host)
+            Text(self.isTyped ? "Add \"\(self.host)\" as typed" : self.host)
                 .font(.system(size: 13))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .frame(height: 30)
-                .background(Color.primary.opacity(self.isHovered ? 0.06 : 0))
+                .background(self.isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(self.isHovered ? 0.06 : 0))
                 .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(pressScale: CardMotion.rowPressScale))
         .onHover { self.isHovered = $0 }
+        .accessibilityAddTraits(self.isSelected ? [.isSelected] : [])
     }
 }

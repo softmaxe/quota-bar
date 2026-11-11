@@ -69,3 +69,28 @@ validation. Pi and OpenCode reread snapshots when their file stamps change; cach
 Pi files would require preserving fork deduplication, account eligibility, deletion, and failed-read
 recovery. These remain candidates for representative active-session benchmarks, not proven
 improvements. Absolute optimality cannot be established by these measurements.
+
+## Read-time context tiers
+
+Keyed usage carries one nullable context input per request. SQL reduces it to buckets bounded
+by the provider's current price-book thresholds and the models.dev threshold, rather than
+returning one row per request or per distinct input count. Legacy base and long-context rows
+use separate negative bucket keys in the same grouping expression. `PricedUsage` coalesces
+these buckets after each model/day/Fast tier has been resolved. The existing day indexes still
+limit date-range reads, and Codex keeps its aggregate query.
+
+`ReadTimeTierTests.boundedAggregation` inserts 10,000 distinct input sizes for one model/day,
+checks that SQL returns at most three buckets for the fixture's two thresholds, and verifies
+that pricing produces two effective tiers without losing tokens. Dated thresholds, alias
+resolution, mixed legacy/new rows, and menu/report agreement have separate correctness checks.
+
+A local SQLite query comparison used 300,000 synthetic requests, 30 interleaved days, seven
+models, alternating Fast flags, and distinct context inputs from 0 through 299,999. Both queries
+used a day index, five token sums, and token-domain validation. The new query also validated
+context inputs and bucketed at 200K and 272K. Nine alternating runs discarded the first two;
+the seven-run medians were 310.5 ms for stored-tier grouping and 341.4 ms for threshold grouping
+over all 30 days, and 103.6 ms / 110.7 ms over the last ten days. `EXPLAIN QUERY PLAN` retained
+`SEARCH ... USING INDEX ... (day>? AND day<?)` with a temporary grouping B-tree in both cases.
+This is a warm, in-memory SQL microbenchmark, not an end-to-end report or a real-log speed claim.
+It exposes the small per-row classification cost; result size stays bounded by thresholds,
+not request count. No additional indexes or per-request Swift callbacks are introduced.

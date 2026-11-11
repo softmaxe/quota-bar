@@ -13,8 +13,8 @@ public struct PriceBook: Sendable {
     public struct Model: Sendable, Equatable {
         /// Normalized model name, as scanners store it.
         public let id: String
-        /// Other names the provider accepts for the same model. They resolve to `id` before
-        /// anything is stored, so both names aggregate as one model.
+        /// Other names the provider accepts for the same model. They resolve to `id` when
+        /// stored usage is read, so both names aggregate as one model.
         public let aliases: [String]
         /// Listed in the pricing settings even before it appears in local logs.
         public let showInSettings: Bool

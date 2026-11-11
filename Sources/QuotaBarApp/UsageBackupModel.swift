@@ -17,13 +17,16 @@ final class UsageBackupModel: ObservableObject {
         case failed(String)
     }
 
-    /// nil until read, and when the database cannot be read.
+    /// nil until the database has been read successfully once.
     @Published private(set) var summary: SavedUsageSummary?
+    @Published private(set) var summaryReadFailed = false
     @Published private(set) var activity: Activity?
     @Published private(set) var outcome: Outcome?
 
     private let store: UsageStore
     private let fixture: SavedUsageSummary?
+    /// Counts reads, so one that finishes late cannot replace a newer one's result.
+    private var summaryReads = 0
 
     /// `fixture` stands in for the saved usage, for dumps.
     init(store: UsageStore, fixture: SavedUsageSummary? = nil) {
@@ -35,9 +38,15 @@ final class UsageBackupModel: ObservableObject {
     func loadSummary() async {
         guard self.fixture == nil else { return }
         let databaseURL = self.store.costService.databaseURL
-        self.summary = await Task.detached(priority: .utility) {
+        self.summaryReads += 1
+        let read = self.summaryReads
+        let summary = await Task.detached(priority: .utility) {
             try? CostUsageReader.savedUsage(databaseURL: databaseURL)
         }.value
+        // A failed read keeps what was last shown rather than going back to "reading".
+        guard read == self.summaryReads else { return }
+        self.summaryReadFailed = summary == nil
+        if let summary { self.summary = summary }
     }
 
     func exportBackup(to url: URL) async {
