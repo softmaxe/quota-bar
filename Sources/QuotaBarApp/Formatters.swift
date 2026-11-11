@@ -30,8 +30,9 @@ enum Formatters {
             to: calendar.startOfDay(for: date)
         ).day ?? 0
 
-        if days <= 0 { return time }
-        if days < 7 {
+        if days == 0 { return time }
+        // A reset already past, kept on a saved reading, names its date like a distant one.
+        if days > 0, days < 7 {
             let weekday = Self.style(calendar, locale).weekday(.abbreviated).format(date)
             return "\(weekday) \(time)"
         }
@@ -52,7 +53,7 @@ enum Formatters {
     /// "just now", "5m ago", "2h ago".
     static func relativeAge(since date: Date, now: Date = Date()) -> String {
         let seconds = Int(max(0, now.timeIntervalSince(date)))
-        if seconds < 45 { return "just now" }
+        if seconds < 60 { return "just now" }
         if seconds < 3_600 { return "\(seconds / 60)m ago" }
         if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
         return "\(seconds / 86_400)d ago"
@@ -108,8 +109,9 @@ enum Formatters {
 
     static func tokens(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "Unavailable" }
-        if value >= 1_000_000_000 { return String(format: "%.1fB", value / 1_000_000_000) }
-        if value >= 1_000_000 { return String(format: "%.0fM", value / 1_000_000) }
+        // Each unit starts where the one below would round up to "1000".
+        if value >= 999_500_000 { return String(format: "%.1fB", value / 1_000_000_000) }
+        if value >= 999_500 { return String(format: "%.0fM", value / 1_000_000) }
         if value >= 1_000 { return String(format: "%.0fK", value / 1_000) }
         return String(format: "%.0f", value.rounded(.towardZero))
     }
