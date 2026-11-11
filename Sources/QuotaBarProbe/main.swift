@@ -73,7 +73,7 @@ func median(_ values: [Double]) -> Double {
     values.sorted()[values.count / 2]
 }
 
-func benchmarkCost(arguments: [String]) async -> Never {
+func benchmarkCost(arguments: [String]) async {
     func fail(_ message: String) -> Never {
         FileHandle.standardError.write(Data("error: \(message)\n".utf8))
         exit(2)
@@ -140,14 +140,15 @@ func benchmarkCost(arguments: [String]) async -> Never {
         format: "incremental_ms median=%.1f min=%.1f max=%.1f",
         median(incrementalTimes), incrementalTimes.min() ?? 0, incrementalTimes.max() ?? 0
     ))
-    exit(0)
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 if let benchmarkIndex = arguments.firstIndex(of: "--benchmark-cost") {
     var benchmarkArguments = arguments
     benchmarkArguments.remove(at: benchmarkIndex)
+    // Returning first lets the benchmark's `defer` remove its temporary databases.
     await benchmarkCost(arguments: benchmarkArguments)
+    exit(0)
 }
 
 let costService = CostService()
