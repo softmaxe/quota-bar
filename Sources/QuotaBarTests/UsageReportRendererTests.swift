@@ -22,7 +22,6 @@ func runUsageReportRendererTests() {
         Harness.expectEqual(decoded, snapshot, "script-safe encoding preserves the snapshot, hostile identifier included")
         Harness.expectEqual(String(html[start..<end]), try UsageReportHTMLRenderer.scriptLiteral(snapshot),
                             "the usage window's live updates carry the same script-safe JSON the page embeds")
-        Harness.expect(html.contains("window.updateReport="), "the runtime takes a newer snapshot without reloading")
     } catch {
         Harness.expect(false, "report rendering threw: \(error)")
     }

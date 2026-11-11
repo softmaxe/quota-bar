@@ -177,7 +177,7 @@ enum QuotaCelebration {
 }
 
 /// The hidden replay keeps the approved reset choreography intact, then quietly returns the bar
-/// to live data. One deterministic timeline avoids delayed callbacks inside an NSMenu run loop.
+/// to live data. One deterministic timeline avoids delayed callbacks while a menu tracks the run loop.
 enum QuotaCelebrationReplay {
     static let returnDuration: TimeInterval = 0.82
     static var duration: TimeInterval { QuotaCelebration.duration + Self.returnDuration }

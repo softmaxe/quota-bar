@@ -37,7 +37,7 @@ Providers are `codex` (OpenAI models, including OpenCode and Pi Agent usage) and
 A model has these keys:
 
 - `id` is the name scanners store: lowercase, with no date suffix or vendor prefix. `RateCard.modelID(for:provider:)` must return it unchanged.
-- `aliases` lists other names for the same model. They resolve to `id` before usage is stored.
+- `aliases` lists other names for the same model. Usage is stored under the name the log reported; aliases resolve to `id` when it is read, so an alias added later still prices earlier usage.
 - `showInSettings` lists the model in the pricing settings before it appears in local logs.
 - `source`, `checkedAt` and `note` are optional. Use them when a model's price comes from a different page than the provider's, or when the numbers need explaining.
 
