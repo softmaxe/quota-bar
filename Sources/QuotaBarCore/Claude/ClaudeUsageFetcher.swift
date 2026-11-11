@@ -22,7 +22,7 @@ public struct ClaudeUsageResponse: Decodable, Sendable {
 
     public struct Window: Decodable, Sendable {
         /// Fraction of the window consumed. The API reports 0...100, not 0...1.
-        public let utilization: Double?
+        public let utilization: Double
         public let resetsAt: String?
 
         enum CodingKeys: String, CodingKey {
@@ -32,7 +32,7 @@ public struct ClaudeUsageResponse: Decodable, Sendable {
 
         public var window: UsageWindow {
             UsageWindow(
-                usedPercent: self.utilization ?? 0,
+                usedPercent: self.utilization,
                 resetsAt: self.resetsAt.flatMap(ISO8601.parse),
                 windowSeconds: nil
             )
@@ -105,7 +105,8 @@ public enum ClaudeUsageFetcher {
 
         switch response.statusCode {
         case 200:
-            guard let decoded = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data) else {
+            guard let decoded = try? JSONDecoder().decode(ClaudeUsageResponse.self, from: data),
+                  decoded.fiveHour != nil || decoded.sevenDay != nil else {
                 throw ClaudeFetchError.invalidResponse
             }
             return decoded

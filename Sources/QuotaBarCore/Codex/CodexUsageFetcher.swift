@@ -71,6 +71,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
         public let hasCredits: Bool
         public let unlimited: Bool
         public let balance: Double?
+        fileprivate let hasUsableInformation: Bool
 
         enum CodingKeys: String, CodingKey {
             case hasCredits = "has_credits"
@@ -80,8 +81,10 @@ public struct CodexUsageResponse: Decodable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.hasCredits = (try? container.decode(Bool.self, forKey: .hasCredits)) ?? false
-            self.unlimited = (try? container.decode(Bool.self, forKey: .unlimited)) ?? false
+            let hasCredits = try? container.decode(Bool.self, forKey: .hasCredits)
+            let unlimited = try? container.decode(Bool.self, forKey: .unlimited)
+            self.hasCredits = hasCredits ?? false
+            self.unlimited = unlimited ?? false
             if let balance = try? container.decode(Double.self, forKey: .balance) {
                 self.balance = balance.isFinite && balance >= 0 ? balance : nil
             } else if let raw = try? container.decode(String.self, forKey: .balance) {
@@ -89,6 +92,7 @@ public struct CodexUsageResponse: Decodable, Sendable {
             } else {
                 self.balance = nil
             }
+            self.hasUsableInformation = hasCredits != nil || unlimited != nil || self.balance != nil
         }
     }
 }
@@ -154,7 +158,9 @@ public enum CodexUsageFetcher {
 
         switch response.statusCode {
         case 200...299:
-            guard let decoded = try? JSONDecoder().decode(CodexUsageResponse.self, from: data) else {
+            guard let decoded = try? JSONDecoder().decode(CodexUsageResponse.self, from: data),
+                  decoded.rateLimit?.primaryWindow != nil || decoded.rateLimit?.secondaryWindow != nil
+                    || decoded.credits?.hasUsableInformation == true else {
                 throw CodexFetchError.invalidResponse
             }
             return decoded
