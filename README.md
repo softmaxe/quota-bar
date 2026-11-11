@@ -213,7 +213,7 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 Saved usage outlives the session logs, but it is gone if QuotaBar's own data is deleted too. Open **Settings → Usage** to see how much is saved and to keep a copy.
 
 - **Export…** saves one `.sqlite` file wherever you choose, such as an external disk or a synced folder. A backup restores only what was saved by then.
-- **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. It never removes usage: a message or rollout on both sides keeps the fuller record, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
+- **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. For overlapping Claude messages, the copy with more output tokens wins; for Codex rollouts, the copy scanned further wins. OpenCode and Pi Agent keep this Mac's existing row, preserving eligibility if either copy was included; a later scan rewrites that row only if its source changed. Import does not delete records, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
 
 A backup holds token counts, dates, models, pricing tiers, record IDs, scan positions, and local session paths, so check where you share it. It holds no prompts or replies. Quota pace samples and cached models.dev rates are not included: pace rebuilds as QuotaBar samples quota again, and past third-party costs use the rates downloaded on that Mac.
 
