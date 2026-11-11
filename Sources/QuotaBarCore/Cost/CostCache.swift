@@ -351,10 +351,11 @@ final class CostCache {
     func commit() throws { try self.exec("COMMIT") }
     func rollback() { try? self.exec("ROLLBACK") }
 
+    // Keyed requests keep the day first recorded here, even when a replay grows their usage
+    // or an imported backup recorded the same request in another time zone.
     private static let claudeConflict = """
         ON CONFLICT(key) DO UPDATE SET
             path = excluded.path,
-            day = excluded.day,
             model = excluded.model,
             long_context = excluded.long_context,
             is_fast = excluded.is_fast,
@@ -471,13 +472,13 @@ final class CostCache {
         isFast: Bool,
         totals: TokenTotals
     ) throws {
+        // A changed snapshot updates content, never the day already assigned to this identity.
         let stmt = try self.reusable("""
             INSERT INTO opencode_part
                 (key, included, legacy_inferred, day, model, long_context, is_fast, input,
                  output, cache_write, cache_write_1h, cache_read)
             VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
-                day = excluded.day,
                 model = excluded.model,
                 long_context = excluded.long_context,
                 is_fast = excluded.is_fast,
@@ -486,8 +487,7 @@ final class CostCache {
                 cache_write = excluded.cache_write,
                 cache_write_1h = excluded.cache_write_1h,
                 cache_read = excluded.cache_read
-            WHERE excluded.day IS NOT opencode_part.day
-               OR excluded.model IS NOT opencode_part.model
+            WHERE excluded.model IS NOT opencode_part.model
                OR excluded.is_fast IS NOT opencode_part.is_fast
                OR excluded.input IS NOT opencode_part.input
                OR excluded.output IS NOT opencode_part.output
@@ -514,18 +514,18 @@ final class CostCache {
         longContext: Bool,
         totals: TokenTotals
     ) throws {
+        // A changed snapshot updates content, never the day already assigned to this identity.
         let stmt = try self.reusable("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
                  cache_write_1h, cache_read)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
-                day = excluded.day, model = excluded.model, long_context = excluded.long_context,
+                model = excluded.model, long_context = excluded.long_context,
                 input = excluded.input, output = excluded.output,
                 cache_write = excluded.cache_write, cache_write_1h = excluded.cache_write_1h,
                 cache_read = excluded.cache_read
-            WHERE excluded.day IS NOT pi_message.day
-               OR excluded.model IS NOT pi_message.model
+            WHERE excluded.model IS NOT pi_message.model
                OR excluded.input IS NOT pi_message.input
                OR excluded.output IS NOT pi_message.output
                OR excluded.cache_write IS NOT pi_message.cache_write

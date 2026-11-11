@@ -644,11 +644,10 @@ package struct SnapshotReadError: LocalizedError {
     }
 }
 
-/// A snapshot Recorded usage reflects. The time zone decides each row's day and `included` each
-/// row's flag, so a change to either rereads the source even when its files did not change.
+/// A snapshot Recorded usage reflects. Eligibility changes still require a read, but a time-zone
+/// change alone must not replay history. New requests use the zone in effect when they are read.
 private struct RecordedSnapshot: Equatable {
     let stamp: AnyHashable
-    let timeZone: String
     let included: Bool
 }
 
@@ -671,7 +670,7 @@ extension UsageRecorder {
             return 0
         case let .present(stamp, included, status):
             let snapshot = stamp.map {
-                RecordedSnapshot(stamp: AnyHashable($0), timeZone: TimeZone.current.identifier, included: included)
+                RecordedSnapshot(stamp: AnyHashable($0), included: included)
             }
             if let snapshot, snapshot == self.snapshots[source] {
                 self.settle(source.usageSource, status: status)
