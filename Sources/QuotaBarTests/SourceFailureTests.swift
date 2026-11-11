@@ -27,7 +27,9 @@ enum SourceFailureTests {
         let tokens = Self.inputTokens(bySourceIn: snapshot)
         Harness.expectEqual(tokens[.codex], 100, "the snapshot keeps previously recorded Codex usage")
         Harness.expectEqual(tokens[.openCode], 10, "the snapshot shows OpenCode usage")
-        Harness.expectEqual(tokens[.piAgent], 5, "the snapshot shows Pi Agent usage")
+        Harness.expect(tokens[.piAgent] == nil, "Codex excludes Pi usage")
+        let pi = await service.refresh(.pi)
+        Harness.expectEqual(Self.inputTokens(bySourceIn: pi)[.piAgent], 5, "Pi remains readable when Codex scanning fails")
         Harness.expectEqual(
             await service.currentScanStatus(of: .codex),
             .error("database"),

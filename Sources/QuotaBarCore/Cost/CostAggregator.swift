@@ -3,7 +3,7 @@ import Foundation
 /// Folds priced recorded usage into the numbers the popover shows.
 enum CostAggregator {
     static func snapshot(
-        provider: Provider,
+        tab: UsageTab,
         reader: RecordedUsageReader,
         rateCard: RateCard,
         windowDays: Int = 30,
@@ -14,7 +14,7 @@ enum CostAggregator {
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
         let todayKey = DayKey.today(calendar: calendar, now: now)
         let rows = try PricedUsage.price(
-            try reader.dailyUsage(provider: provider, fromDay: DayKey.make(from: start, calendar: calendar), rateCard: rateCard)
+            try reader.dailyUsage(tab: tab, fromDay: DayKey.make(from: start, calendar: calendar), rateCard: rateCard)
                 .filter { $0.day <= todayKey },
             on: rateCard
         )
@@ -31,28 +31,31 @@ enum CostAggregator {
             // Per-source/model cost stays nil until something prices it, so an unpriced row reads
             // as "no price" in the breakdown rather than as zero dollars.
             var dayCostByModel: [ModelUsageKey: Double] = [:]
+            var fallbacks: Set<ModelUsageKey> = []
             var dayCost = 0.0
             var dayPriced = false
             var dayUnpricedTokens = 0
 
             for row in dayRows {
-                let usageKey = ModelUsageKey(source: row.source, model: row.model, isFast: row.key.isFast)
+                let usageKey = ModelUsageKey(source: row.source, model: row.model, isFast: row.key.isFast, upstreamProvider: row.key.upstreamProvider)
                 dayTokens[usageKey] = try dayTokens[usageKey, default: TokenTotals()].adding(row.tokens)
                 checkedDayTokens = try checkedDayTokens.adding(row.tokens)
                 modelTokens[row.model] = try self.add(modelTokens[row.model, default: 0], row.tokens.total)
+                if row.usesLoggedCostFallback { fallbacks.insert(usageKey) }
                 if let cost = row.cost {
                     dayCost = try self.add(dayCost, cost)
                     dayPriced = true
                     dayCostByModel[usageKey] = try self.add(dayCostByModel[usageKey, default: 0], cost)
                     modelCost[row.model] = try self.add(modelCost[row.model, default: 0], cost)
-                } else if row.unpricedTokens > 0 {
+                }
+                if row.unpricedTokens > 0 {
                     hasUnpriced = true
                     dayUnpricedTokens = try self.add(dayUnpricedTokens, row.unpricedTokens)
                 }
             }
 
             let byModel = Dictionary(uniqueKeysWithValues: dayTokens.lazy.map { key, tokens in
-                (key, ModelDayUsage(tokens: tokens, costUSD: dayCostByModel[key]))
+                (key, ModelDayUsage(tokens: tokens, costUSD: dayCostByModel[key], usesLoggedCostFallback: fallbacks.contains(key)))
             })
 
             days.append(CostDay(
@@ -77,7 +80,7 @@ enum CostAggregator {
         }
 
         return CostSnapshot(
-            provider: provider,
+            tab: tab,
             days: days,
             todayCostUSD: todayCostUSD,
             windowCostUSD: windowCostUSD,

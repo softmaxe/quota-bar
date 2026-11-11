@@ -334,16 +334,16 @@ struct RecorderFixture {
         try? handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
     }
 
-    func record(_ provider: Provider, rateCard: RateCard = RateCard()) {
-        self.recorder?.record(provider, rateCard: rateCard, env: self.env)
+    func record(_ tab: UsageTab, rateCard: RateCard = RateCard()) {
+        self.recorder?.record(tab, rateCard: rateCard, env: self.env)
     }
 
     /// Recorded usage of a provider summed across days, keyed by model and tier.
-    func recorded(_ provider: Provider) -> [RecordedTier: TokenTotals] {
+    func recorded(_ tab: UsageTab) -> [RecordedTier: TokenTotals] {
         do {
             let reader = try RecordedUsageReader(databaseURL: self.databaseURL)
             var totals: [RecordedTier: TokenTotals] = [:]
-            for row in try reader.dailyUsage(provider: provider, fromDay: "0000-00-00") {
+            for row in try reader.dailyUsage(tab: tab, fromDay: "0000-00-00") {
                 let key = RecordedTier(model: row.tier.model, longContext: row.tier.longContext, isFast: row.tier.isFast)
                 totals[key, default: TokenTotals()] += row.tokens
             }

@@ -34,7 +34,7 @@ enum PricingRefreshTests {
 
         static func snapshot(provider: Provider, cost: Double) -> CostSnapshot {
             CostSnapshot(
-                provider: provider, days: [], todayCostUSD: cost, windowCostUSD: cost,
+                tab: UsageTab(provider: provider), days: [], todayCostUSD: cost, windowCostUSD: cost,
                 latestTokens: 1, windowTokens: 1, topModel: "gpt-6-astra",
                 hasUnpricedTokens: false, scannedAt: Date(timeIntervalSince1970: 1_000)
             )

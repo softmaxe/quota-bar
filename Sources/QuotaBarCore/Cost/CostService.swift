@@ -75,7 +75,7 @@ public actor CostService {
         // No suspension while the scan guard is released for this synchronous recording.
         recorder.busyRemoteHosts.remove(host)
         for provider in [Provider.claude, .codex] {
-            recorder.record(provider, rateCard: self.currentRateCard(), env: self.env, remoteLogs: self.remoteLogsURL)
+            recorder.record(UsageTab(provider: provider), rateCard: self.currentRateCard(), env: self.env, remoteLogs: self.remoteLogsURL)
         }
         try Task.checkCancellation()
         guard recorder.scanStatus(of: .claude) == .idle, recorder.scanStatus(of: .codex) == .idle else {
@@ -91,7 +91,7 @@ public actor CostService {
         try recorder.cleanupRemoteLogs(host: host, verifiedPaths: verified)
     }
 
-    public func refresh(_ provider: Provider) async -> CostSnapshot? {
+    public func refresh(_ tab: UsageTab) async -> CostSnapshot? {
         do {
             let recorder = try self.openRecorder()
             // One rate card for the whole refresh, so the scan and the pricing never disagree.
@@ -99,7 +99,7 @@ public actor CostService {
 
             let started = Date()
             let touched = recorder.record(
-                provider,
+                tab,
                 rateCard: rateCard,
                 env: self.env,
                 remoteLogs: self.remoteLogsURL
@@ -107,18 +107,18 @@ public actor CostService {
             let elapsed = Date().timeIntervalSince(started)
             if touched > 0 {
                 Log.ui.info(
-                    "\(provider.rawValue, privacy: .public) cost scan: \(touched) files in \(String(format: "%.1f", elapsed))s"
+                    "\(tab.rawValue, privacy: .public) cost scan: \(touched) files in \(String(format: "%.1f", elapsed))s"
                 )
             }
 
             return try CostAggregator.snapshot(
-                provider: provider,
+                tab: tab,
                 reader: recorder.recordedUsageReader,
                 rateCard: rateCard
             )
         } catch {
             Log.ui.error(
-                "\(provider.rawValue, privacy: .public) cost scan failed: \(error.localizedDescription, privacy: .public)"
+                "\(tab.rawValue, privacy: .public) cost scan failed: \(error.localizedDescription, privacy: .public)"
             )
             return nil
         }

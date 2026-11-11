@@ -40,7 +40,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var celebrationTokens: [Provider: [QuotaWindowKind: Int]] = [:]
     private var isCostBreakdownExpanded = false
     private var expandedBreakdownDayKey: String?
-    private var presentedProvider: Provider?
+    private var presentedTab: UsageTab?
+    /// The Pi tab is a view of the card only: the menu bar gauge keeps the quota provider.
+    private var showsPi = false
+    private var selectedTab: UsageTab {
+        self.showsPi ? .pi : UsageTab(provider: self.settings.menuBarProvider)
+    }
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingTableModel,
          reportOperations: UsageReportWindowController.Operations? = nil,
@@ -63,6 +68,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         }.store(in: &self.cancellables)
         self.store.$displays.receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.apply()
+        }.store(in: &self.cancellables)
+        self.store.$piDisplay.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            guard let self, self.showsPi else { return }
+            self.refreshOpenCard()
         }.store(in: &self.cancellables)
         self.store.$refreshingProviders.receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refreshOpenCard()
@@ -119,7 +128,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem.action != #selector(self.refreshClicked)
-            || self.store.canRefresh(self.settings.menuBarProvider)
+            || (self.showsPi ? !self.store.isScanningPi : self.store.canRefresh(self.settings.menuBarProvider))
     }
 
     func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
@@ -379,7 +388,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     private func makeCard(provider: Provider, display: ProviderDisplay) -> MenuCardView {
         MenuCardView(
-            provider: provider, display: display, isRefreshing: self.store.isRefreshing(provider),
+            provider: provider, display: self.showsPi ? self.store.piDisplay : display,
+            isRefreshing: self.showsPi ? self.store.isScanningPi : self.store.isRefreshing(provider),
+            tab: self.selectedTab,
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:], now: self.now(),
             costChartLabelMode: self.settings.costChartLabelMode,
@@ -399,10 +410,31 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
                 self?.settings.quotaResetDisplayMode = mode
                 self?.refreshOpenCard()
             },
-            onProviderSelected: { [weak self] provider in self?.settings.menuBarProvider = provider },
+            onTabSelected: { [weak self] tab in self?.select(tab) },
             onRefresh: { [weak self] in self?.refreshClicked() },
-            onRefreshLocalUsage: { [weak self] in self?.store.retryLocalUsage() }
+            onRefreshLocalUsage: { [weak self] in
+                guard let self else { return }
+                if self.showsPi { self.store.refreshPiUsage() }
+                else { self.store.retryLocalUsage() }
+            }
         )
+    }
+
+    private func select(_ tab: UsageTab) {
+        guard tab != self.selectedTab else { return }
+        if let provider = tab.quotaProvider {
+            self.showsPi = false
+            // Returning to the provider the gauge already shows changes no setting.
+            if self.settings.menuBarProvider == provider {
+                self.refreshOpenCard()
+            } else {
+                self.settings.menuBarProvider = provider
+            }
+        } else {
+            self.showsPi = true
+            self.store.refreshPiUsage()
+            self.refreshOpenCard()
+        }
     }
 
     private func updateCard(provider: Provider, display: ProviderDisplay) {
@@ -410,25 +442,27 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 #if DEBUG
         self.debugCardUpdateCount += 1
 #endif
-        if self.presentedProvider != provider {
+        let tab = self.selectedTab
+        if self.presentedTab != tab {
             // Switching providers destroys the old bars. Their claimed events must not arm
             // the replacement bars when the user returns during this presentation.
-            if let previous = self.presentedProvider { self.recoveries[previous] = nil }
+            if let previous = self.presentedTab?.quotaProvider { self.recoveries[previous] = nil }
             self.isCostBreakdownExpanded = false
             self.expandedBreakdownDayKey = nil
-            self.presentedProvider = provider
+            self.presentedTab = tab
         }
-        let events = self.store.consumeCelebrations(for: provider)
+        // Quota resets wait for their own card rather than being spent behind the Pi tab.
+        let events = self.showsPi ? [:] : self.store.consumeCelebrations(for: provider)
         self.recoveries[provider, default: [:]].merge(events) { _, new in new }
         for kind in events.keys { self.celebrationTokens[provider, default: [:]][kind, default: 0] += 1 }
         let card = self.makeCard(provider: provider, display: display)
         presentation.provider = provider
         presentation.card = card
-        presentation.showsRefresh = !display.isSignedOut
+        presentation.showsRefresh = self.showsPi || !display.isSignedOut
         // Measure the first frame before presentation. Local disclosures report later sizes.
-        if presentation.contentHeight == 0 || provider != presentation.measuredProvider {
+        if presentation.contentHeight == 0 || tab != presentation.measuredTab {
             presentation.contentHeight = NSHostingView(rootView: card).fittingSize.height.rounded(.up)
-            presentation.measuredProvider = provider
+            presentation.measuredTab = tab
         }
         self.updateRefreshRow()
         self.updatePopoverSize()
@@ -456,6 +490,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     }
 
     @objc private func refreshClicked() {
+        if self.showsPi {
+            self.store.refreshPiUsage()
+            self.updateRefreshRow()
+            return
+        }
         let provider = self.settings.menuBarProvider
         guard self.store.canRefresh(provider) else { return }
         self.store.refresh(trigger: .user)
@@ -464,7 +503,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 
     private func updateRefreshRow() {
         guard self.isMenuOpen, let presentation = self.presentation else { return }
-        let state = self.store.refreshRow(for: presentation.provider)
+        let state = self.showsPi
+            ? (self.store.isScanningPi
+                ? RefreshEligibility.Row(title: "Scanning…", trailingText: nil, isEnabled: false, isInProgress: true)
+                : .idle)
+            : self.store.refreshRow(for: presentation.provider)
         // Any assignment, even of an equal value, re-renders the whole menu, and this runs every
         // second while it is open.
         if presentation.refreshState != state { presentation.refreshState = state }
@@ -484,15 +527,16 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private func beginPresentation() {
         _ = self.materializedPopover()
         self.store.refresh()
+        if self.showsPi { self.store.refreshPiUsage() }
         self.isMenuOpen = true
         self.recoveries = [:]
         self.isCostBreakdownExpanded = false
         self.expandedBreakdownDayKey = nil
-        self.presentedProvider = nil
+        self.presentedTab = nil
         self.presentation?.presentationID = UUID()
         // A closed card may have changed or been left expanded. Measure its collapsed state
         // before showing it, so the first visible frame already has the correct height.
-        self.presentation?.measuredProvider = nil
+        self.presentation?.measuredTab = nil
         self.refreshOpenCard()
         self.startOpenMenuClock()
         self.startRefreshRowClock()
@@ -666,6 +710,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         self.presentation?.card.recoveries ?? [:]
     }
     func debugClickRefreshRow() { self.refreshClicked() }
+    func debugSelectTab(_ tab: UsageTab) { self.select(tab) }
+    var debugSelectedTab: UsageTab { self.selectedTab }
+    func debugRetryLocalUsage() { self.presentation?.card.onRefreshLocalUsage() }
     func debugRefreshRowState() -> (title: String, trailingText: String?, isEnabled: Bool)? {
         guard let state = self.presentation?.refreshState else { return nil }
         return (state.title, state.trailingText, state.isEnabled)

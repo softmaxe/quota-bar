@@ -91,6 +91,33 @@ public struct TokenTotals: Sendable, Equatable {
     public static func += (lhs: inout Self, rhs: Self) { lhs = lhs + rhs }
 }
 
+/// Usage attribution follows the requesting harness, independently of quota credentials.
+public enum UsageTab: String, CaseIterable, Sendable, Codable {
+    case claude
+    case codex
+    case pi
+
+    public var displayName: String {
+        switch self {
+        case .claude: "Claude"
+        case .codex: "Codex"
+        case .pi: "Pi"
+        }
+    }
+
+    public var quotaProvider: Provider? {
+        switch self {
+        case .claude: .claude
+        case .codex: .codex
+        case .pi: nil
+        }
+    }
+
+    public init(provider: Provider) {
+        self = provider == .claude ? .claude : .codex
+    }
+}
+
 /// The local tool that produced a usage record.
 public enum CostUsageSource: String, Sendable, Hashable {
     case codex
@@ -98,8 +125,21 @@ public enum CostUsageSource: String, Sendable, Hashable {
     case piAgent
     case claude
 
-    /// External agents use the Codex provider's rates and usage grouping.
-    package var provider: Provider { self == .claude ? .claude : .codex }
+    public var tab: UsageTab {
+        switch self {
+        case .claude: .claude
+        case .codex, .openCode: .codex
+        case .piAgent: .pi
+        }
+    }
+
+    /// The book is split by model maker, not the harness or the routing vendor.
+    package func pricingProvider(model: String, upstreamProvider: String? = nil) -> Provider {
+        guard self == .piAgent else { return self == .claude ? .claude : .codex }
+        let name = ModelNames.stripped(model, provider: .claude)
+        return name.hasPrefix("claude-") || upstreamProvider == "anthropic"
+            ? .claude : .codex
+    }
 
     package var displayOrder: Int {
         switch self {
@@ -120,16 +160,19 @@ public enum CostUsageSource: String, Sendable, Hashable {
     }
 }
 
-/// Keeps same-model usage from different local tools separate in the daily breakdown.
+/// Keeps same-model usage from different local tools and upstream providers separate.
 public struct ModelUsageKey: Sendable, Hashable {
     public let source: CostUsageSource
     public let model: String
     public let isFast: Bool
+    /// The Pi upstream as logged; nil for other sources and historical unknown provenance.
+    public let upstreamProvider: String?
 
-    public init(source: CostUsageSource, model: String, isFast: Bool = false) {
+    public init(source: CostUsageSource, model: String, isFast: Bool = false, upstreamProvider: String? = nil) {
         self.source = source
         self.model = model
         self.isFast = isFast
+        self.upstreamProvider = upstreamProvider
     }
 }
 
@@ -139,9 +182,13 @@ public struct ModelDayUsage: Sendable, Equatable {
     /// nil when the model has no price, so its tokens count but its cost does not.
     public let costUSD: Double?
 
-    public init(tokens: TokenTotals, costUSD: Double?) {
+    /// True when any of this entry's cost uses pi's logged total instead of token rates.
+    public let usesLoggedCostFallback: Bool
+
+    public init(tokens: TokenTotals, costUSD: Double?, usesLoggedCostFallback: Bool = false) {
         self.tokens = tokens
         self.costUSD = costUSD
+        self.usesLoggedCostFallback = usesLoggedCostFallback
     }
 }
 
@@ -202,14 +249,17 @@ public struct CostDay: Sendable, Equatable {
                 if lhs.key.source != rhs.key.source {
                     return lhs.key.source.rawValue < rhs.key.source.rawValue
                 }
+                if lhs.key.upstreamProvider != rhs.key.upstreamProvider {
+                    return (lhs.key.upstreamProvider ?? "") < (rhs.key.upstreamProvider ?? "")
+                }
                 return !lhs.key.isFast && rhs.key.isFast
             }
     }
 }
 
-/// What the popover's cost section shows for one provider.
+/// What the popover's cost section shows for one usage tab.
 public struct CostSnapshot: Sendable, Equatable {
-    public let provider: Provider
+    public let tab: UsageTab
     /// Ascending by day; only days with activity appear, which is why the chart's bar count varies.
     public let days: [CostDay]
     public let todayCostUSD: Double
@@ -224,7 +274,7 @@ public struct CostSnapshot: Sendable, Equatable {
     public let scannedAt: Date
 
     public init(
-        provider: Provider,
+        tab: UsageTab,
         days: [CostDay],
         todayCostUSD: Double,
         windowCostUSD: Double,
@@ -234,7 +284,7 @@ public struct CostSnapshot: Sendable, Equatable {
         hasUnpricedTokens: Bool,
         scannedAt: Date
     ) {
-        self.provider = provider
+        self.tab = tab
         self.days = days
         self.todayCostUSD = todayCostUSD
         self.windowCostUSD = windowCostUSD

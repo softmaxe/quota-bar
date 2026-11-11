@@ -22,7 +22,7 @@ final class MenuPopoverModel: ObservableObject {
     @Published var showsRefresh = true
     @Published var contentHeight: CGFloat = 0
     @Published var maximumHeight: CGFloat = 700
-    var measuredProvider: Provider?
+    var measuredTab: UsageTab?
     var onRefresh: () -> Void = {}
     var onUsage: () -> Void = {}
     var onSettings: () -> Void = {}

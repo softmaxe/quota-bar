@@ -13,6 +13,8 @@ final class UsageStore: ObservableObject {
     /// while the provider left behind is still fetching must not make the new card say
     /// "Refreshing…" for a request that is not about it.
     @Published private(set) var refreshingProviders: Set<Provider> = []
+    /// Pi has no quota provider, so only the local usage half of a display is ever filled.
+    @Published private(set) var piDisplay = ProviderDisplay()
     /// Counts finished local usage scans, for views that show what a scan recorded.
     @Published private(set) var finishedLocalScans = 0
 
@@ -37,6 +39,9 @@ final class UsageStore: ObservableObject {
     private var refreshTasks: [Provider: Task<Void, Never>] = [:]
     private var costTasks: [Provider: Task<Void, Never>] = [:]
     private var pendingCostRefreshes: Set<Provider> = []
+    private var piCostTask: Task<Void, Never>?
+    private var piCostRefreshPending = false
+    private let fetchPiCost: () async -> CostSnapshot?
     private let historyStore: UsageHistoryStore
     private let recovery: QuotaRecoveryTracker
     private let settings: SettingsStore
@@ -65,6 +70,7 @@ final class UsageStore: ObservableObject {
         dateClock: @escaping () -> Date = Date.init,
         fetchState: ((Provider, ClaudeRefreshInteraction) async -> ProviderState)? = nil,
         fetchCost: ((Provider) async -> CostSnapshot?)? = nil,
+        fetchPiCost: (() async -> CostSnapshot?)? = nil,
         updateThirdPartyRates: (() async -> Bool)? = nil,
         historyStore: UsageHistoryStore? = nil,
         recoveryDefaults: UserDefaults = .standard
@@ -76,7 +82,10 @@ final class UsageStore: ObservableObject {
         self.clock = clock
         self.dateClock = dateClock
         self.fetchState = fetchState ?? { await Self.fetch($0, interaction: $1) }
-        self.fetchCost = fetchCost ?? { await costService.refresh($0) }
+        self.fetchCost = fetchCost ?? { await costService.refresh(UsageTab(provider: $0)) }
+        // A caller that supplies the provider fetch is keeping scans off this machine's logs, so
+        // Pi reads nothing there unless it is supplied too.
+        self.fetchPiCost = fetchPiCost ?? (fetchCost == nil ? { await costService.refresh(.pi) } : { nil })
         self.updateThirdPartyRates = updateThirdPartyRates ?? { await costService.updateThirdPartyRates() }
         self.invalidatePricing = { await costService.invalidatePricing() }
         self.remoteLogMirror = RemoteLogMirror(root: costService.remoteLogsURL)
@@ -226,7 +235,7 @@ final class UsageStore: ObservableObject {
         self.costTasks[provider] = Task(priority: .utility) { [weak self, fetchCost, costService] in
             let scanned = await fetchCost(provider)
             let scanFailed = await costService.currentScanStatuses().contains { entry in
-                guard entry.source.provider == provider else { return false }
+                guard entry.source.tab == UsageTab(provider: provider) else { return false }
                 if case .error = entry.status { return true }
                 return false
             }
@@ -253,6 +262,50 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// Scans Pi's sessions. It shares nothing with a quota refresh, so it has no cooldown; calls
+    /// during a scan coalesce, and one that must see newer data queues a single follow-up.
+    func refreshPiUsage(repeatingRunningScan: Bool = false) {
+        self.updateThirdPartyRatesIfDue()
+        guard self.piCostTask == nil else {
+            if repeatingRunningScan { self.piCostRefreshPending = true }
+            return
+        }
+        self.piDisplay.localScanStatus = .scanning
+        self.piCostTask = Task(priority: .utility) { [weak self, fetchPiCost, costService] in
+            let scanned = await fetchPiCost()
+            let scanFailed = await costService.currentScanStatuses().contains { entry in
+                guard entry.source.tab == .pi else { return false }
+                if case .error = entry.status { return true }
+                return false
+            }
+            await MainActor.run {
+                guard let self else { return }
+                if let scanned {
+                    self.piDisplay.cost = scanned
+                    self.piDisplay.localScanStatus =
+                        scanFailed
+                        ? .failed("Some Pi sessions could not be scanned. Available usage is shown; retry the scan.")
+                        : .completed(self.dateClock())
+                } else {
+                    self.piDisplay.localScanStatus =
+                        .failed("Local usage scan failed. Previous usage remains available.")
+                }
+                self.piCostTask = nil
+                self.finishedLocalScans += 1
+                if self.piCostRefreshPending {
+                    self.piCostRefreshPending = false
+                    self.refreshPiUsage()
+                }
+            }
+        }
+    }
+
+    var isScanningPi: Bool { self.piCostTask != nil }
+
+#if DEBUG
+    func debugSetPiDisplay(_ display: ProviderDisplay) { self.piDisplay = display }
+#endif
+
     /// New rates only affect local costs. Coalesce changes during a scan into one follow-up
     /// so its earlier snapshot cannot hide the result of the new rates.
     func refreshCostsAfterPricingChange() {
@@ -263,6 +316,7 @@ final class UsageStore: ObservableObject {
     /// already running does not stand in for this one.
     func refreshAllLocalUsageAfterChange() {
         for provider in Provider.allCases { self.refreshCosts(for: provider, repeatingRunningScan: true) }
+        self.refreshPiUsage(repeatingRunningScan: true)
     }
 
     /// Checks models.dev alongside a cost refresh without holding the scan up. The service
@@ -289,6 +343,7 @@ final class UsageStore: ObservableObject {
     /// once. Each scan shares its provider's task with every other path, so calls coalesce.
     func refreshAllLocalUsage() {
         for provider in Provider.allCases { self.refreshCosts(for: provider) }
+        self.refreshPiUsage()
     }
 
     /// Whether a user click on the Refresh row would start a refresh now.

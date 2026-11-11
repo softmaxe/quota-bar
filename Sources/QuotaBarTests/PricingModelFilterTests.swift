@@ -8,6 +8,26 @@ import Foundation
 @MainActor
 enum PricingModelFilterTests {
     static func run() async {
+        await AppCheck.run("pricing includes Pi models under their maker's price book") {
+            let fixture = try RecordedUsageFixture(seed: false)
+            try fixture.database.exec("""
+                INSERT INTO pi_message (\(RecordedUsageFixture.piColumns)) VALUES
+                ('pi-claude', 1, '\(fixture.day())', 'anthropic/claude-sonnet-5.5', 0, 100, 0, 0, 0, 0),
+                ('pi-gemini', 1, '\(fixture.day())', 'google/gemini-fixture', 0, 200, 0, 0, 0, 0),
+                ('pi-custom', 1, '\(fixture.day())', 'pi-only-unpriced', 0, 300, 0, 0, 0, 0);
+                INSERT INTO claude_message (\(RecordedUsageFixture.claudeColumns)) VALUES
+                ('native-claude', 'native', '\(fixture.day())', 'claude-sonnet-5-5', 0, 0, 50, 0, 0, 0, 0);
+                """)
+            let card = RateCard(thirdParty: ThirdPartyRates(current: ["gemini-fixture": ModelPricing(input: 1, output: 2)]))
+            let totals = try PricingTableModel.readUsageTotals(databaseURL: fixture.databaseURL)
+            let rows = PricingTableModel.buildRows(usage: totals, rateCard: card)
+            try AppCheck.require(rows.first { $0.model == "claude-sonnet-5-5" }?.usageTokens == 150,
+                                 "Pi and Claude usage did not combine under the Claude price book")
+            try AppCheck.require(rows.first { $0.model == "gemini-fixture" }?.section == .modelsDev,
+                                 "Pi-only third-party usage did not appear in models.dev")
+            try AppCheck.require(rows.first { $0.model == "pi-only-unpriced" }?.section == .unpriced,
+                                 "Pi-only unknown usage did not appear in Unpriced")
+        }
         let rateCard = RateCard(thirdParty: ThirdPartyRates(current: [
             "deepseek-flash": ModelPricing(input: 0.15, output: 0.6),
         ]))

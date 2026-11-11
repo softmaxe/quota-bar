@@ -49,13 +49,13 @@ enum TokenValidationTests {
                 """)
             let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
             Harness.expectThrows("menu rejects invalid raw token domain") {
-                _ = try reader.dailyUsage(provider: .codex, fromDay: fixture.day())
+                _ = try reader.dailyUsage(tab: .codex, fromDay: fixture.day())
             }
             Harness.expectThrows("report rejects invalid raw token domain") {
                 _ = try reader.reportUsage(fromDay: fixture.day(), throughDay: fixture.day())
             }
             Harness.expectThrows("Pricing rejects invalid raw token domain") {
-                _ = try reader.modelUsage(provider: .codex)
+                _ = try reader.modelUsage(tab: .codex)
             }
         }
     }
@@ -86,7 +86,7 @@ enum TokenValidationTests {
             let reopened = try UsageRecorder(databaseURL: fixture.databaseURL)
             reopened.record(.codex, rateCard: RateCard(), env: fixture.env)
             let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
-            Harness.expectEqual(try reader.dailyUsage(provider: .codex, fromDay: "2026-01-01").first?.tokens.input,
+            Harness.expectEqual(try reader.dailyUsage(tab: .codex, fromDay: "2026-01-01").first?.tokens.input,
                                 originalInput, "reopening after overflow keeps valid prior usage readable")
         }
     }

@@ -32,7 +32,7 @@ Claude and OpenAI models that are on their makers' current price lists and still
 }
 ```
 
-Providers are `codex` (OpenAI models, including OpenCode and Pi Agent usage) and `claude`. Do not add other vendors' models or retired models here: models.dev prices them, and a model the book lists is never priced from models.dev.
+The price-book namespaces are `codex` (OpenAI models) and `claude` (Anthropic models). Usage tabs are separate: Claude Code belongs to Claude, Codex CLI and OpenCode to Codex, and every Pi Agent upstream belongs to Pi. Pi has no quota windows. A Pi request uses the model maker's namespace, including Anthropic models routed through OpenRouter; vendor prefixes are removed for rate lookup. Subscription-backed requests are estimated at the same API rates as API-key requests. Do not add other vendors' models or retired models here: models.dev prices them, and a model the book lists is never priced from models.dev.
 
 A model has these keys:
 
@@ -82,13 +82,35 @@ Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex
 
 `ThirdPartyRatesTests` covers the parsing, the choice between listings, and the dated cache.
 
+## Pi logged-cost fallback
+
+Pi records the upstream provider, the full raw model ID, and `usage.cost.total` with its nullable
+`usage.cost.totalFromProvider` flag. Token rates from the price book, then the models.dev cache,
+remain authoritative at read time. Only when the rate card has no price does a finite logged total
+greater than zero supply that request's cost. Zero, missing, negative, nonnumeric, and nonfinite
+totals leave its tokens unpriced. The provider flag records provenance; both provider-billed totals
+and catalog estimates can supply the fallback. Turning off models.dev still permits this fallback.
+A later rate entry replaces it automatically, with no stored-token rewrite.
+
+Daily model keys include the upstream provider. `ModelDayUsage.usesLoggedCostFallback` is true if
+any cost in that entry uses this fallback. A group can have both fallback-priced and unpriced
+requests; only requests with a positive usable logged total have priced tokens. The report includes
+the fallback in total cost. Since a logged total has no authoritative split into token prices, it
+is not allocated to token-type cost, cache savings, or Fast premium.
+
+Regional Bedrock prefixes, Claude version suffixes, and dotted Claude versions resolve to their
+canonical model names at read time, including previously stored names. Pricing settings include
+Pi's cumulative usage under the model maker's namespace. Backup imports retain local usage and
+only fill a missing logged amount when the model and all token counts match; the amount's
+provider-reported flag stays with that same amount.
+
 ## Historical thresholds
 
 Claude messages, OpenCode parts, and Pi messages now save a nullable `context_input INTEGER`: the individual request's `input + cacheRead + cacheWrite`. Output does not set this tier, and `cacheWrite1h` is already a subset of `cacheWrite`, so it is not added again. The stored `long_context` flag remains available as a fallback.
 
 When the menu or usage report reads rows with `context_input`, it classifies them using the current rate card, resolved model or alias, recorded day, and Fast flag. A request is long-context only when its context input strictly exceeds that day's threshold. For example, a 250K request recorded while its model was unlisted initially uses the default 200K threshold; a later alias to a model with a 272K threshold makes that request base-tier when read. The stored day and tokens do not change. A listed model with no applicable threshold has no long-context tier; unlisted Standard models retain the models.dev 200K rule, and unlisted Fast models have no applicable threshold.
 
-The reader keeps aggregation in SQL. It groups context input by the finite threshold boundaries used by the provider's current price book plus the models.dev threshold, with separate buckets for legacy base and long-context rows. It does not group by every distinct input count or load every request into Swift. Each bucket's lower bound suffices for the model's dated tier decision; pricing then merges aliases and buckets into one row per day/source/model/tier/Fast combination. Existing day indexes still bound the scan. See [Performance validation](performance.md#read-time-context-tiers).
+The reader keeps aggregation in SQL. It groups context input by the finite threshold boundaries used by the provider's current price book plus the models.dev threshold, with separate buckets for legacy base and long-context rows. It does not group by every distinct input count or load every request into Swift. Each bucket's lower bound suffices for the model's dated tier decision; pricing then merges aliases and buckets into one row per day/source/upstream/model/tier/Fast combination. Existing day indexes still bound the scan. See [Performance validation](performance.md#read-time-context-tiers).
 
 Opening an older database adds the column to `claude_message`, `opencode_part`, and `pi_message` without backfilling it or resetting scan cursors. All existing rows start with NULL and keep using their stored tier, even if their token columns could suggest another one. Unchanged request replays do not fill the new column. An ordinary content update accepted by the existing merge rule saves a new context measurement with that updated usage; it is not a historical rescan. There is no automatic log backfill, and pricing never rewrites stored rows.
 

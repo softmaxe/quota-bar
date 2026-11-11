@@ -83,8 +83,17 @@ enum UsageBackup {
     }
 
     private static func validate(_ copy: URL) throws {
+        // A copied WAL-mode main file may have no sidecars after a clean checkpoint. SQLite
+        // needs writable access to the private staging copy to initialize those sidecars;
+        // a read-only connection can fail before it can even inspect the schema.
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(copy.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            if let database { sqlite3_close(database) }
+            throw UsageBackupError.unreadable
+        }
+        defer { sqlite3_close(database) }
         do {
-            let reader = try RecordedUsageReader(databaseURL: copy)
+            let reader = RecordedUsageReader(database: database)
             var tables: Set<String> = []
             try reader.query("SELECT name FROM sqlite_master WHERE type = 'table'") { statement in
                 if let name = sqlite3_column_text(statement, 0) { tables.insert(String(cString: name)) }

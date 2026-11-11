@@ -299,13 +299,7 @@ final class PricingTableModel: ObservableObject {
             } else {
                 let databaseURL = self.costService.databaseURL
                 usageByProvider = try await Task.detached {
-                    var usage: [Provider: [ModelUsageTotal]] = [:]
-                    for provider in Provider.allCases {
-                        usage[provider] = try CostUsageReader.knownModelUsage(
-                            provider: provider, databaseURL: databaseURL
-                        )
-                    }
-                    return usage
+                    try Self.readUsageTotals(databaseURL: databaseURL)
                 }.value
             }
             if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
@@ -316,6 +310,18 @@ final class PricingTableModel: ObservableObject {
             // A failed refresh keeps the last successful counts; with none, the rates still show.
             self.usageReadError = error.localizedDescription
         }
+    }
+
+    nonisolated static func readUsageTotals(databaseURL: URL) throws -> [Provider: [ModelUsageTotal]] {
+        var usage: [Provider: [ModelUsageTotal]] = [:]
+        for provider in Provider.allCases {
+            usage[provider] = try CostUsageReader.knownModelUsage(tab: UsageTab(provider: provider), databaseURL: databaseURL)
+        }
+        for model in try CostUsageReader.knownModelUsage(tab: .pi, databaseURL: databaseURL) {
+            let provider = CostUsageSource.piAgent.pricingProvider(model: model.model)
+            usage[provider, default: []].append(model)
+        }
+        return usage
     }
 
     static func buildRows(

@@ -44,6 +44,7 @@ ffmpeg -v error -y \
   -frames:v 1 "$OUT/hero.png"
 
 echo "==> interaction states"
+cp "$WORK/card/pi-loaded.png" "$OUT/pi-usage.png"
 mkdir -p "$OUT/interactions"
 for state in main-dark main-light sign-in refresh-failed; do
   cp "$WORK/interactions/$state.png" "$OUT/interactions/$state.png"

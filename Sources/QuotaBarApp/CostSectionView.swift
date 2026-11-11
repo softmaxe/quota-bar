@@ -94,7 +94,7 @@ struct CostSectionView: View {
             self.dayDetail
         }
         .onChange(of: self.snapshot) { previous, current in
-            self.reconcileSelection(providerChanged: previous.provider != current.provider)
+            self.reconcileSelection(providerChanged: previous.tab != current.tab)
         }
         .onChange(of: self.todayDayKey) { _, _ in
             self.reconcileSelection(providerChanged: false)
@@ -308,7 +308,7 @@ struct CostSectionView: View {
                     Color.clear
                     if value > 0 {
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(Theme.accent(for: self.snapshot.provider))
+                            .fill(Theme.accent(tab: self.snapshot.tab))
                             .opacity(self.barOpacity(day.dayKey))
                             .animation(CostChartHoverMotion.selection, value: selected)
                             .frame(height: max(Self.minimumBarHeight, height))
@@ -339,7 +339,7 @@ struct CostSectionView: View {
         .overlay {
             RoundedRectangle(cornerRadius: Theme.cardControlRadius)
                 .strokeBorder(
-                    Theme.accent(for: self.snapshot.provider),
+                    Theme.accent(tab: self.snapshot.tab),
                     lineWidth: self.focusedDayKey == day.dayKey ? 1.5 : 0
                 )
                 .padding(.horizontal, 1)
@@ -621,7 +621,7 @@ struct CostSectionView: View {
     private var cacheMix: some View {
         let day = self.shownDay
         let tokens = self.isUnobserved(day.dayKey) ? TokenTotals() : day.tokens
-        let accent = Theme.accent(for: self.snapshot.provider)
+        let accent = Theme.accent(tab: self.snapshot.tab)
         let parts: [(label: String, count: Int)] = [
             ("Cache read", tokens.cacheRead),
             ("Cache write", tokens.cacheWrite),
@@ -725,8 +725,8 @@ struct CostSectionView: View {
                 Text(name)
                     .truncationMode(.middle)
                     .layoutPriority(0.5)
-                if showsSource {
-                    Text("· \(entry.key.source.displayName)")
+                if let origin = Self.origin(of: entry.key, showsSource: showsSource) {
+                    Text("· \(origin)")
                         .foregroundStyle(.secondary)
                         .truncationMode(.tail)
                 }
@@ -756,7 +756,7 @@ struct CostSectionView: View {
                     Capsule().fill(Theme.progressTrack)
                     if share > 0 {
                         Capsule()
-                            .fill(Theme.accent(for: self.snapshot.provider))
+                            .fill(Theme.accent(tab: self.snapshot.tab))
                             .frame(width: max(3, geometry.size.width * share))
                     }
                 }
@@ -773,8 +773,15 @@ struct CostSectionView: View {
         self.selectedLabelMode == .tokens ? Double(usage.tokens.total) : usage.costUSD ?? 0
     }
 
+    /// What a row says beside its model: the upstream provider for a harness that reaches many,
+    /// otherwise the tool, and only when the day mixes tools.
+    private static func origin(of key: ModelUsageKey, showsSource: Bool) -> String? {
+        if let upstream = key.upstreamProvider { return UpstreamProviderName.display(upstream) }
+        return showsSource ? key.source.displayName : nil
+    }
+
     private func breakdownLabel(_ key: ModelUsageKey, name: String) -> String {
-        let base = "\(key.source.displayName), \(name)"
+        let base = "\(Self.origin(of: key, showsSource: true) ?? key.source.displayName), \(name)"
         return key.isFast ? "\(base), Fast" : base
     }
 

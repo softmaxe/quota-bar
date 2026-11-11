@@ -4,14 +4,12 @@ import Foundation
 /// Pi Agent session lines in, observed requests out, with no recorder.
 enum PiAgentAdapterTests {
     static func run() {
-        Self.onlyCodexAssistantMessagesBecomeRequests()
+        Self.allAssistantProvidersBecomeRequests()
         Self.timestampComesFromMillisecondsOrTheEntry()
     }
 
-    /// Only assistant messages answered by the `openai-codex` provider count toward Codex. Each is
-    /// keyed by its entry id, which survives forks, and is recorded as Standard because Pi Agent's
-    /// logs carry no Fast signal.
-    private static func onlyCodexAssistantMessagesBecomeRequests() {
+    /// Every assistant request belongs to Pi, irrespective of its upstream or payment method.
+    private static func allAssistantProvidersBecomeRequests() {
         let root = Self.temporaryRoot("providers")
         defer { try? FileManager.default.removeItem(at: root) }
         PiSessionFile.write(root: root, "project/session.jsonl", lines: [
@@ -23,18 +21,12 @@ enum PiAgentAdapterTests {
         ])
 
         let requests = Self.requests(root: root)
-        Harness.expectEqual(requests?.map(\.key), ["codex"], "only openai-codex assistant messages with tokens are requests")
-        Harness.expectEqual(
-            requests?.first,
-            ObservedRequest(
-                key: "codex",
-                timestamp: Date(timeIntervalSince1970: 1_788_264_000),
-                model: "gpt-5.6-luna",
-                tokens: TokenTotals(input: 10, output: 20, cacheWrite: 30, cacheRead: 40),
-                isFast: false
-            ),
-            "a Codex message maps its tokens, time, and raw model, and is Standard"
-        )
+        Harness.expectEqual(requests?.map(\.entryID), ["codex", "other"], "all assistant providers with tokens become Pi requests")
+        Harness.expectEqual(requests?.map(\.upstreamProvider), ["openai-codex", "anthropic"], "upstream provider is retained")
+        Harness.expectEqual(requests?.first?.tokens, TokenTotals(input: 10, output: 20, cacheWrite: 30, cacheRead: 40),
+                            "all token buckets are retained")
+        Harness.expectEqual(requests?.first?.model, "gpt-5.6-luna", "the raw model name is retained")
+        Harness.expectEqual(requests?.first?.isFast, false, "Pi has no Fast signal")
     }
 
     /// Newer sessions stamp the message in epoch milliseconds; older entries carry only an
@@ -49,7 +41,7 @@ enum PiAgentAdapterTests {
         ])
 
         let dates = Dictionary(
-            (Self.requests(root: root) ?? []).map { ($0.key ?? "", $0.timestamp) },
+            (Self.requests(root: root) ?? []).map { ($0.entryID ?? "", $0.timestamp) },
             uniquingKeysWith: { first, _ in first }
         )
         Harness.expectEqual(dates["milliseconds"], Date(timeIntervalSince1970: 1_788_264_000.5), "a millisecond message time is used")

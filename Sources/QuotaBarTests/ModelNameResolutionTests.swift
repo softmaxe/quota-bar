@@ -82,7 +82,7 @@ enum ModelNameResolutionTests {
 
         do {
             // The pricing settings regroup the recorded usage with `RateCard.modelUsage`.
-            let usage = laterCard.modelUsage(try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL), provider: .claude)
+            let usage = laterCard.modelUsage(try CostUsageReader.knownModelUsage(tab: .claude, databaseURL: fixture.databaseURL), provider: .claude)
             Harness.expectEqual(
                 usage,
                 [ModelUsageTotal(model: "claude-later", tokens: 4_000_000)],
@@ -120,7 +120,7 @@ enum ModelNameResolutionTests {
             let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, rateCard: card)
             Harness.expectEqual(report.modelNames, ["glm-5"], "the report groups a routed name with its model")
             let usage = card.modelUsage(
-                try CostUsageReader.knownModelUsage(provider: .claude, databaseURL: fixture.databaseURL),
+                try CostUsageReader.knownModelUsage(tab: .claude, databaseURL: fixture.databaseURL),
                 provider: .claude
             )
             Harness.expectEqual(usage, [ModelUsageTotal(model: "glm-5", tokens: 2_000_000)],
