@@ -246,7 +246,7 @@ enum PiUsageTests {
     }
 
     private static func backupRevisionConsistency() async throws {
-        let local = try RecordedUsageFixture(now: Date(), seed: false)
+        let local = try RecordedUsageFixture(seed: false)
         let remote = try RecordedUsageFixture(now: local.now, seed: false)
         let columns = RecordedUsageFixture.piColumns + ", context_input, upstream_provider, logged_total_usd, total_from_provider"
         try local.database.exec("""
@@ -273,9 +273,11 @@ enum PiUsageTests {
                             "matching usage can fill an amount and its provenance together")
         Harness.expectEqual(try local.database.scalarInt("SELECT COUNT(*) FROM pi_message WHERE key = 'provenance' AND logged_total_usd = 3 AND total_from_provider IS NULL"), 1,
                             "provenance from another amount cannot describe the local amount")
-        let snapshot = await destination.refresh(.pi)
-        Harness.expectClose(snapshot?.windowCostUSD, 5, "only costs corresponding to the retained usage are charged")
-        Harness.expectEqual(snapshot?.days.last?.unpricedTokens, 100, "a mismatched backup leaves the local tokens unpriced")
+        let snapshot = try UsageReportReader.read(
+            databaseURL: local.databaseURL, now: local.now, calendar: local.calendar, rateCard: card
+        )
+        Harness.expectClose(snapshot.windowCost, 5, "only costs corresponding to the retained usage are charged")
+        Harness.expectEqual(snapshot.days.last?.unpricedTokens, 100, "a mismatched backup leaves the local tokens unpriced")
         let again = try await destination.importBackup(from: backup)
         Harness.expectEqual(again.added + again.updated, 0, "mismatched revision imports remain idempotent")
     }
