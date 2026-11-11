@@ -7,6 +7,8 @@ enum OpenCodeAdapterTests {
         Self.stepFinishesFromOpenAIBecomeRequests()
         Self.unexpectedSchemaIsAnError()
         Self.fastComesFromTheTierOrTheToggle()
+        Self.fastTogglesStayInTheirSession()
+        Self.missingSessionColumnDoesNotInferFast()
         Self.signInIsCheckedBeforeTheDatabase()
     }
 
@@ -96,6 +98,38 @@ enum OpenCodeAdapterTests {
         Harness.expect(skipped, "an uncheckable sign-in quietly skips an unreadable database")
     }
 
+    private static func fastTogglesStayInTheirSession() {
+        let root = Self.temporaryRoot("session-fast")
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let db = OpenCodeFixtureDatabase(at: root) else { return }
+        let start: Int64 = 1_788_264_000_000
+        db.fastToggle("a-on", created: start, on: true, sessionID: "a")
+        db.stepFinish("b-standard", created: start + 1, model: "gpt-5.6-sol", input: 1, sessionID: "b")
+        db.fastToggle("b-off", created: start + 2, on: false, sessionID: "b")
+        db.stepFinish("a-fast", created: start + 3, model: "gpt-5.6-sol", input: 1, sessionID: "a")
+        db.fastToggle("unknown-on", created: start + 4, on: true, sessionID: nil)
+        db.stepFinish("unknown", created: start + 5, model: "gpt-5.6-sol", input: 1, sessionID: nil)
+        db.stepFinish("unknown-explicit", created: start + 6, model: "gpt-5.6-sol", input: 1, serviceTier: "priority", sessionID: nil)
+        db.stepFinish("b-still-standard", created: start + 7, model: "gpt-5.6-sol", input: 1, sessionID: "b")
+        db.close()
+        let fast = Dictionary((Self.requests(root: root) ?? []).map { ($0.key ?? "", $0.isFast) }, uniquingKeysWith: { first, _ in first })
+        Harness.expectEqual(fast["b-standard"], false, "another session's ON toggle cannot enable Fast")
+        Harness.expectEqual(fast["a-fast"], true, "another session's OFF toggle cannot disable Fast")
+        Harness.expectEqual(fast["unknown"], false, "unidentified sessions cannot share toggle state")
+        Harness.expectEqual(fast["unknown-explicit"], true, "an explicit tier needs no session identity")
+        Harness.expectEqual(fast["b-still-standard"], false, "an unidentified toggle cannot affect an identified session")
+    }
+
+    private static func missingSessionColumnDoesNotInferFast() {
+        let root = Self.temporaryRoot("no-session-column")
+        defer { try? FileManager.default.removeItem(at: root) }
+        guard let db = OpenCodeFixtureDatabase(at: root, hasSessionColumn: false) else { return }
+        db.fastToggle("on", created: 1_788_264_000_000, on: true)
+        db.stepFinish("request", created: 1_788_264_000_001, model: "gpt-5.6-sol", input: 1)
+        db.close()
+        Harness.expectEqual(Self.requests(root: root)?.first?.isFast, false, "legacy schema still records tokens without guessing the session")
+    }
+
     private static func requests(root: URL) -> [ObservedRequest]? {
         do {
             return try OpenCodeAdapter(env: isolatedEnvironment(root: root)).requests()
@@ -118,8 +152,10 @@ enum OpenCodeAdapterTests {
 final class OpenCodeFixtureDatabase {
     let url: URL
     private let db: TestDatabase
+    private let hasSessionColumn: Bool
 
-    init?(at root: URL, partColumns: String = "id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL") {
+    init?(at root: URL, partColumns: String = "id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL", hasSessionColumn: Bool = true) {
+        self.hasSessionColumn = hasSessionColumn
         let directory = root.appendingPathComponent("opencode")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.url = directory.appendingPathComponent("opencode.db")
@@ -130,6 +166,7 @@ final class OpenCodeFixtureDatabase {
             return nil
         }
         self.execute("CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        if hasSessionColumn { self.execute("ALTER TABLE message ADD COLUMN session_id TEXT") }
         self.execute("CREATE TABLE part (\(partColumns))")
     }
 
@@ -149,10 +186,12 @@ final class OpenCodeFixtureDatabase {
         cacheRead: Int = 0,
         cacheWrite: Int = 0,
         serviceTier: String? = nil,
-        metadataTier: String? = nil
+        metadataTier: String? = nil,
+        sessionID: String? = "session"
     ) {
         let tier = serviceTier.map { #","serviceTier":"\#($0)""# } ?? ""
         self.insert("message", id: "message-\(id)", data: #"{"time":{"created":\#(created)},"role":"assistant","providerID":"\#(provider)","modelID":"\#(model)"\#(tier)}"#)
+        self.setSession(sessionID, messageID: "message-\(id)")
         self.insert(
             "part",
             id: id,
@@ -170,8 +209,9 @@ final class OpenCodeFixtureDatabase {
     }
 
     /// The ignored user message the opencodex-fast plugin writes when Fast mode is toggled.
-    func fastToggle(_ id: String, created: Int64, on: Bool) {
+    func fastToggle(_ id: String, created: Int64, on: Bool, sessionID: String? = "session") {
         self.insert("message", id: "toggle-\(id)", data: #"{"time":{"created":\#(created)},"role":"user"}"#)
+        self.setSession(sessionID, messageID: "toggle-\(id)")
         self.insert(
             "part",
             id: "toggle-text-\(id)",
@@ -182,6 +222,11 @@ final class OpenCodeFixtureDatabase {
 
     func execute(_ sql: String) {
         try? self.db.exec(sql)
+    }
+
+    private func setSession(_ sessionID: String?, messageID: String) {
+        guard self.hasSessionColumn, let sessionID else { return }
+        try? self.db.exec("UPDATE message SET session_id = ? WHERE id = ?", sessionID, messageID)
     }
 
     private func insert(_ table: String, id: String, messageID: String? = nil, data: String) {
