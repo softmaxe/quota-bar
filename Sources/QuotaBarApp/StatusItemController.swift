@@ -43,8 +43,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     private var presentedTab: UsageTab?
     /// The Pi tab is a view of the card only: the menu bar gauge keeps the quota provider.
     private var showsPi = false
-    private var selectedTab: UsageTab {
-        self.showsPi ? .pi : UsageTab(provider: self.settings.menuBarProvider)
+    private var selectedTab: UsageTab { self.tab(for: self.settings.menuBarProvider) }
+
+    /// The tab shown for a quota provider. Callers that are handed a provider must use it rather
+    /// than the setting: `$menuBarProvider` publishes from `willSet`, before the setting changes.
+    private func tab(for provider: Provider) -> UsageTab {
+        self.showsPi ? .pi : UsageTab(provider: provider)
     }
 
     init(store: UsageStore, settings: SettingsStore, pricing: PricingTableModel,
@@ -364,7 +368,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         if let popover = self.popover { return popover }
         let provider = self.settings.menuBarProvider
         let model = MenuPopoverModel(
-            card: self.makeCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay()),
+            card: self.makeCard(provider: provider, display: self.store.displays[provider] ?? ProviderDisplay(),
+                                 tab: self.tab(for: provider)),
             provider: provider
         )
         model.onRefresh = { [weak self] in self?.refreshClicked() }
@@ -386,11 +391,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         return popover
     }
 
-    private func makeCard(provider: Provider, display: ProviderDisplay) -> MenuCardView {
+    private func makeCard(provider: Provider, display: ProviderDisplay, tab: UsageTab) -> MenuCardView {
         MenuCardView(
             provider: provider, display: self.showsPi ? self.store.piDisplay : display,
             isRefreshing: self.showsPi ? self.store.isScanningPi : self.store.isRefreshing(provider),
-            tab: self.selectedTab,
+            tab: tab,
             recoveries: self.recoveries[provider] ?? [:],
             celebrationTokens: self.celebrationTokens[provider] ?? [:], now: self.now(),
             costChartLabelMode: self.settings.costChartLabelMode,
@@ -442,7 +447,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
 #if DEBUG
         self.debugCardUpdateCount += 1
 #endif
-        let tab = self.selectedTab
+        let tab = self.tab(for: provider)
         if self.presentedTab != tab {
             // Switching providers destroys the old bars. Their claimed events must not arm
             // the replacement bars when the user returns during this presentation.
@@ -455,7 +460,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let events = self.showsPi ? [:] : self.store.consumeCelebrations(for: provider)
         self.recoveries[provider, default: [:]].merge(events) { _, new in new }
         for kind in events.keys { self.celebrationTokens[provider, default: [:]][kind, default: 0] += 1 }
-        let card = self.makeCard(provider: provider, display: display)
+        let card = self.makeCard(provider: provider, display: display, tab: tab)
         presentation.provider = provider
         presentation.card = card
         presentation.showsRefresh = self.showsPi || !display.isSignedOut
@@ -712,6 +717,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
     func debugClickRefreshRow() { self.refreshClicked() }
     func debugSelectTab(_ tab: UsageTab) { self.select(tab) }
     var debugSelectedTab: UsageTab { self.selectedTab }
+    var debugPresentedCardTab: UsageTab? { self.presentation?.card.tab }
     func debugRetryLocalUsage() { self.presentation?.card.onRefreshLocalUsage() }
     func debugRefreshRowState() -> (title: String, trailingText: String?, isEnabled: Bool)? {
         guard let state = self.presentation?.refreshState else { return nil }

@@ -49,6 +49,37 @@ enum MenuLifecycleTests {
             try AppCheck.require(quotaScans == 0 && settings.menuBarProvider == .codex && controller.debugSelectedTab == .pi,
                                  "Pi retry scanned a quota provider or changed the gauge")
         }
+        await AppCheck.run("clicking a provider tab moves the open card's selection with it") {
+            let defaults = EphemeralDefaults.make("QuotaBarTabSwitchTests")
+            defer { EphemeralDefaults.clear("QuotaBarTabSwitchTests") }
+            let settings = SettingsStore(defaults: defaults)
+            settings.menuBarProvider = .codex
+            settings.refreshFrequency = .manual
+            let service = CostService(rateCard: RateCard())
+            let store = UsageStore(
+                settings: settings, costService: service, clock: { 1_000 },
+                fetchState: { _, _ in .failed("Offline fixture") },
+                fetchCost: { _ in nil }, fetchPiCost: { nil },
+                updateThirdPartyRates: { false }, recoveryDefaults: defaults
+            )
+            defer { store.stop() }
+            // Cooldowns suppress the follow-up refresh whose later publish used to hide the stale tab.
+            for provider in Provider.allCases { store.debugRecordRefresh(at: 1_000, provider: provider) }
+            let controller = StatusItemController(store: store, settings: settings, pricing: PricingTableModel(costService: service))
+            controller.debugBeginPresentation()
+            defer { controller.debugEndPresentation() }
+            RunLoopDrain.run()
+            try AppCheck.require(controller.debugPresentedCardTab == .codex, "the card did not open on Codex")
+            // `$menuBarProvider` publishes before the setting changes; the card must follow the
+            // published provider without waiting for another update.
+            controller.debugSelectTab(.claude)
+            try AppCheck.require(controller.debugPresentedCardTab == .claude,
+                                 "the card kept the Codex tab after Claude was clicked")
+            controller.debugSelectTab(.pi)
+            controller.debugSelectTab(.codex)
+            try AppCheck.require(controller.debugPresentedCardTab == .codex,
+                                 "returning from Pi left the card on the wrong tab")
+        }
         await AppCheck.run("menu creation is deferred and closed cards stay idle") {
             let defaults = EphemeralDefaults.make(Self.suite)
             defer { EphemeralDefaults.clear(Self.suite) }
