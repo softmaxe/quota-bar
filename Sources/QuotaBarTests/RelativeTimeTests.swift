@@ -9,6 +9,25 @@ enum RelativeTimeTests {
     private static let suite = "QuotaBarRelativeTimeTests"
 
     static func run() async {
+        await AppCheck.run("settings relative clock pauses while hidden") {
+            let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
+            var now = base
+            let clock = SettingsClock(now: { now }, interval: 0.01)
+            try AppCheck.require(!clock.isRunning, "hidden settings started a clock")
+            clock.setActive(true)
+            now = base.addingTimeInterval(120)
+            await AppCheck.waitDuringMenuTracking(until: { clock.now == now })
+            try AppCheck.require(Formatters.relativeAge(since: base, now: clock.now) == "2m ago",
+                                 "settings clock did not advance without a data refresh")
+            clock.setActive(false)
+            now = base.addingTimeInterval(240)
+            try? await Task.sleep(for: .milliseconds(40))
+            try AppCheck.require(!clock.isRunning && clock.now == base.addingTimeInterval(120),
+                                 "hidden settings kept advancing")
+            clock.setActive(true)
+            try AppCheck.require(clock.now == now, "reopening did not catch up immediately")
+            clock.setActive(false)
+        }
         await AppCheck.run("open-menu relative time") {
             let defaults = EphemeralDefaults.make(Self.suite)
             defer { EphemeralDefaults.clear(Self.suite) }

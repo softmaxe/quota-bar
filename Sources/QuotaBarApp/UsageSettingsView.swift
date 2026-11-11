@@ -15,6 +15,8 @@ struct UsageSettingsView: View {
     /// mirrors hold.
     var reload = 0
 
+    @Environment(\.settingsNow) private var now
+
     @State private var isAddingHost = false
     /// Read when the sheet opens, so a host added to the config meanwhile shows up.
     @State private var configHosts: [String] = []
@@ -108,7 +110,7 @@ struct UsageSettingsView: View {
         let scans = statuses.compactMap { status -> Date? in
             if case let .completed(date) = status { date } else { nil }
         }
-        if let latest = scans.max() { return "Scanned \(Formatters.relativeAge(since: latest))" }
+        if let latest = scans.max() { return "Scanned \(Formatters.relativeAge(since: latest, now: self.now))" }
         for case let .failed(reason) in statuses { return reason }
         return "Waiting for the first scan"
     }
@@ -116,7 +118,7 @@ struct UsageSettingsView: View {
     private func hostRow(_ host: String) -> some View {
         let state = self.remote.state(of: host)
         let usage = self.remote.usage[host]
-        let detail = Self.detail(of: state, usage: usage)
+        let detail = Self.detail(of: state, usage: usage, now: self.now)
         return SettingsRow(
             symbol: "server.rack",
             title: host,
@@ -170,11 +172,11 @@ struct UsageSettingsView: View {
         self.configHosts.filter { !self.settings.remoteHosts.contains($0) }
     }
 
-    private static func detail(of state: RemoteHostSyncState, usage: RemoteHostUsage?) -> String {
+    private static func detail(of state: RemoteHostSyncState, usage: RemoteHostUsage?, now: Date) -> String {
         switch state {
         case .idle: self.joined("Waiting for the next sync", usage)
         case .syncing: "Syncing…"
-        case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date))", usage)
+        case let .synced(date): self.joined("Synced \(Formatters.relativeAge(since: date, now: now))", usage)
         case let .failed(reason): self.failureSummary(reason)
         }
     }

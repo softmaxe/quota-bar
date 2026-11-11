@@ -15,6 +15,7 @@ struct PricingSettingsView: View {
     var reload = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.settingsNow) private var now
     @FocusState private var isTableFocused: Bool
 
     private static let rateColumnWidth: CGFloat = 76
@@ -431,7 +432,7 @@ struct PricingSettingsView: View {
     private var modelsDevStatus: String {
         guard self.model.modelsDevEnabled else { return "Off" }
         guard let fetchedAt = self.model.modelsDevFetchedAt else { return "Not downloaded yet" }
-        return "Updated \(Formatters.relativeAge(since: fetchedAt))"
+        return "Updated \(Formatters.relativeAge(since: fetchedAt, now: self.now))"
     }
 
     // MARK: - Sources

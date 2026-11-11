@@ -22,6 +22,7 @@ struct SettingsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var selection: SettingsSelection = SettingsSelection()
+    @ObservedObject var clock: SettingsClock = SettingsClock()
     /// The pricing pane reads the cost database when it first appears.
     /// All panes live in the hierarchy so the switch can cross-fade, so that work is gated on
     /// the tab having actually been opened rather than on the view existing.
@@ -42,6 +43,7 @@ struct SettingsView: View {
             )
             Divider()
             self.panes
+                .environment(\.settingsNow, self.clock.now)
         }
         .frame(height: Self.paneHeight)
         // The sidebar runs up behind the transparent title bar.
