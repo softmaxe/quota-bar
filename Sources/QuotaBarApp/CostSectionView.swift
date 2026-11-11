@@ -733,6 +733,8 @@ struct CostSectionView: View {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 8))
                         .foregroundStyle(.secondary)
+                        .help("Fast mode")
+                        .accessibilityHidden(true)
                 }
                 Spacer(minLength: 4)
                 Text(showsCost ? amount : tokens)

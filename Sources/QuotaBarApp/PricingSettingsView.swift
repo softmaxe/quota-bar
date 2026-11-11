@@ -18,6 +18,8 @@ struct PricingSettingsView: View {
     @FocusState private var isTableFocused: Bool
 
     private static let rateColumnWidth: CGFloat = 76
+    /// Room for the overlay scroller beside the cards.
+    private static let scrollGutter: CGFloat = 18
     private static let claudePricingURL = URL(string: "https://platform.claude.com/docs/en/about-claude/pricing")!
     private static let openAIPricingURL = URL(string: "https://developers.openai.com/api/docs/pricing")!
     private static let modelsDevURL = URL(string: "https://models.dev")!
@@ -126,7 +128,7 @@ struct PricingSettingsView: View {
                             }
                         }
                         // Reserve a gutter even while the overlay indicator is hidden.
-                        .padding(.trailing, 18)
+                        .padding(.trailing, Self.scrollGutter)
                         .padding(.bottom, 12)
                         .background(PricingScrollStyle())
                     }
@@ -153,6 +155,9 @@ struct PricingSettingsView: View {
                     default: break
                     }
                 }
+                // The gutter comes out of the pane's margin, so the cards end where the search
+                // field and the footer rule do.
+                .padding(.trailing, -Self.scrollGutter)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -206,6 +211,7 @@ struct PricingSettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
+        .settingsRowHover()
         .disabled(self.model.isSearching)
         .accessibilityLabel("\(vendor.vendor), \(vendor.rows.count == 1 ? "1 model" : "\(vendor.rows.count) models")")
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
@@ -256,6 +262,7 @@ struct PricingSettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(ControlFeedbackStyle(reduceMotion: self.reduceMotion, pressScale: CardMotion.rowPressScale))
+            .settingsRowHover()
             .accessibilityAddTraits(isOpen ? [.isSelected] : [])
             if isOpen {
                 self.rowDetail(row)

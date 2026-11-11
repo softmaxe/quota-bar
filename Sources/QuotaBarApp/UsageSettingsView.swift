@@ -356,6 +356,7 @@ struct AddHostSheet: View {
                 }
                 .frame(maxHeight: Self.listHeight)
                 .fixedSize(horizontal: false, vertical: true)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .settingsGroup()
             }
             HStack {
