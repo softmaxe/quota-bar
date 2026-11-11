@@ -6,6 +6,7 @@ enum ClaudeCodeAdapterTests {
     static func run() {
         Self.dedupeKeyPairsMessageAndRequest()
         Self.dedupeKeyFallsBackToTheLineUUID()
+        Self.idlessRecordsUseTheirContent()
         Self.syntheticMessagesAreNotRequests()
         Self.cacheBucketsMapToTokenTotals()
         Self.onlyFastSpeedIsFast()
@@ -23,18 +24,43 @@ enum ClaudeCodeAdapterTests {
         Harness.expectEqual(observed?.model, "claude-opus-5", "the model is reported as the log spelled it")
     }
 
-    /// Lines with neither id fall back to the line's own uuid, and to a fresh one without it, so
-    /// unrelated messages never collapse into one.
+    /// A transcript UUID remains the identity when neither API id is present.
     private static func dedupeKeyFallsBackToTheLineUUID() {
         let usage = #""usage":{"input_tokens":5,"output_tokens":1}"#
         let withUUID = #"{"type":"assistant","timestamp":"2026-09-01T12:00:00Z","uuid":"line-1","message":{"model":"claude-opus-5",\#(usage)}}"#
         Harness.expectEqual(Self.request(withUUID)?.key, "uuid:line-1", "a line without ids is keyed by its uuid")
+    }
 
-        let bare = #"{"type":"assistant","timestamp":"2026-09-01T12:00:00Z","message":{"model":"claude-opus-5",\#(usage)}}"#
-        let first = Self.request(bare)?.key
-        let second = Self.request(bare)?.key
-        Harness.expect(first?.hasPrefix("uuid:") == true, "a line without ids or uuid still gets a key")
-        Harness.expect(first != second, "two id-less lines never share a key")
+    private static func idlessRecordsUseTheirContent() {
+        let bare = ClaudeLine.idlessAssistant(sessionID: "session-a", text: "First reply")
+        let key = Self.request(bare)?.key
+        Harness.expect(key != nil, "a line without any stable id still has an identity")
+        Harness.expectEqual(Self.request(bare)?.key, key, "rereading an id-less record keeps its identity")
+        do {
+            let object = try JSONSerialization.jsonObject(with: Data(bare.utf8))
+            let formatted = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted])
+            Harness.expectEqual(Self.request(String(decoding: formatted, as: UTF8.self))?.key, key,
+                                "JSON key order and whitespace do not change an id-less record's identity")
+        } catch {
+            Harness.expect(false, "formatting the id-less fixture failed: \(error)")
+        }
+        let variants = [
+            ClaudeLine.idlessAssistant(sessionID: "session-b", text: "First reply"),
+            ClaudeLine.idlessAssistant(sessionID: "session-a", text: "Another reply"),
+            bare.replacingOccurrences(of: "12:00:00Z", with: "12:00:01Z"),
+            bare.replacingOccurrences(of: "\"output_tokens\":1", with: "\"output_tokens\":2"),
+        ]
+        let keys = variants.compactMap { Self.request($0)?.key }
+        Harness.expectEqual(keys.count, variants.count, "distinct id-less fixtures are valid requests")
+        Harness.expectEqual(Set(keys + [key!]).count, variants.count + 1,
+                            "session, content, timestamp, and usage distinguish id-less records")
+
+        let emptyUUID = bare.replacingOccurrences(of: "\"type\":", with: "\"uuid\":\"\",\"type\":")
+        Harness.expectEqual(Self.request(emptyUUID)?.key, Self.request(emptyUUID)?.key,
+                            "an empty UUID still gives repeatable identity")
+        Harness.expect(Self.request(emptyUUID)?.key != Self.request(
+            emptyUUID.replacingOccurrences(of: "First reply", with: "Another reply"))?.key,
+            "an empty UUID does not collapse unrelated records")
     }
 
     /// Claude Code writes `<synthetic>` for messages it made up locally; nothing was billed.

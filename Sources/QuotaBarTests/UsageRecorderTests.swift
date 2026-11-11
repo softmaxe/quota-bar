@@ -7,6 +7,7 @@ enum UsageRecorderTests {
     static func run() async {
         Self.claudeRequestsSettleLongContextAndFast()
         Self.claudeReplaysCountOnceAtTheFinalOutput()
+        Self.idlessClaudeRewritesAndMirrorsCountOnce()
         Self.rewrittenTranscriptKeepsMessagesRewrittenAway()
         Self.rewrittenTranscriptKeepsRecordedMessages()
         Self.midFileFailureLeavesNoRows()
@@ -50,6 +51,40 @@ enum UsageRecorderTests {
 }
 
 extension UsageRecorderTests {
+    private static func idlessClaudeRewritesAndMirrorsCountOnce() {
+        let fixture = RecorderFixture(name: "idless-replay")
+        defer { fixture.remove() }
+        let first = ClaudeLine.idlessAssistant(sessionID: "session-a", text: "First reply")
+        let lines = [first, ClaudeLine.idlessAssistant(sessionID: "session-a", text: "Another reply")]
+        let adapter = ClaudeCodeAdapter(env: fixture.env)
+        let tier = RecordedTier(model: "claude-opus-5", longContext: false, isFast: false)
+        fixture.writeClaudeTranscript("app/session.jsonl", lines: lines)
+        Harness.expectEqual(fixture.recorder?.record(adapter, rateCard: RateCard()), 1,
+                            "the original id-less transcript is read")
+        Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 10, output: 2),
+                            "different replies with identical timestamps and usage both count")
+
+        fixture.writeClaudeTranscript("app/session.jsonl", lines: lines)
+        Harness.expectEqual(fixture.recorder?.record(adapter, rateCard: RateCard()), 1,
+                            "an atomic transcript rewrite is reread")
+        Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 10, output: 2),
+                            "an atomic rewrite does not count id-less records again")
+        do {
+            let mirrored = fixture.root.appendingPathComponent("mirrored-projects")
+            try FileManager.default.createDirectory(at: mirrored, withIntermediateDirectories: true)
+            try (lines.joined(separator: "\n") + "\n").write(
+                to: mirrored.appendingPathComponent("copy.jsonl"), atomically: true, encoding: .utf8)
+            let restarted = try UsageRecorder(databaseURL: fixture.databaseURL)
+            Harness.expectEqual(restarted.record(ClaudeCodeAdapter(env: fixture.env, mirroredRoots: [mirrored]),
+                                                 rateCard: RateCard()), 1,
+                                "a new recorder reads the mirrored copy with a different path")
+            Harness.expectEqual(fixture.recorded(.claude)[tier], TokenTotals(input: 10, output: 2),
+                                "persisted id-less identities deduplicate local and mirrored logs after restart")
+        } catch {
+            Harness.expect(false, "mirroring the id-less fixture failed: \(error)")
+        }
+    }
+
     private static func unreadableFileReportsPartialFailure() {
         let fixture = RecorderFixture(name: "unreadable")
         defer { fixture.remove() }
@@ -234,6 +269,10 @@ struct RecordedTier: Hashable {
 
 /// Assistant lines in the shape Claude Code writes them.
 enum ClaudeLine {
+    static func idlessAssistant(sessionID: String, text: String) -> String {
+        #"{"type":"assistant","timestamp":"2026-09-01T12:00:00Z","sessionId":"\#(sessionID)","message":{"model":"claude-opus-5","content":[{"type":"text","text":"\#(text)"}],"usage":{"input_tokens":5,"output_tokens":1}}}"#
+    }
+
     static func assistant(
         id: String,
         requestId: String? = nil,
