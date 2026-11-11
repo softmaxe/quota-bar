@@ -118,7 +118,12 @@ enum Formatters {
     }
 
     private static func tokenUnit(_ value: Double, suffix: String) -> String {
-        // Drop the decimal as it would round to ten, avoiding a transitional "10.0K".
-        String(format: value < 9.95 ? "%.1f%@" : "%.0f%@", value, suffix)
+        // Drop the decimal as it would round to ten, avoiding a transitional "10.0K", and when
+        // it would be a bare ".0": "3M" beside "8.9M" reads as a round figure, not a lost digit.
+        guard value < 9.95 else { return String(format: "%.0f%@", value, suffix) }
+        let tenths = (value * 10).rounded()
+        return tenths.truncatingRemainder(dividingBy: 10) == 0
+            ? String(format: "%.0f%@", tenths / 10, suffix)
+            : String(format: "%.1f%@", tenths / 10, suffix)
     }
 }
