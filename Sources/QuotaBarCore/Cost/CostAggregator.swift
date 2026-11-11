@@ -10,6 +10,7 @@ enum CostAggregator {
         now: Date = Date(),
         calendar: Calendar = .current
     ) throws -> CostSnapshot {
+        let calendar = DayKey.gregorianCalendar(in: calendar.timeZone)
         let start = calendar.date(byAdding: .day, value: -(windowDays - 1), to: now) ?? now
         let todayKey = DayKey.today(calendar: calendar, now: now)
         let rows = try PricedUsage.price(

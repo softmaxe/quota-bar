@@ -28,7 +28,9 @@ The snapshot holds, for every calendar day from the first saved record through t
 
 ## Data and cost rules
 
-`UsageReportReader` opens QuotaBar's cost database read-only and uses a SQLite transaction to read one committed snapshot, including committed WAL data. The date window follows the Mac's current calendar and ends today.
+`UsageReportReader` opens QuotaBar's cost database read-only and uses a SQLite transaction to read one committed snapshot, including committed WAL data. Recording, date windows, and price-period comparisons use Gregorian dates in the Mac's current time zone, even when the system calendar is Buddhist, Japanese, or another calendar. The date window ends today.
+
+Earlier builds could save day keys in the system calendar. Those existing keys are not automatically converted or forcibly rescanned: the database retains neither the calendar nor the original timestamp, so a year offset cannot safely identify or repair every affected row. Rows outside the report's Gregorian date range remain stored but do not appear in that range. Ordinary source replay rules still apply when logs change; this is not a history migration.
 
 The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. The reader itself does not scan session files or reassess eligibility; the window's scans go through the same `UsageStore` path as the menu.
 

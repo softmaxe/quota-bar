@@ -3,6 +3,9 @@ import QuotaBarCore
 
 enum UsageReportTests {
     static func run() {
+        self.check("non-Gregorian calendars record queryable days at the correct price period") {
+            try self.gregorianRecordingAndPricing()
+        }
         self.check("usage report aggregates the supported sources") {
             try self.aggregatesSupportedSources()
         }
@@ -30,6 +33,36 @@ enum UsageReportTests {
         self.check("usage report propagates execution failure after earlier source rows") {
             try self.rejectsPartialReads()
         }
+    }
+
+    private static func gregorianRecordingAndPricing() throws {
+        var calendar = Calendar(identifier: .buddhist)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let fixture = try RecordedUsageFixture(now: ISO8601.parse("2026-11-10T16:00:00Z")!,
+                                               calendar: calendar, seed: false)
+        try fixture.database.exec("""
+            INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES
+              ('before', '\(fixture.day(-1))', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0),
+              ('after', '\(fixture.day())', 'dated-model', 0, 0, 1000000, 0, 0, 0, 0);
+            """)
+        let book = try PriceBook(data: Data("""
+            { "schemaVersion": 1, "providers": { "codex": {
+                "source": "https://example.com", "checkedAt": "2026-11-11",
+                "models": [{ "id": "dated-model", "periods": [
+                    { "rates": { "input": 1, "output": 1 } },
+                    { "from": "2026-11-11", "rates": { "input": 2, "output": 2 } },
+                    { "from": "2026-11-12", "rates": { "input": 3, "output": 3 } }
+                ] }]
+            } } }
+            """.utf8))
+        let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, windowDays: 2,
+                                                now: fixture.now, calendar: calendar, rateCard: RateCard(book: book))
+        Harness.expectEqual(report.days.map(\.day), ["2026-11-10", "2026-11-11"],
+                            "report query bounds use Gregorian local days")
+        Harness.expectEqual(report.days.map(\.total), [1_000_000, 1_000_000],
+                            "records made with a Buddhist calendar remain visible in the report")
+        Harness.expectClose(report.days[0].cost, 1, "the day before the local price boundary keeps its rate")
+        Harness.expectClose(report.days[1].cost, 2, "the new local day uses its rate, not a future period")
     }
 
     /// The shared seed over three days: 09-13 holds Codex and Claude rows, 09-14 nothing, and

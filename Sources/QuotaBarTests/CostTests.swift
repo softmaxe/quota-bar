@@ -7,6 +7,7 @@ import SQLite3
 enum CostTests {
     static func run() async {
         Self.iso8601Parsing()
+        Self.gregorianDayKeys()
         Self.modelBreakdownRanking()
         Self.cacheHitRate()
         Self.logFileScanning()
@@ -54,6 +55,33 @@ enum CostTests {
     }()
 
     static let fixtureRateCard = RateCard(book: fixtureBook)
+
+    private static func gregorianDayKeys() {
+        let midnight = ISO8601.parse("2026-11-10T16:00:00Z")!
+        for identifier in [Calendar.Identifier.buddhist, .japanese, .islamic, .gregorian] {
+            var calendar = Calendar(identifier: identifier)
+            calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+            Harness.expectEqual(DayKey.make(from: midnight.addingTimeInterval(-1), calendar: calendar),
+                                "2026-11-10", "\(identifier) uses the Gregorian day before local midnight")
+            Harness.expectEqual(DayKey.today(calendar: calendar, now: midnight),
+                                "2026-11-11", "\(identifier) uses the Gregorian day at local midnight")
+            Harness.expectEqual(DayKey.make(from: midnight.addingTimeInterval(1), calendar: calendar),
+                                "2026-11-11", "\(identifier) keeps the Gregorian key on a cache hit")
+            calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+            Harness.expectEqual(DayKey.make(from: midnight, calendar: calendar),
+                                "2026-11-10", "the cached key follows a different local time zone")
+        }
+
+        var calendar = Calendar(identifier: .buddhist)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        // The repeated hour belongs to one local day, whose end is 25 hours after its start.
+        for timestamp in ["2026-11-01T08:30:00Z", "2026-11-01T09:30:00Z", "2026-11-02T07:59:59Z"] {
+            Harness.expectEqual(DayKey.make(from: ISO8601.parse(timestamp)!, calendar: calendar),
+                                "2026-11-01", "the Gregorian day cache covers the fall DST transition")
+        }
+        Harness.expectEqual(DayKey.make(from: ISO8601.parse("2026-11-02T08:00:00Z")!, calendar: calendar),
+                            "2026-11-02", "the cached DST day ends at local midnight")
+    }
 
     private static func deletedSessionsRetainUsage() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

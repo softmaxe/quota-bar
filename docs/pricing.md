@@ -43,7 +43,7 @@ A model has these keys:
 
 A period has these keys:
 
-- `from` is the first local day (`yyyy-MM-dd`) the rates apply to. The first period has no `from` and covers every earlier day. Later periods need one, in ascending order.
+- `from` is the first Gregorian day in the local time zone (`yyyy-MM-dd`) the rates apply to, regardless of the system calendar. Recording and query bounds use the same day keys. The first period has no `from` and covers every earlier day. Later periods need one, in ascending order.
 - `rates` are USD per million tokens. `input` and `output` are required. `cacheWrite` is the five-minute rate. Leave `cacheWrite1h` out when it is 2x input, which is Anthropic's published ratio. Rates ending in `Above` need `thresholdTokens`. The third-party rates cache uses the same keys and rules.
 - `fastMultiplier` prices Fast usage as that multiple of every rate in the period, cache rates included. It covers Codex's priority tier and Claude's Fast mode (`usage.speed: "fast"` in Claude Code transcripts). Leave it out and Fast usage of the model stays unpriced. Use `1` for a model that accepts Fast requests but bills them at Standard rates, such as Claude Opus 4.6.
 
