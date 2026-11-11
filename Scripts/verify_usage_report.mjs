@@ -129,6 +129,22 @@ try{
   await load(unusualModel);
   assert.equal(await page.locator('.model-name').first().textContent(),'gpt-4o-','An unusual model ID remains readable without breaking the report');
   results.push({case:'unusual-model-id',passed:true});
+  const routed=fixture(Array(7).fill(100));
+  for(const day of routed.days){
+    day.sources[0]={...day.sources[0],name:'Pi Agent',source:'piAgent'};
+    day.models=['anthropic','openrouter'].map(upstreamProvider=>({
+      ...day.models[0],name:'claude-sonnet-5',source:'piAgent',upstreamProvider,
+      ...Object.fromEntries(Object.entries(totals(50))),
+    }));
+  }
+  await load(routed);
+  const routedLabels=await page.locator('.model-name').allTextContents();
+  assert.equal(routedLabels.length,2,'Same-model Pi upstreams remain separate');
+  assert(routedLabels.some(label=>label.includes('anthropic'))&&routedLabels.some(label=>label.includes('openrouter')),
+    'Pi model rows identify their upstream providers');
+  assert.equal((await layout()).escaped,0,'Upstream labels stay inside the model column');
+  await page.screenshot({path:join(output,'pi-upstreams.png'),fullPage:true});
+  results.push({case:'pi-upstreams',passed:true});
   await load(fixture(Array(7).fill(100),{unpriced:true}));
   assert.equal(await hero(),'Unpriced');
   assert.equal(await page.locator('.models td.cost').first().textContent(),'Unpriced');

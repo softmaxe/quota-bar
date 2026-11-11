@@ -18,7 +18,8 @@ Screenshots use sample data. The app is in English; the usage window supports Ch
 ## Features
 
 - Track session and weekly quota, reset times, usage pace, and Codex credits. Failed refreshes keep the last good reading.
-- View tokens and estimated API cost by day and model. Include OpenCode and Pi Agent OAuth usage that matches your Codex account.
+- View tokens and estimated API cost by day and model. Include OpenCode OAuth usage that matches your Codex account.
+- See everything Pi Agent used, across every upstream provider, in its own tab at API prices.
 - Estimate Standard, Fast, and long-context costs: current Claude and OpenAI models from the bundled price book, other models such as DeepSeek, GLM, or retired Claude and OpenAI models from models.dev.
 - View saved usage in a live window that switches between 7 days, 30 days, or any custom period, in Chinese or English.
 
@@ -84,7 +85,7 @@ codex login
 claude
 ```
 
-Open QuotaBar, click its menu bar icon, and select Claude or Codex. Open [Settings](docs/images/settings-general.png) to pick the provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, to [see model prices and turn models.dev pricing on or off](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
+Open QuotaBar, click its menu bar icon, and select Claude, Codex, or Pi. Open [Settings](docs/images/settings-general.png) to pick the quota provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, to [see model prices and turn models.dev pricing on or off](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
 
 If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
 
@@ -111,7 +112,7 @@ After QuotaBar detects a reset, opening the card plays a brief bar animation whi
 Choose manual refresh or an interval of 1, 2, 5, 15, or 30 minutes in Settings. The default is 5 minutes.
 
 - Polling, opening the card, and clicking **Refresh** update only the selected provider. Switching tabs requests an update for the newly selected provider.
-- Each provider has a one-minute refresh cooldown. A server rate limit can extend the wait.
+- Each quota provider has a one-minute refresh cooldown. A server rate limit can extend the wait. Pi refreshes only its local sessions and has no quota cooldown.
 - An explicit Claude credential-recovery action can bypass the local cooldown, but still respects the server limit.
 
 A failed refresh keeps the last good quota and shows its age and recovery instructions at the top. The retry control shows the remaining wait when a cooldown applies. Local scanning has its own progress and **Retry local scan** action.
@@ -141,7 +142,7 @@ The card scrolls when needed and reopens with details collapsed. These shortcuts
 
 | Shortcut | Action |
 | --- | --- |
-| ⌘1 / ⌘2 | Show Claude / Codex |
+| ⌘1 / ⌘2 / ⌘3 | Show Claude / Codex / Pi |
 | ⌘R | Refresh or check sign-in, when available |
 | ⌘U | Open the usage window |
 | ⌘, | Open settings |
@@ -178,7 +179,13 @@ The chart distinguishes zero usage from missing data:
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`, `$XDG_DATA_HOME/opencode/opencode.db`, or `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`, `$PI_CODING_AGENT_DIR/sessions`, or `~/.pi/agent/sessions` |
 
-For OpenCode `openai` usage and Pi Agent `openai-codex` assistant usage, QuotaBar checks each app's current OAuth credentials against the Codex account. Matching usage counts toward Codex totals. Other providers, API-key credentials, and account mismatches are excluded. These totals do not affect quota bars. See [Limitations](#limitations) for historical OpenCode authentication changes.
+For OpenCode `openai` usage, QuotaBar checks OpenCode's current OAuth credentials against the Codex account. Matching usage counts toward Codex totals. Other providers, API-key credentials, and account mismatches are excluded. These totals do not affect quota bars.
+
+Pi Agent usage has its own **Pi** tab. Every request counts, whichever upstream provider served it and whether a subscription or an API key paid for it, and is priced at the model's API rate. The tab has no quota bars. A model with no known rate uses the cost Pi logged for it. See [Limitations](#limitations) for historical OpenCode authentication changes.
+
+<p align="center">
+  <img src="docs/images/pi-usage.png" width="280" alt="Pi usage card with upstream provider shares and local usage rendered with sample data">
+</p>
 
 ### Remote machines
 
@@ -213,7 +220,7 @@ Scanner upgrades preserve recorded history instead of rebuilding it from source 
 Saved usage outlives the session logs, but it is gone if QuotaBar's own data is deleted too. Open **Settings → Usage** to see how much is saved and to keep a copy.
 
 - **Export…** saves one `.sqlite` file wherever you choose, such as an external disk or a synced folder. A backup restores only what was saved by then.
-- **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. For overlapping Claude messages, the copy with more output tokens wins; for Codex rollouts, the copy scanned further wins. OpenCode and Pi Agent keep this Mac's existing row, preserving eligibility if either copy was included; a later scan rewrites that row only if its source changed. Import does not delete records, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
+- **Import…** adds what this Mac is missing, so it works on a fresh install, with another Mac's backup, or with an old backup. For overlapping Claude messages, the copy with more output tokens wins; for Codex rollouts, the copy scanned further wins. OpenCode and Pi Agent keep this Mac's existing usage; OpenCode preserves eligibility if either copy was included. Pi fills missing upstream details and, when the model and token counts match, missing logged costs. A later scan updates a row when its source changes. Import does not delete records, and importing again changes nothing. The database as it stood is kept as `cost-usage.sqlite.pre-import`, replaced by each import.
 
 A backup holds token counts, dates, models, pricing tiers, record IDs, scan positions, and local session paths, so check where you share it. It holds no prompts or replies. Quota pace samples and cached models.dev rates are not included: pace rebuilds as QuotaBar samples quota again, and past third-party costs use the rates downloaded on that Mac.
 
@@ -235,7 +242,7 @@ Choose **Usage…** in the card, or press ⌘U, to open the usage window. If not
   <img src="docs/images/usage-report.png" width="760" alt="English view of the usage window, with a Chinese/English switch and sample data">
 </p>
 
-The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex and Claude usage, plus eligible OpenCode and Pi Agent usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. Without a saved language choice or a `lang` query parameter, it starts in Chinese when the system's first preferred language is Chinese, and English otherwise. It shows each source's share, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
+The page is modelled on the Usage page of [T3 Code](https://github.com/pingdotgg/t3code). It shows all saved Codex, Claude, and Pi Agent usage, plus eligible OpenCode usage. Switch between 7 days, 30 days, or a custom start and end date, between cost and tokens, and between Chinese and English. Without a saved language choice or a `lang` query parameter, it starts in Chinese when the system's first preferred language is Chinese, and English otherwise. It shows each source's share, totals with cache savings, cost by token type and speed, and a breakdown by model or by day.
 
 While the window is open, QuotaBar scans every source's local logs once a minute and updates the figures in place, keeping the period, metric, breakdown, and language you chose. It uses the same pricing rules as the card and marks unpriced usage. See [Usage window](docs/usage-report.md) for how it reads and refreshes data.
 
@@ -357,7 +364,7 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast usage of models outside the price book stays unpriced. For other models, confirm the **models.dev** switch in **Settings → Pricing** is on and that models.dev lists the model. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
 | OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
-| Pi Agent usage is missing | Confirm Pi Agent uses `/login openai-codex` with the same account as Codex. Check **Settings → Pricing** for session or authentication errors. |
+| Pi Agent usage is missing | Open the **Pi** tab and choose Refresh. Confirm the sessions are in one of the Pi Agent locations above. |
 
 ## Limitations
 

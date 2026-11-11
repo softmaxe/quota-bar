@@ -77,6 +77,7 @@ public struct UsageReportNamedUsage: Codable, Sendable, Equatable {
     /// The usage source's stable identifier: the source itself for a source row, and the source
     /// with the most tokens for a model row. Absent when the row has no single source.
     public let source: String?
+    public let upstreamProvider: String?
     public let input: Int
     public let output: Int
     public let cacheRead: Int
@@ -86,9 +87,10 @@ public struct UsageReportNamedUsage: Codable, Sendable, Equatable {
     public let unpricedTokens: Int
     public let total: Int
 
-    public init(name: String, source: String? = nil, totals: UsageReportTotals = UsageReportTotals()) {
+    public init(name: String, source: String? = nil, upstreamProvider: String? = nil, totals: UsageReportTotals = UsageReportTotals()) {
         self.name = name
         self.source = source
+        self.upstreamProvider = upstreamProvider
         self.input = totals.input
         self.output = totals.output
         self.cacheRead = totals.cacheRead
@@ -248,7 +250,7 @@ public enum UsageReportReader {
                 cacheWrite1h: Int64(row.tokens.cacheWrite1h)
             )
             let model = row.model
-            let provider = row.source.provider
+            let provider = row.key.pricingProvider
             if let cost = row.cost {
                 usage.cost = cost
                 // The row's cost already came from these rates; they only split it by token type.
@@ -261,13 +263,12 @@ public enum UsageReportReader {
                                                     cost: cost, fast: row.key.isFast, standardCost: standard)
                     try dayBreakdown[row.day, default: CostBreakdownSum()].add(part)
                 }
-            } else {
-                usage.unpricedTokens = Int64(try usage.snapshot(label: "unpriced usage").total)
             }
+            usage.unpricedTokens = Int64(row.unpricedTokens)
             _ = try usage.snapshot(label: "\(row.source.displayName) \(row.day) \(model)")
             try dayTotals[row.day, default: CheckedUsage()].add(usage)
             try daySourceTotals[row.day, default: [:]][row.source, default: CheckedUsage()].add(usage)
-            try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.source, model: model),
+            try dayModelTotals[row.day, default: [:]][ModelUsageKey(source: row.source, model: model, upstreamProvider: row.key.upstreamProvider),
                                                       default: CheckedUsage()].add(usage)
             recordedDays.insert(row.day)
         }
@@ -276,12 +277,12 @@ public enum UsageReportReader {
         let historyStart = min(firstRecorded, calendarDays.count - windowDays)
         let history = try calendarDays[historyStart...].map { key in
             let models = try dayModelTotals[key, default: [:]].map { key, usage in
-                UsageReportNamedUsage(name: key.model, source: key.source.rawValue,
+                UsageReportNamedUsage(name: key.model, source: key.source.rawValue, upstreamProvider: key.upstreamProvider,
                                       totals: try usage.snapshot(label: "day model \(key.model)"))
             }.sorted {
                 if $0.cost != $1.cost { return $0.cost > $1.cost }
                 if $0.total != $1.total { return $0.total > $1.total }
-                return ($0.name, $0.source ?? "") < ($1.name, $1.source ?? "")
+                return ($0.name, $0.source ?? "", $0.upstreamProvider ?? "") < ($1.name, $1.source ?? "", $1.upstreamProvider ?? "")
             }
             return UsageReportDay(
                 day: key,

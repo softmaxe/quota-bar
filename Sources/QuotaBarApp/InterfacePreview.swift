@@ -72,6 +72,7 @@ enum InterfacePreview {
                     if let motion { return await motion.fetchCost(provider) }
                     return CardDump.busyCost(provider)
                 },
+                fetchPiCost: { CardDump.piCost() },
                 historyStore: UsageHistoryStore(fileURL: scratch.appendingPathComponent("history.json")),
                 recoveryDefaults: defaults
             )
@@ -85,6 +86,9 @@ enum InterfacePreview {
                 ), for: provider)
                 store.debugRecordRefresh(at: ProcessInfo.processInfo.systemUptime, provider: provider)
             }
+            var pi = ProviderDisplay(cost: CardDump.piCost())
+            pi.localScanStatus = .completed(Date())
+            store.debugSetPiDisplay(pi)
             if motion != nil {
                 // Codex opens with quota but no local usage, so its first scan shows the
                 // placeholder. Claude opens signed out until Check sign-in is chosen.

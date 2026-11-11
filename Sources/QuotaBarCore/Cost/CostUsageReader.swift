@@ -11,7 +11,7 @@ public enum CostUsageReader {
     /// recorded as, most-used first. `RateCard.modelUsage` regroups them under model IDs.
     /// An absent cache means no recorded usage. Existing but unreadable caches throw.
     public static func knownModelUsage(
-        provider: Provider,
+        tab: UsageTab,
         databaseURL: URL = CostService.defaultDatabaseURL
     ) throws -> [ModelUsageTotal] {
         do {
@@ -24,7 +24,7 @@ public enum CostUsageReader {
             }
             throw error
         }
-        return try RecordedUsageReader(databaseURL: databaseURL).modelUsage(provider: provider)
+        return try RecordedUsageReader(databaseURL: databaseURL).modelUsage(tab: tab)
     }
 
     /// What the saved usage amounts to. An absent cache means nothing is saved yet.

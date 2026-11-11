@@ -66,7 +66,7 @@ enum ReadTimeTierTests {
         let claude = await service.refresh(.claude)
         let codex = await service.refresh(.codex)
         Harness.expectClose(claude?.windowCostUSD, 0.75, "the menu retiers keyed usage even after logs disappear")
-        Harness.expectClose(codex?.windowCostUSD, 2.000002, "the menu retiers snapshot usage and retains Codex's tier")
+        Harness.expectClose(codex?.windowCostUSD, 1.250002, "the menu retiers snapshot usage and retains Codex's tier")
         let report = try UsageReportReader.read(databaseURL: fixture.databaseURL, now: now, rateCard: card)
         Harness.expectClose(report.days.reduce(0) { $0 + $1.cost }, 2.750002,
                             "the report and menu price the same read-time tiers")
@@ -129,7 +129,7 @@ enum ReadTimeTierTests {
         Harness.expectEqual(rows.first { $0.day == "2026-09-02" }?.key.longContext, true,
                             "thresholds use each recorded day's price period")
         let menuRows = try PricedUsage.price(
-            try reader.dailyUsage(provider: .claude, fromDay: "2026-09-01", rateCard: card), on: card)
+            try reader.dailyUsage(tab: .claude, fromDay: "2026-09-01", rateCard: card), on: card)
         Harness.expectEqual(menuRows, rows, "both reading paths apply the same thresholds and legacy fallback")
 
         for value in ["-1", "1.5", "'invalid'"] {
@@ -149,7 +149,7 @@ enum ReadTimeTierTests {
             """)
         let card = try self.card()
         let rows = try RecordedUsageReader(databaseURL: fixture.databaseURL)
-            .dailyUsage(provider: .codex, fromDay: "2026-09-01", rateCard: card)
+            .dailyUsage(tab: .pi, fromDay: "2026-09-01", rateCard: card)
         Harness.expect(rows.count <= 3, "SQL aggregates thousands of distinct request sizes into threshold buckets")
         let priced = try PricedUsage.price(rows, on: card)
         Harness.expectEqual(priced.count, 2, "only the two effective tiers reach pricing consumers")

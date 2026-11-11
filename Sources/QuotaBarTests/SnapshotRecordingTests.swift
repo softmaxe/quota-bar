@@ -52,6 +52,7 @@ enum SnapshotRecordingTests {
         fixture.writeCodexRollout(rollout, lines: codexLines)
         fixture.record(.claude)
         fixture.record(.codex)
+        fixture.record(.pi)
         do {
             let reader = try RecordedUsageReader(databaseURL: fixture.databaseURL)
             let before = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
@@ -62,7 +63,7 @@ enum SnapshotRecordingTests {
             Harness.expectEqual(DayKey.make(from: Date(timeIntervalSince1970: 1_788_264_000)), "2026-09-02",
                                 "the new zone puts the same timestamp on another day")
             for provider in [Provider.claude, .codex] {
-                Harness.expectEqual(fixture.recorder?.record(provider, rateCard: RateCard(), env: fixture.env), 0,
+                Harness.expectEqual(fixture.recorder?.record(UsageTab(provider: provider), rateCard: RateCard(), env: fixture.env), 0,
                                     "changing only the time zone reads no source again")
             }
             let unchanged = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
@@ -86,6 +87,7 @@ enum SnapshotRecordingTests {
             fixture.writeCodexRollout(rollout, lines: codexLines)
             fixture.record(.claude)
             fixture.record(.codex)
+            fixture.record(.pi)
             let changed = try reader.reportUsage(fromDay: "2026-09-01", throughDay: "2026-09-02")
             for source in [CostUsageSource.claude, .openCode, .piAgent] {
                 Harness.expectEqual(changed.first { $0.tier.source == source && $0.day == "2026-09-01" }?.tokens.input, 20,
@@ -186,52 +188,28 @@ enum SnapshotRecordingTests {
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "automatic recovery remains quiet")
     }
 
-    /// Pi Agent pauses on an uncheckable sign-in, preserving history until an ordinary refresh
-    /// can verify the account again. Recovery must catch up even if sessions no longer change.
+    /// Pi usage depends on readable sessions, with no sign-in dependency.
     private static func piSignOutKeepsHistoryAndResumesAutomatically() {
         let fixture = RecorderFixture(name: "snapshot-pi-sign-out")
         defer { fixture.remove() }
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
-        fixture.record(.codex)
-        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "Pi Agent history is initially recorded")
-
+        fixture.record(.pi)
+        Harness.expectEqual(fixture.recorded(.pi)[Self.standard]?.input, 10, "Pi records with no credential files")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [
-            PiSessionFile.message("one", input: 10),
-            PiSessionFile.message("two", input: 5),
+            PiSessionFile.message("one", input: 10), PiSessionFile.message("two", input: 5),
         ])
-        let auth = fixture.root.appendingPathComponent("pi/auth.json")
-        do {
-            try FileManager.default.removeItem(at: auth)
-            for signIn: String? in [nil, "{}", #"{"openai-codex":null}"#, "invalid json", #"{"openai-codex":{"type":"oauth"}}"#] {
-                if let signIn { try signIn.write(to: auth, atomically: true, encoding: .utf8) }
-                fixture.record(.codex)
-                Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "Pi sign-out retains history without adding unchecked usage")
-                Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "Pi sign-out does not report a scan failure")
-            }
-        } catch {
-            Harness.expect(false, "changing the Pi Agent fixture sign-in failed: \(error)")
-            return
-        }
-
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
-        fixture.record(.codex)
-        fixture.record(.codex)
-        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "background refresh catches up Pi usage after sign-in without double counting")
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "Pi automatic recovery remains quiet")
-
-        // Once authentication recovers, unreadable sessions must still report a scan failure.
+        fixture.record(.pi)
+        Harness.expectEqual(fixture.recorded(.pi)[Self.standard]?.input, 15, "Pi records new requests without sign-in")
         let sessions = fixture.root.appendingPathComponent("pi/sessions")
         do {
             try FileManager.default.removeItem(at: sessions)
             try Data().write(to: sessions)
         } catch {
-            Harness.expect(false, "replacing the Pi Agent fixture sessions failed: \(error)")
-            return
+            Harness.expect(false, "replacing Pi sessions failed: \(error)")
         }
-        fixture.record(.codex)
-        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .error("sessions"), "Pi session failures are still reported")
-        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 15, "Pi session failures retain recorded history")
+        fixture.record(.pi)
+        Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .error("sessions"), "unreadable Pi sessions report a failure")
+        Harness.expectEqual(fixture.recorded(.pi)[Self.standard]?.input, 15, "a Pi failure preserves recorded history")
     }
 
     /// Whether a request counts is settled when it is first recorded. Signing in to the Codex
@@ -282,7 +260,7 @@ enum SnapshotRecordingTests {
         try? FileManager.default.removeItem(at: fixture.root.appendingPathComponent("pi/sessions"))
         fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
 
-        Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "usage of a removed source still counts")
+        Harness.expectEqual(fixture.recorded(.pi)[Self.standard]?.input, 10, "usage of a removed source still counts")
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .piAgent), .idle, "a removed source is idle")
     }
 
@@ -389,14 +367,13 @@ enum SnapshotRecordingTests {
         Harness.expectEqual(unchanged, 0, "an unchanged Pi Agent session directory is skipped")
         Harness.expectEqual(changed, 3, "a changed Pi Agent session directory is reread whole")
         Harness.expectEqual(
-            fixture.recorded(.codex)[Self.standard]?.input,
+            fixture.recorded(.pi)[Self.standard]?.input,
             15,
             "a message repeated across session files is recorded once"
         )
     }
 
-    /// OpenCode and Pi Agent usage counts toward the Codex provider, so recording the provider
-    /// records them too and reports each one's scan status.
+    /// Codex records OpenCode; Pi is scanned independently of Codex accounts.
     private static func codexProviderRecordsExternalAgents() {
         let fixture = RecorderFixture(name: "snapshot-codex-provider")
         defer { fixture.remove() }
@@ -414,8 +391,8 @@ enum SnapshotRecordingTests {
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "OpenCode status after recording Codex")
         Harness.expectEqual(
             fixture.recorder?.scanStatus(of: .piAgent),
-            .accountMismatch,
-            "Pi Agent status after recording Codex"
+            .idle,
+            "recording Codex leaves Pi status untouched"
         )
     }
 

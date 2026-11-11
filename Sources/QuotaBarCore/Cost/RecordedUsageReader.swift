@@ -12,12 +12,15 @@ package final class RecordedUsageReader {
         package let model: String
         package let longContext: Bool
         package let isFast: Bool
+        package var upstreamProvider: String? = nil
     }
 
     package struct DayUsage {
         package let day: String
         package let tier: ModelTier
         package let tokens: TokenTotals
+        package var loggedCostUSD: Double? = nil
+        package var loggedCostTokens: Int = 0
     }
 
     struct SourceTable {
@@ -26,8 +29,7 @@ package final class RecordedUsageReader {
         let supportsFast: Bool
         let includedOnly: Bool
         var hasContextInput = false
-
-        var provider: Provider { self.source.provider }
+        var hasPiAttribution = false
 
         var requiredColumns: Set<String> {
             var columns = Set(["day", "model", "long_context"] + RecordedUsageReader.tokenColumns)
@@ -41,7 +43,7 @@ package final class RecordedUsageReader {
         SourceTable(source: .codex, table: "codex_day", supportsFast: true, includedOnly: false),
         SourceTable(source: .claude, table: "claude_message", supportsFast: true, includedOnly: false),
         SourceTable(source: .openCode, table: "opencode_part", supportsFast: true, includedOnly: true),
-        SourceTable(source: .piAgent, table: "pi_message", supportsFast: false, includedOnly: true),
+        SourceTable(source: .piAgent, table: "pi_message", supportsFast: false, includedOnly: false),
     ]
 
     package static let reportMaximumSafeInteger: Int64 = 9_007_199_254_740_991
@@ -74,14 +76,14 @@ package final class RecordedUsageReader {
         if self.ownsConnection, let database { sqlite3_close(database) }
     }
 
-    /// The menu requires all of its provider's tables and has no upper date bound.
+    /// The menu requires all of its tab's tables and has no upper date bound.
     /// Both readers reject invalid token domains; the report also bounds JavaScript integers.
-    package func dailyUsage(provider: Provider, fromDay: String, rateCard: RateCard? = nil) throws -> [DayUsage] {
-        var tables = Self.sourceTables.filter { $0.provider == provider }
-        if rateCard != nil {
-            for index in tables.indices {
-                tables[index].hasContextInput = try self.columns(in: tables[index].table).contains("context_input")
-            }
+    package func dailyUsage(tab: UsageTab, fromDay: String, rateCard: RateCard? = nil) throws -> [DayUsage] {
+        var tables = Self.sourceTables.filter { $0.source.tab == tab }
+        for index in tables.indices {
+            let columns = try self.columns(in: tables[index].table)
+            tables[index].hasContextInput = columns.contains("context_input")
+            tables[index].hasPiAttribution = columns.contains("upstream_provider")
         }
         return try self.readDailyUsage(
             tables: tables,
@@ -147,6 +149,7 @@ package final class RecordedUsageReader {
                 )
             }
             source.hasContextInput = columns.contains("context_input")
+            source.hasPiAttribution = columns.contains("upstream_provider")
             tables.append(source)
         }
         return tables
@@ -178,7 +181,10 @@ package final class RecordedUsageReader {
             // another GROUP BY key. Day filtering still uses the existing day indexes.
             let bucket: String
             if reclassify, let rateCard {
-                let boundaries = rateCard.contextThresholds(provider: source.provider).map {
+                let thresholds = source.source == .piAgent
+                    ? Array(Set(rateCard.contextThresholds(provider: .claude) + rateCard.contextThresholds(provider: .codex))).sorted(by: >)
+                    : rateCard.contextThresholds(provider: source.source.pricingProvider(model: ""))
+                let boundaries = thresholds.map {
                     "WHEN context_input > \($0) THEN \($0 + 1)"
                 }.joined(separator: " ")
                 bucket = "CASE WHEN context_input IS NULL THEN CASE WHEN long_context THEN -2 ELSE -1 END \(boundaries) ELSE 0 END"
@@ -189,11 +195,17 @@ package final class RecordedUsageReader {
             let validation = ", MAX(CASE WHEN \(Self.invalidTokens(maximum: maximum))\(invalidContext) THEN 1 ELSE 0 END)"
             let bounds = throughDay == nil ? "day >= ?" : "day BETWEEN ? AND ?"
             let bindings = [fromDay] + (throughDay.map { [$0] } ?? [])
+            let upstream = source.hasPiAttribution ? "upstream_provider" : "NULL"
+            let validCost = "typeof(logged_total_usd) IN ('real', 'integer') AND logged_total_usd > 0 AND logged_total_usd <= 1.7976931348623157e308"
+            let loggedCost = source.hasPiAttribution
+                ? "SUM(CASE WHEN \(validCost) THEN logged_total_usd ELSE 0 END)" : "NULL"
+            let loggedTokens = source.hasPiAttribution
+                ? "SUM(CASE WHEN \(validCost) THEN input + output + cache_write + cache_read ELSE 0 END)" : "0"
             try self.query("""
-                SELECT day, model, \(bucket), \(fast), \(sums)\(validation)
+                SELECT day, model, \(bucket), \(fast), \(sums)\(validation), \(upstream), \(loggedCost), \(loggedTokens)
                 FROM \(source.table)
                 WHERE \(source.includedOnly ? "included = 1 AND " : "")\(bounds)
-                GROUP BY day, model, \(bucket), \(fast)
+                GROUP BY day, model, \(bucket), \(fast), \(upstream)
                 """, bindings: bindings) { statement in
                 guard let day = self.text(statement, column: 0, strict: validateForReport),
                       let model = self.text(statement, column: 1, strict: validateForReport) else {
@@ -204,13 +216,15 @@ package final class RecordedUsageReader {
                         "\(source.source.displayName) contains invalid values on \(day)"
                     )
                 }
+                let upstreamProvider = self.text(statement, column: 10, strict: true)
+                let pricingProvider = source.source.pricingProvider(model: model, upstreamProvider: upstreamProvider)
                 let isFast = sqlite3_column_int64(statement, 3) != 0
                 let contextBucket = sqlite3_column_int64(statement, 2)
                 let longContext: Bool
                 if reclassify, contextBucket >= 0, let rateCard {
                     longContext = rateCard.isLongContext(
                         TokenTotals(input: Int(contextBucket)),
-                        model: model, provider: source.provider, day: day, fast: isFast
+                        model: model, provider: pricingProvider, day: day, fast: isFast
                     )
                 } else {
                     longContext = reclassify ? contextBucket == -2 : contextBucket != 0
@@ -219,10 +233,13 @@ package final class RecordedUsageReader {
                     source: source.source,
                     model: model,
                     longContext: longContext,
-                    isFast: isFast
+                    isFast: isFast,
+                    upstreamProvider: upstreamProvider
                 )
                 rows.append(DayUsage(day: day, tier: tier,
-                                     tokens: try self.tokens(statement, validateForReport: validateForReport)))
+                                     tokens: try self.tokens(statement, validateForReport: validateForReport),
+                                     loggedCostUSD: sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 11),
+                                     loggedCostTokens: Int(sqlite3_column_int64(statement, 12))))
             }
         }
         return rows
@@ -267,11 +284,11 @@ package final class RecordedUsageReader {
         return String(cString: value)
     }
 
-    /// Pricing counts every recorded day and requires all of the provider's source tables.
+    /// Pricing counts every recorded day and requires all of the tab's source tables.
     /// Reject invalid stored counts and SQLite promotion instead of coercing them to integers.
-    package func modelUsage(provider: Provider) throws -> [ModelUsageTotal] {
+    package func modelUsage(tab: UsageTab) throws -> [ModelUsageTotal] {
         var totals: [String: Int] = [:]
-        for source in Self.sourceTables where source.provider == provider {
+        for source in Self.sourceTables where source.source.tab == tab {
             try self.query("""
                 SELECT model, SUM(input + output + cache_write + cache_read) AS tokens,
                        MAX(CASE WHEN \(Self.invalidTokens(maximum: Int64.max)) THEN 1 ELSE 0 END)

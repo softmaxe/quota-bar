@@ -2,16 +2,16 @@ import QuotaBarCore
 import AppKit
 import SwiftUI
 
-/// Equal-width provider navigation. Quota readings belong to the selected card below.
+/// Equal-width tab navigation: the quota providers, then Pi. Quota readings belong to the selected card below.
 ///
 /// Native buttons preserve keyboard focus and accessibility in the status popover.
 struct ProviderTabBar: View {
-    let selection: Provider
-    let onSelect: (Provider) -> Void
+    let selection: UsageTab
+    let onSelect: (UsageTab) -> Void
 
-    private static let providers = Provider.allCases
+    private static let providers = UsageTab.allCases
     /// ⌘1, ⌘2, … follow tab position, left to right.
-    private static func shortcutKey(for provider: Provider) -> KeyEquivalent {
+    private static func shortcutKey(for provider: UsageTab) -> KeyEquivalent {
         KeyEquivalent(Character(String(Self.providers.firstIndex(of: provider)! + 1)))
     }
     private static let style = SegmentedSwitchStyle(segmentHeight: 26, inset: 2, cornerRadius: 7)
@@ -42,7 +42,7 @@ struct ProviderTabBar: View {
     }
 
     private func label(
-        _ provider: Provider,
+        _ provider: UsageTab,
         isSelected: Bool,
         isEmphasized: Bool,
         emphasisAnimation: Animation?
@@ -50,7 +50,7 @@ struct ProviderTabBar: View {
         // Align the provider dot with the name's capitals.
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Circle()
-                .fill(Theme.accent(for: provider))
+                .fill(Theme.accent(tab: provider))
                 .opacity(isEmphasized ? 1 : CostChartHighlightPolicy.restingOpacity)
                 .frame(width: 6, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + Self.dotLift }

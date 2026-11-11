@@ -248,10 +248,10 @@ enum CardDump {
         guard let last = sample.days.last else { return sample }
         let models: [(CostUsageSource, String)] = provider == .codex
             ? [
-                (.piAgent, "gpt-5.6-sol"),
                 (.codex, "gpt-5.6-sol"),
+                (.openCode, "gpt-5.6-sol"),
                 (.codex, "gpt-5.6-luna"),
-                (.piAgent, "gpt-5.6-luna"),
+                (.openCode, "gpt-5.6-luna"),
                 (.openCode, "gpt-5.6-terra"),
                 (.codex, "gpt-5.6-terra"),
             ]
@@ -277,7 +277,7 @@ enum CardDump {
             unpricedTokens: 0
         )
         return CostSnapshot(
-            provider: sample.provider,
+            tab: sample.tab,
             days: sample.days.dropLast() + [busy],
             todayCostUSD: sample.todayCostUSD,
             windowCostUSD: sample.windowCostUSD,
@@ -342,7 +342,7 @@ enum CardDump {
             ? ([18.0, 22, 12, 20, 24, 176], "gpt-5.6-sol")
             : ([62.0, 90, 48, 71, 9, 88, 41, 37], "claude-opus-5")
         let mix: [(CostUsageSource, String, Double)] = provider == .codex
-            ? [(.codex, top, 0.72), (.openCode, "gpt-5.6-terra", 0.2), (.piAgent, "gpt-5.6-luna", 0.08)]
+            ? [(.codex, top, 0.72), (.openCode, "gpt-5.6-terra", 0.2), (.codex, "gpt-5.6-luna", 0.08)]
             : [(.claude, top, 0.8), (.claude, "claude-sonnet-5", 0.15), (.claude, "claude-haiku-4-5", 0.05)]
         let hitRates = [0.91, 0.88, 0.93, 0.9, 0.84, 0.92, 0.95, 0.94]
         let calendar = Calendar.current
@@ -365,7 +365,7 @@ enum CardDump {
             )
         }
         return CostSnapshot(
-            provider: provider,
+            tab: UsageTab(provider: provider),
             days: days,
             todayCostUSD: values.last ?? 0,
             windowCostUSD: values.reduce(0, +),
@@ -377,8 +377,78 @@ enum CardDump {
         )
     }
 
+    /// Pi reaches many upstream providers, so its sample spreads each day across several.
+    static func piCost() -> CostSnapshot {
+        let now = Date().addingTimeInterval(-5 * 60)
+        let values = [3.1, 0.9, 5.2, 8.8, 2.4, 6.3, 14.6, 3.9, 7.5, 4.2]
+        let mix: [(String, String, Double, Double)] = [
+            ("anthropic", "claude-sonnet-5", 0.4, 1.9),
+            ("openai-codex", "gpt-5.6-sol", 0.22, 1.0),
+            ("openrouter", "kimi-k3", 0.16, 0.21),
+            ("google", "gemini-3.5-pro", 0.12, 0.55),
+            ("groq", "llama-5-70b", 0.06, 0.12),
+            ("xai", "grok-5", 0.04, 0.9),
+        ]
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var windowTokens = 0
+        let days = values.enumerated().map { index, value in
+            let date = calendar.date(byAdding: .day, value: index - (values.count - 1), to: today) ?? today
+            return CostDay(
+                dayKey: DayKey.make(from: date),
+                byModel: Dictionary(uniqueKeysWithValues: mix.map { upstream, model, share, usdPerMillion in
+                    let tokens = Int(value * share / usdPerMillion * 1_000_000)
+                    windowTokens += tokens
+                    return (
+                        ModelUsageKey(source: .piAgent, model: model, upstreamProvider: upstream),
+                        ModelDayUsage(tokens: Self.mixedTokens(tokens, cacheHitRate: 0.86), costUSD: value * share)
+                    )
+                }),
+                costUSD: value,
+                unpricedTokens: 0
+            )
+        }
+        return CostSnapshot(
+            tab: .pi,
+            days: days,
+            todayCostUSD: values.last ?? 0,
+            windowCostUSD: values.reduce(0, +),
+            latestTokens: days.last?.tokens.total ?? 0,
+            windowTokens: windowTokens,
+            topModel: "claude-sonnet-5",
+            hasUnpricedTokens: false,
+            scannedAt: now
+        )
+    }
+
     static func run(directory: String) {
         let root = OffscreenCapture.directory(directory)
+
+        var failedPi = ProviderDisplay(cost: CostSnapshot(
+            tab: .pi, days: [], todayCostUSD: 0, windowCostUSD: 0, latestTokens: 0,
+            windowTokens: 0, topModel: nil, hasUnpricedTokens: false, scannedAt: Date()
+        ))
+        failedPi.localScanStatus = .failed("Some Pi sessions could not be scanned. Available usage is shown; retry the scan.")
+        Self.capture(
+            MenuCardView(provider: .codex, display: failedPi, isRefreshing: false, tab: .pi, animatesFill: false),
+            named: "pi-empty-failed", into: root
+        )
+
+        // Pi has no quota windows: where the spend went, then the shared local usage section.
+        for (name, mode, expanded) in [("pi-loaded", CostChartLabelMode.cost, false), ("pi-loaded-tokens", .tokens, false), ("pi-breakdown-cost", .cost, true)] {
+            let cost = Self.piCost()
+            var display = ProviderDisplay(cost: cost)
+            display.localScanStatus = .completed(Date())
+            Self.capture(
+                MenuCardView(
+                    provider: .codex, display: display, isRefreshing: false, tab: .pi, animatesFill: false,
+                    costChartLabelMode: mode,
+                    isCostBreakdownExpanded: expanded,
+                    expandedCostBreakdownDayKey: expanded ? cost.days.last?.dayKey : nil
+                ),
+                named: name, into: root
+            )
+        }
 
         let now = Date().addingTimeInterval(-5 * 60)
 

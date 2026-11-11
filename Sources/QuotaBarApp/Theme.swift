@@ -13,6 +13,16 @@ enum Theme {
         }
     }
 
+    /// Pi has no quota provider of its own, so its tab carries its own hue.
+    static func accent(tab: UsageTab) -> Color {
+        switch tab {
+        case .claude: Self.claudeAccent
+        case .codex: Self.codexAccent
+        case .pi: Self.piAccent
+        }
+    }
+
+    private static let piAccent = Self.dynamic(light: (150, 115, 30), dark: (201, 168, 92))
     private static let codexAccent = Self.dynamic(light: (38, 133, 148), dark: (73, 163, 176))
     private static let claudeAccent = Self.dynamic(light: (190, 100, 66), dark: (204, 124, 94))
 

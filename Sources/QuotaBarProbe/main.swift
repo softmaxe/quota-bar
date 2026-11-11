@@ -51,7 +51,7 @@ func reportCost(_ snapshot: CostSnapshot?) {
 }
 
 func equivalentCost(_ lhs: CostSnapshot, _ rhs: CostSnapshot) -> Bool {
-    lhs.provider == rhs.provider
+    lhs.tab == rhs.tab
         && lhs.days == rhs.days
         && lhs.todayCostUSD == rhs.todayCostUSD
         && lhs.windowCostUSD == rhs.windowCostUSD
@@ -120,9 +120,9 @@ func benchmarkCost(arguments: [String]) async {
             databaseURL: root.appendingPathComponent("cost-\(iteration).sqlite"),
             rateCard: RateCard()
         )
-        let (cold, coldTime) = await milliseconds { await service.refresh(provider) }
+        let (cold, coldTime) = await milliseconds { await service.refresh(UsageTab(provider: provider)) }
         guard let cold else { fail("cold scan failed") }
-        let (incremental, incrementalTime) = await milliseconds { await service.refresh(provider) }
+        let (incremental, incrementalTime) = await milliseconds { await service.refresh(UsageTab(provider: provider)) }
         guard let incremental else { fail("incremental scan failed") }
         stable = stable && equivalentCost(cold, incremental)
         coldTimes.append(coldTime)
@@ -165,7 +165,7 @@ for provider in Provider.allCases {
         print("[\(provider.displayName)]")
     }
     let started = Date()
-    reportCost(await costService.refresh(provider))
+    reportCost(await costService.refresh(UsageTab(provider: provider)))
     print(String(format: "  scan took %.1fs", Date().timeIntervalSince(started)))
     print("")
 }

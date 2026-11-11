@@ -11,13 +11,23 @@ package struct ObservedRequest: Equatable {
     package var model: String?
     package var tokens: TokenTotals
     package var isFast: Bool
+    package var upstreamProvider: String?
+    package var loggedCostUSD: Double?
+    package var totalFromProvider: Bool?
+    package var entryID: String?
 
-    package init(key: String?, timestamp: Date, model: String?, tokens: TokenTotals, isFast: Bool) {
+    package init(key: String?, timestamp: Date, model: String?, tokens: TokenTotals, isFast: Bool,
+                 upstreamProvider: String? = nil, loggedCostUSD: Double? = nil,
+                 totalFromProvider: Bool? = nil, entryID: String? = nil) {
         self.key = key
         self.timestamp = timestamp
         self.model = model
         self.tokens = tokens
         self.isFast = isFast
+        self.upstreamProvider = upstreamProvider
+        self.loggedCostUSD = loggedCostUSD
+        self.totalFromProvider = totalFromProvider
+        self.entryID = entryID
     }
 }
 
@@ -111,20 +121,20 @@ package final class UsageRecorder {
         return try self.cache.merge(backup: copy, undoCopy: undoCopy)
     }
 
-    /// Records every Usage source whose usage counts toward `provider`. A source that fails
+    /// Records every Usage source whose usage counts toward `tab`. A source that fails
     /// keeps what was recorded before and reports the failure in its scan status, so it never
     /// hides the others. `remoteLogs` is the `RemoteLogMirror` directory, whose logs count as this
     /// Mac's own. Returns the number of files and snapshot requests that were read.
     @discardableResult
     package func record(
-        _ provider: Provider,
+        _ tab: UsageTab,
         rateCard: RateCard,
         env: [String: String] = ProcessInfo.processInfo.environment,
         remoteLogs: URL? = nil
     ) -> Int {
-        // `CostUsageSource.provider` alone decides which sources count toward a provider.
+        // Harness attribution alone decides which sources count toward a tab.
         var touched = 0
-        for source in CostUsageSource.all where source.provider == provider {
+        for source in CostUsageSource.all where source.tab == tab {
             touched += self.record(source, rateCard: rateCard, env: env, remoteLogs: remoteLogs)
         }
         return touched
@@ -169,10 +179,12 @@ extension CostUsageSource {
     /// source added here also needs an adapter in `UsageRecorder.record(_:rateCard:env:)`.
     static let all: [CostUsageSource] = [.codex, .openCode, .piAgent, .claude]
 
-    fileprivate var log: Logger { self.provider == .claude ? Log.claude : Log.codex }
+    fileprivate var log: Logger { self == .claude ? Log.claude : Log.codex }
 }
 
 extension AppendedLogSource {
+    var provider: Provider { self == .claude ? .claude : .codex }
+
     var usageSource: CostUsageSource {
         switch self {
         case .claude: .claude
@@ -210,6 +222,7 @@ private struct RecordedRow {
     let longContext: Bool
     let isFast: Bool
     let tokens: TokenTotals
+    var piRequest: ObservedRequest? = nil
 
     // The one-hour cache-write count is already part of cacheWrite; output never sets the tier.
     var contextInput: Int? {
@@ -292,8 +305,7 @@ extension UsageRecorder {
                 contextInput: row.contextInput
             )
         case .piAgent:
-            // One row per message, rewritten only when its content changes. `included` is written
-            // only when the message is first seen. Pi Agent records no Fast flag.
+            // One row per Pi request, independent of account eligibility and without Fast mode.
             try self.cache.addPiMessage(
                 key: try Self.key(of: row, from: source.usageSource),
                 included: included,
@@ -301,7 +313,8 @@ extension UsageRecorder {
                 model: row.model,
                 longContext: row.longContext,
                 totals: row.tokens,
-                contextInput: row.contextInput
+                contextInput: row.contextInput,
+                request: row.piRequest
             )
         }
     }
@@ -406,7 +419,7 @@ extension UsageRecorder {
     /// remote version preserves its existing rows and stays ineligible for cleanup.
     private func readNewLines(_ adapter: some AppendedLogAdapter, rateCard: RateCard) throws -> (touched: Int, failed: Bool) {
         let source = adapter.source
-        let provider = source.usageSource.provider
+        let provider = source.provider
         var failed = false
         let files = adapter.logFiles { _ in failed = true }
         let storedPaths = try self.retainedPaths(adapter)
@@ -550,7 +563,7 @@ extension UsageRecorder {
               try LogFileScanner.prefixDigest(of: url, byteCount: cursor.size) == digest else { return }
         try self.cache.beginTransaction()
         do {
-            try self.cache.setCursor(cursor, forPath: url.path, provider: source.usageSource.provider)
+            try self.cache.setCursor(cursor, forPath: url.path, provider: source.provider)
             try self.cache.saveRemoteVersion(RemoteLogVersion(
                 path: url.path, size: cursor.size, digest: digest, state: cursor.resumeStateJSON,
                 observedAt: Date(), validJSON: validJSON, complete: validJSON, evictionPending: false
@@ -567,7 +580,7 @@ extension UsageRecorder {
     /// reparse, and other paths stored for the same session are dropped. Empty for a source
     /// whose paths are their own identity.
     private func retainedPaths(_ adapter: some AppendedLogAdapter) throws -> [String: String] {
-        let provider = adapter.source.usageSource.provider
+        let provider = adapter.source.provider
         var paths: [String: String] = [:]
         let tracked = try self.cache.trackedPaths(provider: provider)
         var transactionOpen = false
@@ -706,11 +719,13 @@ extension UsageRecorder {
         included: Bool,
         rateCard: RateCard
     ) throws {
-        let provider = source.usageSource.provider
         try self.cache.beginTransaction()
         do {
             for request in requests {
-                try self.merge(Self.row(for: request, provider: provider, rateCard: rateCard), from: source, included: included)
+                let provider = source.usageSource.pricingProvider(model: request.model ?? "", upstreamProvider: request.upstreamProvider)
+                var row = Self.row(for: request, provider: provider, rateCard: rateCard)
+                if source == .piAgent { row.piRequest = request }
+                try self.merge(row, from: source, included: included)
             }
             try self.cache.commit()
         } catch {

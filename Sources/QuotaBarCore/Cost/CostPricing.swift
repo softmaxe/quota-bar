@@ -179,11 +179,15 @@ enum ModelNames {
         // Claude Code pointed at a router names models by path; the model is the last segment,
         // which is also the key models.dev prices it under.
         if let slash = name.lastIndex(of: "/") { name = String(name[name.index(after: slash)...]) }
-        if name.hasPrefix("anthropic.") { name = String(name.dropFirst("anthropic.".count)) }
-        if let range = name.range(of: #"-v\d+:\d+$"#, options: .regularExpression) {
+        name = name.replacingOccurrences(of: #"^(?:(?:us|eu|apac|global)\.)?anthropic\."#, with: "", options: .regularExpression)
+        let versionSuffix = name.hasPrefix("claude-") ? #"-v\d+(?::\d+)?$"# : #"-v\d+:\d+$"#
+        if let range = name.range(of: versionSuffix, options: .regularExpression) {
             name = String(name[..<range.lowerBound])
         }
         if let at = name.firstIndex(of: "@") { name = String(name[..<at]) }
+        if name.hasPrefix("claude-") {
+            name = name.replacingOccurrences(of: #"(?<=\d)\.(?=\d)"#, with: "-", options: .regularExpression)
+        }
         return Self.strippingDateSuffix(name)
     }
 

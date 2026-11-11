@@ -18,7 +18,8 @@
 ## 功能
 
 - 查看会话与每周额度、重置时间、使用节奏和 Codex Credits 余额。刷新失败时保留上次有效读数。
-- 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode 和 Pi Agent OAuth 用量计入总计。
+- 按日期和模型查看 token 用量与预估 API 成本，将匹配 Codex 账号的 OpenCode OAuth 用量计入总计。
+- 在独立的标签页里按 API 价格查看 Pi Agent 经由所有上游供应商的全部用量。
 - 估算 Standard、Fast 和长上下文成本：当前的 Claude 和 OpenAI 模型使用内置价格表，DeepSeek、GLM 以及已退役的 Claude 和 OpenAI 模型等其他模型使用 models.dev 的价格。
 - 在实时更新的窗口中查看已保存用量，可在 7 天、30 天或任意自定义时段之间切换，支持中英文。
 
@@ -84,7 +85,7 @@ codex login
 claude
 ```
 
-打开 QuotaBar，点击菜单栏图标，选择 Claude 或 Codex。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，[查看模型费率并开关 models.dev 计价](#模型费率)，或[备份已保存用量](#备份已保存用量)。
+打开 QuotaBar，点击菜单栏图标，选择 Claude、Codex 或 Pi。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，[查看模型费率并开关 models.dev 计价](#模型费率)，或[备份已保存用量](#备份已保存用量)。
 
 未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
 
@@ -111,7 +112,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 在设置中选择手动刷新，或每 1、2、5、15、30 分钟刷新一次，默认 5 分钟。
 
 - 定时刷新、打开卡片和点击 **Refresh** 都只更新当前供应商。切换标签页时，会请求更新新选中的供应商。
-- 每家供应商有独立的一分钟刷新冷却，服务端限流可能延长等待时间。
+- 每家额度供应商有独立的一分钟刷新冷却，服务端限流可能延长等待时间。Pi 只重新扫描本地会话，没有额度刷新冷却。
 - 手动触发 Claude 凭据恢复时可以跳过本地冷却，但仍受服务端限制。
 
 刷新失败时，卡片保留最后一次有效的额度，在顶部显示数据距今时间和恢复指引。冷却期间，重试控件会显示剩余等待时间。本地扫描单独显示进度，并提供 **Retry local scan** 操作。
@@ -141,7 +142,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 | 快捷键 | 操作 |
 | --- | --- |
-| ⌘1 / ⌘2 | 查看 Claude / Codex |
+| ⌘1 / ⌘2 / ⌘3 | 查看 Claude / Codex / Pi |
 | ⌘R | 可用时刷新或检查登录状态 |
 | ⌘U | 打开用量窗口 |
 | ⌘, | 打开设置 |
@@ -178,7 +179,13 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 | OpenCode | `$OPENCODE_DATA_HOME/opencode.db`、`$XDG_DATA_HOME/opencode/opencode.db`，或 `~/.local/share/opencode/opencode.db` |
 | Pi Agent | `$PI_CODING_AGENT_SESSION_DIR`、`$PI_CODING_AGENT_DIR/sessions`，或 `~/.pi/agent/sessions` |
 
-对于 OpenCode 的 `openai` 用量和 Pi Agent 的 `openai-codex` 助手用量，QuotaBar 会将各应用当前的 OAuth 凭据与 Codex 账号匹配，匹配成功后计入 Codex 总计。其他供应商、API key 凭据和账号不匹配的数据不计入。这些总计不会改变额度条。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
+对于 OpenCode 的 `openai` 用量，QuotaBar 会将 OpenCode 当前的 OAuth 凭据与 Codex 账号匹配，匹配成功后计入 Codex 总计。其他供应商、API key 凭据和账号不匹配的数据不计入。这些总计不会改变额度条。
+
+Pi Agent 的用量显示在独立的 **Pi** 标签页。无论由哪个上游供应商提供、由订阅还是 API key 付费，每个请求都计入，并按模型的 API 价格计费。该标签页没有额度条。没有已知价格的模型使用 Pi 记录的费用。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
+
+<p align="center">
+  <img src="docs/images/pi-usage.png" width="280" alt="使用示例数据渲染的 Pi 用量卡片，展示上游供应商占比和本地用量">
+</p>
 
 ### 远程机器
 
@@ -216,7 +223,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 已保存用量不依赖会话日志，但 QuotaBar 自己的数据也被删除后就没有了。打开 **Settings → Usage**，可以查看已保存多少数据，并留一份副本。
 
 - **Export…** 把数据保存为一个 `.sqlite` 文件，位置由你选择，例如移动硬盘或同步文件夹。备份只能恢复到导出那一刻。
-- **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。Claude 消息冲突时保留输出 token 更多的副本；Codex rollout 冲突时保留扫描得更远的副本。OpenCode 和 Pi Agent 保留这台 Mac 已有的记录，只要任一副本曾计入用量，就保留其计入资格；后续扫描仅在源数据变化时重写该记录。导入不会删除记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
+- **Import…** 只补上这台 Mac 缺少的数据，所以全新安装、其他 Mac 的备份或旧备份都能导入。Claude 消息冲突时保留输出 token 更多的副本；Codex rollout 冲突时保留扫描得更远的副本。OpenCode 和 Pi Agent 保留这台 Mac 已有的用量；OpenCode 只要任一副本曾计入用量，就保留其计入资格。Pi 从备份补齐缺失的上游信息，仅在模型和 token 数量一致时补齐缺失的日志费用。后续扫描在源数据变化时更新记录。导入不会删除记录，重复导入也不会有变化。导入前的数据库保存为 `cost-usage.sqlite.pre-import`，每次导入时替换。
 
 备份包含 token 数量、日期、模型、计价档位、记录 ID、扫描位置和本地会话路径，分享前请留意。备份不包含提示词或回复。额度节奏样本和缓存的 models.dev 费率也不在备份内：节奏会随着 QuotaBar 重新采样而恢复，第三方模型的历史费用使用这台 Mac 已下载的费率。
 
@@ -238,7 +245,7 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
   <img src="docs/images/usage-report.png" width="760" alt="用量窗口的英文视图，含中英文切换控件，使用示例数据">
 </p>
 
-页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 用量，以及符合条件的 OpenCode 和 Pi Agent 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。没有已保存的语言选择或 `lang` 查询参数时，系统首选语言为中文就使用中文，否则使用英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
+页面版式参照 [T3 Code](https://github.com/pingdotgg/t3code) 的 Usage 页面，展示全部已保存的 Codex、Claude 和 Pi Agent 用量，以及符合条件的 OpenCode 用量。可以在 7 天、30 天或自定义起止日期之间切换，在费用与 token 之间切换，并切换中英文。没有已保存的语言选择或 `lang` 查询参数时，系统首选语言为中文就使用中文，否则使用英文。页面展示各来源占比、含缓存节省的合计、按 token 类型和速度拆分的费用，以及按模型或按日期的明细。
 
 窗口打开期间，QuotaBar 每分钟扫描一次各来源的本地日志，原地更新数字，保留你选择的时段、指标、明细和语言。计价规则与卡片相同，并标注未计价用量。数据的读取与刷新方式见[用量窗口](docs/usage-report.md)。
 
@@ -366,7 +373,7 @@ make preview
 | 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型，以及价格表之外模型的 Fast 用量，都保持未计价。其他模型请确认 **Settings → Pricing** 中的 **models.dev** 开关已开启，且 models.dev 收录了该模型。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
 | 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
-| 缺少 Pi Agent 用量 | 确认 Pi Agent 通过 `/login openai-codex` 登录了与 Codex 相同的账号。在 **Settings → Pricing** 查看会话或认证错误。 |
+| 缺少 Pi Agent 用量 | 打开 **Pi** 标签页并选择 Refresh。确认会话位于上面列出的 Pi Agent 路径之一。 |
 
 ## 已知限制
 

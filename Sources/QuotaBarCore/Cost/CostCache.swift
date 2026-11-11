@@ -180,7 +180,28 @@ final class CostCache {
             try self.addColumnIfMissing(table: table, name: "context_input", definition: "INTEGER")
         }
 
+        try self.migratePiAttribution()
         try self.dropStoredCostColumns()
+    }
+
+    /// Older Pi rows could only be openai-codex and retained only their short entry ID.
+    /// Preserve those identities until a replay supplies the immutable facts for a v2 key.
+    private func migratePiAttribution() throws {
+        guard !(try self.columnExists(table: "pi_message", name: "upstream_provider")) else { return }
+        try self.exec("BEGIN IMMEDIATE")
+        do {
+            for (name, definition) in [
+                ("upstream_provider", "TEXT"), ("raw_model", "TEXT"),
+                ("logged_total_usd", "REAL"), ("total_from_provider", "INTEGER"), ("entry_id", "TEXT"),
+            ] {
+                try self.addColumnIfMissing(table: "pi_message", name: name, definition: definition)
+            }
+            try self.exec("UPDATE pi_message SET upstream_provider = 'openai-codex', entry_id = key")
+            try self.exec("COMMIT")
+        } catch {
+            try? self.exec("ROLLBACK")
+            throw error
+        }
     }
 
     /// Versions up to 1.0.7 froze each row's cost at scan time. Cost is now derived from the
@@ -524,26 +545,54 @@ final class CostCache {
         model: String,
         longContext: Bool,
         totals: TokenTotals,
-        contextInput: Int?
+        contextInput: Int?,
+        request: ObservedRequest? = nil
     ) throws {
+        if let request, let entryID = request.entryID, request.upstreamProvider == "openai-codex" {
+            // A legacy row has no timestamp/raw model. Adopt it once, on the first compatible
+            // replay, retaining its historical day. Later short-ID collisions get their own keys.
+            let promote = try self.reusable("""
+                UPDATE pi_message SET key = ?
+                WHERE key = ? AND entry_id = key AND upstream_provider = 'openai-codex' AND model = ?
+                  AND NOT EXISTS (SELECT 1 FROM pi_message WHERE key = ?)
+                """)
+            sqlite3_bind_text(promote, 1, key, -1, sqliteTransient)
+            sqlite3_bind_text(promote, 2, entryID, -1, sqliteTransient)
+            sqlite3_bind_text(promote, 3, model, -1, sqliteTransient)
+            sqlite3_bind_text(promote, 4, key, -1, sqliteTransient)
+            try self.step(promote)
+            sqlite3_reset(promote)
+        }
         // A changed snapshot updates content, never the day already assigned to this identity.
+        // New provenance alone must not backfill historical context or replace its stored tier.
+        let usageChanged = """
+            excluded.model IS NOT pi_message.model
+            OR excluded.input IS NOT pi_message.input
+            OR excluded.output IS NOT pi_message.output
+            OR excluded.cache_write IS NOT pi_message.cache_write
+            OR excluded.cache_write_1h IS NOT pi_message.cache_write_1h
+            OR excluded.cache_read IS NOT pi_message.cache_read
+            """
         let stmt = try self.reusable("""
             INSERT INTO pi_message
                 (key, included, day, model, long_context, input, output, cache_write,
-                 cache_write_1h, cache_read, context_input)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 cache_write_1h, cache_read, context_input, upstream_provider, raw_model, logged_total_usd, total_from_provider, entry_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET
-                model = excluded.model, long_context = excluded.long_context,
+                model = excluded.model,
+                long_context = CASE WHEN \(usageChanged) THEN excluded.long_context ELSE pi_message.long_context END,
                 input = excluded.input, output = excluded.output,
                 cache_write = excluded.cache_write, cache_write_1h = excluded.cache_write_1h,
                 cache_read = excluded.cache_read,
-                context_input = excluded.context_input
-            WHERE excluded.model IS NOT pi_message.model
-               OR excluded.input IS NOT pi_message.input
-               OR excluded.output IS NOT pi_message.output
-               OR excluded.cache_write IS NOT pi_message.cache_write
-               OR excluded.cache_write_1h IS NOT pi_message.cache_write_1h
-               OR excluded.cache_read IS NOT pi_message.cache_read
+                context_input = CASE WHEN \(usageChanged) THEN excluded.context_input ELSE pi_message.context_input END,
+                upstream_provider = excluded.upstream_provider, raw_model = excluded.raw_model,
+                logged_total_usd = excluded.logged_total_usd, total_from_provider = excluded.total_from_provider,
+                entry_id = excluded.entry_id
+            WHERE excluded.raw_model IS NOT pi_message.raw_model
+               OR excluded.upstream_provider IS NOT pi_message.upstream_provider
+               OR excluded.logged_total_usd IS NOT pi_message.logged_total_usd
+               OR excluded.total_from_provider IS NOT pi_message.total_from_provider
+               OR (\(usageChanged))
             """)
         defer { sqlite3_reset(stmt) }
         sqlite3_bind_text(stmt, 1, key, -1, sqliteTransient)
@@ -553,6 +602,11 @@ final class CostCache {
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
         self.bindUsage(stmt, from: 6, totals: totals)
         if let contextInput { sqlite3_bind_int64(stmt, 11, Int64(contextInput)) }
+        if let value = request?.upstreamProvider { sqlite3_bind_text(stmt, 12, value, -1, sqliteTransient) }
+        if let value = request?.model { sqlite3_bind_text(stmt, 13, value, -1, sqliteTransient) }
+        if let value = request?.loggedCostUSD { sqlite3_bind_double(stmt, 14, value) }
+        if let value = request?.totalFromProvider { sqlite3_bind_int(stmt, 15, value ? 1 : 0) }
+        if let value = request?.entryID { sqlite3_bind_text(stmt, 16, value, -1, sqliteTransient) }
         try self.step(stmt)
     }
 
@@ -632,11 +686,36 @@ final class CostCache {
             """
         let piColumns = """
             key, included, day, model, long_context, input, output, cache_write, cache_write_1h,
-            cache_read, context_input
+            cache_read, context_input, upstream_provider, raw_model, logged_total_usd, total_from_provider, entry_id
             """
         let claudeColumns = """
             key, path, day, model, long_context, is_fast, input, output, cache_write,
             cache_write_1h, cache_read, context_input
+            """
+        // A staged old backup uses the same lazy legacy mapping as a local replay. Match only
+        // the legacy ID, old model and known upstream; never a session path or recorded day.
+        for (legacy, modern) in [("main", "backup"), ("backup", "main")] {
+            try self.exec("""
+                UPDATE \(legacy).pi_message AS old SET key = (
+                    SELECT MIN(new.key) FROM \(modern).pi_message AS new
+                    WHERE new.entry_id = old.entry_id AND new.model = old.model
+                      AND new.upstream_provider = old.upstream_provider AND new.key != new.entry_id
+                )
+                WHERE old.key = old.entry_id AND old.upstream_provider = 'openai-codex'
+                  AND EXISTS (SELECT 1 FROM \(modern).pi_message AS new
+                    WHERE new.entry_id = old.entry_id AND new.model = old.model
+                      AND new.upstream_provider = old.upstream_provider AND new.key != new.entry_id)
+                """)
+        }
+        // A logged amount and its provenance belong to one usage revision. Keep local usage;
+        // only borrow an amount from a backup with exactly the same model and token counts.
+        let samePiUsage = (["model", "input", "output", "cache_write", "cache_write_1h", "cache_read"].map {
+            "excluded.\($0) IS pi_message.\($0)"
+        }).joined(separator: " AND ")
+        let fillPiCost = "(\(samePiUsage)) AND pi_message.logged_total_usd IS NULL AND excluded.logged_total_usd IS NOT NULL"
+        let fillPiProvenance = """
+            (\(samePiUsage)) AND pi_message.total_from_provider IS NULL AND excluded.total_from_provider IS NOT NULL
+            AND pi_message.logged_total_usd IS excluded.logged_total_usd
             """
         let merges = [
             ("claude_message", """
@@ -653,8 +732,20 @@ final class CostCache {
             ("pi_message", """
                 INSERT INTO pi_message (\(piColumns))
                 SELECT \(piColumns) FROM backup.pi_message WHERE TRUE
-                ON CONFLICT(key) DO UPDATE SET included = 1
-                WHERE excluded.included = 1 AND pi_message.included = 0
+                ON CONFLICT(key) DO UPDATE SET
+                    included = MAX(pi_message.included, excluded.included),
+                    upstream_provider = COALESCE(pi_message.upstream_provider, excluded.upstream_provider),
+                    raw_model = COALESCE(pi_message.raw_model, excluded.raw_model),
+                    logged_total_usd = CASE WHEN \(fillPiCost) THEN excluded.logged_total_usd ELSE pi_message.logged_total_usd END,
+                    total_from_provider = CASE WHEN \(fillPiCost) OR (\(fillPiProvenance))
+                        THEN excluded.total_from_provider ELSE pi_message.total_from_provider END,
+                    entry_id = COALESCE(pi_message.entry_id, excluded.entry_id)
+                WHERE (excluded.included = 1 AND pi_message.included = 0)
+                   OR (pi_message.upstream_provider IS NULL AND excluded.upstream_provider IS NOT NULL)
+                   OR (pi_message.raw_model IS NULL AND excluded.raw_model IS NOT NULL)
+                   OR (\(fillPiCost))
+                   OR (\(fillPiProvenance))
+                   OR (pi_message.entry_id IS NULL AND excluded.entry_id IS NOT NULL)
                 """),
         ]
         var added = 0

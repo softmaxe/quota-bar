@@ -1,9 +1,10 @@
+import CryptoKit
 import Darwin
 import Foundation
 
 /// Turns Pi Agent's session files into observed requests. Pi Agent copies history into forked
 /// sessions, so the session directory is read whole whenever any of its files changes and each
-/// message is keyed by the entry id it keeps across forks. Its logs carry no Fast signal, so every
+/// message is keyed by immutable facts it keeps across forks. Its logs carry no Fast signal, so every
 /// request is Standard.
 package struct PiAgentAdapter: SnapshotAdapter {
     /// Identity of every session file at the moment it was examined.
@@ -13,35 +14,19 @@ package struct PiAgentAdapter: SnapshotAdapter {
     }
 
     package var source: SnapshotSource { .piAgent }
-    private let env: [String: String]
-    private let agentDirectory: URL
     private let sessionsDirectory: URL
 
     package init(env: [String: String] = ProcessInfo.processInfo.environment) {
-        self.env = env
-        self.agentDirectory = Self.agentDirectory(env: env)
-        self.sessionsDirectory = Self.sessionsDirectory(agentDirectory: self.agentDirectory, env: env)
+        self.sessionsDirectory = Self.sessionsDirectory(agentDirectory: Self.agentDirectory(env: env), env: env)
     }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        let survey = ExternalAgentEligibility.survey(
-            installedAt: self.sessionsDirectory,
-            authFile: self.agentDirectory.appendingPathComponent("auth.json"),
-            entry: "openai-codex",
-            env: self.env
-        ) {
-            let files: [URL]
-            do {
-                files = try self.sessionFiles()
-            } catch {
-                throw SnapshotReadError(.sessions, underlying: error)
-            }
-            return self.stamp(of: files)
+        guard FileManager.default.fileExists(atPath: self.sessionsDirectory.path) else { return .absent }
+        do {
+            return .present(stamp: self.stamp(of: try self.sessionFiles()), included: true, status: .idle)
+        } catch {
+            return .failed(.sessions)
         }
-        // Pi Agent can retain sessions after sign-out. Keep recorded history quietly and
-        // recheck its sign-in on the next refresh so recording resumes automatically.
-        if case .failed(.auth) = survey { return .skipped }
-        return survey
     }
 
     package func requests() throws -> [ObservedRequest] {
@@ -49,9 +34,8 @@ package struct PiAgentAdapter: SnapshotAdapter {
             var requests: [ObservedRequest] = []
             for url in try self.sessionFiles() {
                 _ = try LogFileScanner.readLines(of: url, from: 0) { line in
-                    // Only assistant messages from the openai-codex provider become requests. Most
-                    // lines are prompts and tool output, so check for the provider name before parsing.
-                    guard Self.mentionsCodexProvider(line),
+                    // Prompts and tool output have no usage; avoid JSON decoding those lines.
+                    guard Self.mentionsUsage(line),
                           let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                           let request = Self.request(from: object) else { return }
                     requests.append(request)
@@ -91,24 +75,34 @@ package struct PiAgentAdapter: SnapshotAdapter {
         return Stamp(directory: self.sessionsDirectory.path, files: entries)
     }
 
-    private static let codexProvider = Array("openai-codex".utf8)
+    private static let usageMarker = Array("usage".utf8)
 
-    private static func mentionsCodexProvider(_ line: UnsafeRawBufferPointer) -> Bool {
+    private static func mentionsUsage(_ line: UnsafeRawBufferPointer) -> Bool {
         guard let base = line.baseAddress else { return false }
-        return self.codexProvider.withUnsafeBytes { needle in
+        return self.usageMarker.withUnsafeBytes { needle in
             memmem(base, line.count, needle.baseAddress, needle.count) != nil
         }
     }
 
     private static func request(from object: [String: Any]) -> ObservedRequest? {
-        guard object["type"] as? String == "message",
-              let message = object["message"] as? [String: Any],
-              message["role"] as? String == "assistant",
-              message["provider"] as? String == "openai-codex",
-              let usage = message["usage"] as? [String: Any],
-              let rawModel = (message["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawModel.isEmpty,
+        guard let type = object["type"] as? String else { return nil }
+        let message: [String: Any]
+        switch type {
+        case "message":
+            guard let value = object["message"] as? [String: Any],
+                  value["role"] as? String == "assistant" else { return nil }
+            message = value
+        case "usage", "compaction", "branch_summary":
+            // SessionManager 1.5.1 writes UsageEntry.provider/model/usage. Summary entries
+            // normally have only usage, with no model identity: never infer their model from
+            // the session's current selection, since extensions may use a different model.
+            message = object
+        default: return nil
+        }
+        guard let usage = message["usage"] as? [String: Any],
+              let rawModel = message["model"] as? String, !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let date = self.date(message: message, object: object) else { return nil }
+        let provider = (message["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let totals = TokenTotals(
             input: self.nonnegativeInt(usage["input"]),
             output: self.nonnegativeInt(usage["output"]),
@@ -117,11 +111,22 @@ package struct PiAgentAdapter: SnapshotAdapter {
             cacheRead: self.nonnegativeInt(usage["cacheRead"])
         )
         guard totals.hasValidCounts, totals.total > 0 else { return nil }
-        // Session entries use UUIDv7 identifiers that survive forks. Keying globally prevents a
-        // copied history from billing the same model response twice.
-        let identifier = (object["id"] as? String) ?? (message["id"] as? String)
-        guard let identifier, !identifier.isEmpty else { return nil }
-        return ObservedRequest(key: identifier, timestamp: date, model: rawModel, tokens: totals, isFast: false)
+        // Entry IDs are 8-hex values unique within a session. Immutable message facts make
+        // collisions across sessions distinct, while fork copies retain exactly this identity.
+        guard let identifier = object["id"] as? String, !identifier.isEmpty else { return nil }
+        let facts = [identifier, String(date.timeIntervalSince1970.bitPattern), provider ?? "", rawModel]
+        guard let encoded = try? JSONEncoder().encode(facts) else { return nil }
+        let digest = SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
+        let cost = usage["cost"] as? [String: Any]
+        let total = (cost?["total"] as? NSNumber).flatMap { value -> Double? in
+            guard CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite,
+                  value.doubleValue >= 0 else { return nil }
+            return value.doubleValue
+        }
+        return ObservedRequest(key: "pi-v2:" + digest, timestamp: date, model: rawModel,
+                               tokens: totals, isFast: false, upstreamProvider: provider,
+                               loggedCostUSD: total, totalFromProvider: cost?["totalFromProvider"] as? Bool,
+                               entryID: identifier)
     }
 
     private static func date(message: [String: Any], object: [String: Any]) -> Date? {

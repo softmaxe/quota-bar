@@ -66,14 +66,14 @@ redundant read; restoring the former two display writes makes it fail on an inte
 Claude decoding still accounts for substantial initial-import work. Replacing Foundation's
 JSON decoder or batching file transactions would require evidence and additional failure-boundary
 validation. Pi and OpenCode reread snapshots when their file stamps change; caching individual
-Pi files would require preserving fork deduplication, account eligibility, deletion, and failed-read
+Pi files would require preserving fork deduplication, deletion, and failed-read
 recovery. These remain candidates for representative active-session benchmarks, not proven
 improvements. Absolute optimality cannot be established by these measurements.
 
 ## Read-time context tiers
 
 Keyed usage carries one nullable context input per request. SQL reduces it to buckets bounded
-by the provider's current price-book thresholds and the models.dev threshold, rather than
+by the model maker's current price-book thresholds (the union of both namespaces for Pi) and the models.dev threshold, rather than
 returning one row per request or per distinct input count. Legacy base and long-context rows
 use separate negative bucket keys in the same grouping expression. `PricedUsage` coalesces
 these buckets after each model/day/Fast tier has been resolved. The existing day indexes still

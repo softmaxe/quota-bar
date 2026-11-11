@@ -725,7 +725,7 @@ private extension RecorderFixture {
     }
 
     func recordMirrored(_ provider: Provider) {
-        self.recorder?.record(provider, rateCard: RateCard(), env: self.env, remoteLogs: self.remoteLogs)
+        self.recorder?.record(UsageTab(provider: provider), rateCard: RateCard(), env: self.env, remoteLogs: self.remoteLogs)
     }
 
     func writeMirrored(_ relativePath: String, lines: [String]) {

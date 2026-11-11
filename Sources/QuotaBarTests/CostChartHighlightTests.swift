@@ -65,7 +65,7 @@ enum CostChartHighlightTests {
             || unpriced.costAvailability.state != .unpriced
             || unpriced.costAvailability.knownUSD != nil), "pricing availability expected priced, partial, and unpriced states")
         let snapshot = CostSnapshot(
-            provider: .codex,
+            tab: .codex,
             days: [priced, partial, unpriced],
             todayCostUSD: 0,
             windowCostUSD: 13,

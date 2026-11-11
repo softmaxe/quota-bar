@@ -186,6 +186,7 @@ td{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:v
 .models td.cost,.models th:nth-child(3),.models td:last-child,.models th:last-child{width:96px}
 .model-name{display:flex;align-items:center;gap:8px;color:var(--foreground);overflow-wrap:anywhere}
 .model-name .mark{width:14px;height:14px}
+.model-upstream{color:var(--muted-foreground);font-size:11px}
 .share-cell{display:flex;align-items:center;gap:12px}
 .share-value{min-width:3.2em;text-align:right}
 .model-bar{display:block;flex:1;height:4px;border-radius:999px;background:var(--muted);overflow:hidden}

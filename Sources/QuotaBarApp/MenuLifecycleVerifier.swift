@@ -27,7 +27,7 @@ enum MenuLifecycleVerifier {
         NSApplication.shared.setActivationPolicy(.accessory)
         let settings = SettingsStore(defaults: defaults)
         let service = CostService(rateCard: RateCard())
-        let store = UsageStore(settings: settings, costService: service, clock: { 1_000 }, recoveryDefaults: defaults)
+        let store = UsageStore(settings: settings, costService: service, clock: { 1_000 }, fetchPiCost: { nil }, recoveryDefaults: defaults)
         var reduceMotion = false
         let started = ContinuousClock.now
         let controller = StatusItemController(
@@ -211,6 +211,24 @@ enum MenuLifecycleVerifier {
         }
         require(window.performKeyEquivalent(with: providerKey), "the popover did not handle Cmd-1")
         require(settings.menuBarProvider == .claude, "Cmd-1 did not select Claude")
+        RunLoopDrain.run()
+        guard let piKey = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "3",
+            charactersIgnoringModifiers: "3", isARepeat: false, keyCode: 20
+        ) else { finish(1) }
+        require(window.performKeyEquivalent(with: piKey), "the popover did not handle Cmd-3")
+        require(controller.debugSelectedTab == .pi && settings.menuBarProvider == .claude,
+                "Cmd-3 did not select Pi while preserving the quota gauge")
+        clickStatusButton()
+        waitForDismissal()
+        clickStatusButton()
+        RunLoopDrain.run()
+        require(controller.debugSelectedTab == .pi, "reopening did not retain the Pi tab")
+        require(controller.debugPopoverWindow?.performKeyEquivalent(with: providerKey) == true,
+                "the Pi card did not handle Cmd-1")
+        require(controller.debugSelectedTab == .claude && settings.menuBarProvider == .claude,
+                "returning from Pi did not restore the existing quota provider")
         if let window = controller.debugPopoverWindow { click(in: window) }
         require(controller.debugIsPopoverShown, "a click inside the card dismissed it")
         let menuWindow = NSPanel(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)

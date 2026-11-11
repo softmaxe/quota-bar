@@ -34,17 +34,38 @@ The snapshot holds, for every calendar day from the first saved record through t
 
 Earlier builds could save day keys in the system calendar. Those existing keys are not automatically converted or forcibly rescanned: the database retains neither the calendar nor the original timestamp, so a year offset cannot safely identify or repair every affected row. Rows outside the report's Gregorian date range remain stored but do not appear in that range. Ordinary source replay rules still apply when logs change; this is not a history migration.
 
-The reader includes every eligible row already stored for Codex and Claude. It also includes OpenCode and Pi Agent rows that the scanner marked as eligible after applying the OAuth account-matching rules described in the root README. The reader itself does not scan session files or reassess eligibility; the window's scans go through the same `UsageStore` path as the menu.
+The reader includes every eligible row already stored for Codex and Claude. OpenCode still uses its OAuth account-matching eligibility rule. Every Pi Agent row counts under the Pi Agent source, including historical rows marked `included = 0`, without reading credentials or requiring a Codex sign-in. Pi models remain separate by upstream provider in both the snapshot and JavaScript period aggregation. The reader itself does not scan session files or reassess eligibility; the window's scans go through the same `UsageStore` path as the menu.
 
 Claude recording deduplicates messages by their message/request IDs, then by a nonempty transcript UUID. When all IDs are absent, it uses a SHA-256 digest of the complete JSON record with sorted object keys and normalized formatting. Rewriting the file or reading a mirrored copy therefore keeps the same identity. Different session IDs, message content, timestamps, token counts, or other JSON fields keep records distinct; completely identical ID-less records are indistinguishable from replays and count once. Only the digest is stored, not the message content. If Foundation cannot normalize an otherwise decodable record, the digest covers its original bytes instead.
 
-Older randomly generated fallback UUIDs are left untouched, and this change does not reset scan cursors. The stored rows lack the original record content and timestamp needed to match them safely to a digest. Replaying such a legacy record can still add a digest-keyed row beside its old UUID-keyed row; existing duplicates are not automatically removed.
+Pi session entry IDs in pi 1.5.1 are eight hexadecimal characters, collision-checked only within a
+session. New keys are `pi-v2:` plus SHA-256 of a JSON string array containing entry ID, the parsed
+request timestamp's epoch-seconds Double bit pattern as a decimal string, upstream provider
+(an empty string when unknown), and the full raw model ID. Session IDs, paths, mutable token counts and costs do not participate, so
+fork copies collapse and later usage updates preserve identity. Assistant message timestamps take
+precedence over entry timestamps. Standalone `usage` records carry provider/model/usage directly.
+Compaction and branch-summary records count only if they carry a model as well as usage;
+upstream provider is retained when available. The native 1.5.1 summaries omit model identity and are skipped rather than guessed from a session
+selection that an extension might override.
+
+On upgrade, historical Pi rows retain their short key, gain `entry_id = key` and
+`upstream_provider = 'openai-codex'`, and leave raw model and logged-cost fields NULL. On the first
+compatible replay (same entry ID, stored normalized model, and openai-codex upstream), the old key
+is replaced by that request's v2 key, keeping the recorded day. Remaining colliding requests then
+have their own v2 keys. Backup staging applies this upgrade too; merging an old and a modern copy
+maps their compatible legacy key to the modern key before merging. If multiple modern requests
+match an ambiguous legacy row, the lexicographically smallest modern key is used. The old schema
+never saved timestamps or full model IDs and may already have collapsed short-ID collisions;
+those facts cannot be reconstructed without source logs. Migration preserves the existing row,
+while an available log rescan can recover the distinct requests.
+
+Older randomly generated Claude fallback UUIDs are left untouched, and this change does not reset scan cursors. The stored rows lack the original record content and timestamp needed to match them safely to a digest. Replaying such a legacy record can still add a digest-keyed row beside its old UUID-keyed row; existing duplicates are not automatically removed.
 
 The page uses the same pricing rules as the menu. Claude, OpenCode, and Pi rows with a saved `context_input` are classified into base or long-context tiers from the current rate card, resolved model, recorded day, and Fast flag before their tokens are priced. Rows recorded before this nullable field was added retain their stored tier while the field is NULL; Codex aggregates always retain their stored tier. There is no log backfill or tier migration. See [Historical thresholds](pricing.md#historical-thresholds) for content updates, SQL aggregation, and backup compatibility.
 
 Models the price book lists use its rates for each recorded day. Other models use the rates cached from models.dev for that day, unless that setting is off. Fast usage, from Codex's priority tier or Claude's Fast mode, uses the price book's rates and Fast multiplier for that day. Without a Fast multiplier, and for every model outside the book, it stays unpriced. The result remains an estimate and may differ from the provider's bill.
 
-Rows without a usable price contribute tokens but no cost. The page labels a fully unpriced total or model as **Unpriced**, and an info mark beside the total gives the share of unpriced tokens. Cost by token type prices each token type of a row alone at that row's rates, so the types add up to the row's cost.
+Pi requests without rate-card prices can use a finite positive logged total as described in [Pi logged-cost fallback](pricing.md#pi-logged-cost-fallback). Other rows without a usable price contribute tokens but no cost. The page labels a fully unpriced total or model as **Unpriced**, and an info mark beside the total gives the share of unpriced tokens. Cost by token type prices each token type of a rate-priced row alone at that row's rates. Logged-total fallbacks have no token-type allocation and are included only in the total cost.
 
 ## Historical time zones
 

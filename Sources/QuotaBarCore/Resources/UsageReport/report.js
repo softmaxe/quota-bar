@@ -44,7 +44,7 @@
     codex:{label:'Codex',color:'var(--codex)',icon:'openai'},
     claude:{label:'Claude',color:'var(--claude)',icon:'claude'},
     openCode:{label:'OpenCode',color:'#5b9bbd',icon:'opencode'},
-    piAgent:{label:'Pi Agent',color:'#4d9f8a',icon:'pi'},
+    piAgent:{label:'Pi Agent',color:'#b8923f',icon:'pi'},
   };
   const ORDER = Object.keys(PROVIDERS);
   const NAME_TO_ID = {Codex:'codex',Claude:'claude','Claude Code':'claude',OpenCode:'openCode','Pi Agent':'piAgent',Pi:'piAgent'};
@@ -120,11 +120,12 @@
     daySources.forEach(m=>m.forEach((row,id)=>{if(!sourceRows.has(id))sourceRows.set(id,{name:row.name,source:id,...zero(FIELDS)});addInto(sourceRows.get(id),row,FIELDS);}));
     providers=[...sourceRows.keys()].filter(id=>{const r=sourceRows.get(id);return r.total>0||r.cost>0;})
       .sort((a,b)=>(ORDER.indexOf(a)+1||99)-(ORDER.indexOf(b)+1||99));
-    // A model used through several sources is one row, marked with the source that used most tokens.
+    // Keep routing providers separate even when they sell the same model.
     const byModel=new Map();
     for(const day of days)for(const row of day.models??[]){
-      if(!byModel.has(row.name))byModel.set(row.name,{name:row.name,...zero(FIELDS),bySource:new Map()});
-      const entry=addInto(byModel.get(row.name),row,FIELDS),id=sourceId(row);
+      const key=JSON.stringify([row.name,row.upstreamProvider??null]);
+      if(!byModel.has(key))byModel.set(key,{name:row.name,upstreamProvider:row.upstreamProvider,...zero(FIELDS),bySource:new Map()});
+      const entry=addInto(byModel.get(key),row,FIELDS),id=sourceId(row);
       entry.bySource.set(id,(entry.bySource.get(id)??0)+row.total);
     }
     models=[...byModel.values()].map(m=>({...m,source:[...m.bySource].sort((a,b)=>b[1]-a[1])[0]?.[0]}));
@@ -348,7 +349,8 @@
       const share=metric==='tokens'?(totals.total>0?m.total/totals.total:null):(unknownCost(m)||!(totals.cost>0)?null:m.cost/totals.cost);
       // Rows are already ranked, so the share bar does the work a rank column would.
       body.append(h('tr',{},
-        h('td',{},h('div',{class:'model-name'},mark(id,14),h('span',{title:m.name},modelName(m.name)))),
+        h('td',{},h('div',{class:'model-name'},mark(id,14),h('span',{title:[m.name,m.upstreamProvider].filter(Boolean).join(' · ')},
+          modelName(m.name),m.upstreamProvider?h('span',{class:'model-upstream'},' · '+m.upstreamProvider):null))),
         h('td',{class:'share-col'},h('span',{class:'share-cell'},
           // The track is the whole window, so the bar's length is the share printed beside it.
           h('span',{class:'model-bar','aria-hidden':'true'},bar&&share!=null?h('span',{style:`width:${Math.max(1,share*100)}%;background:${presentation(id).color}`}):null),

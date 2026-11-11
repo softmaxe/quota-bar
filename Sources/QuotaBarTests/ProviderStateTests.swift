@@ -28,7 +28,7 @@ enum ProviderStateTests {
 
         static func snapshot(at date: Date) -> CostSnapshot {
             CostSnapshot(
-                provider: .codex, days: [], todayCostUSD: 0, windowCostUSD: 0,
+                tab: .codex, days: [], todayCostUSD: 0, windowCostUSD: 0,
                 latestTokens: 0, windowTokens: 0, topModel: nil,
                 hasUnpricedTokens: false, scannedAt: date
             )

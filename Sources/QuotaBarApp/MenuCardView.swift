@@ -8,7 +8,7 @@ struct MenuCardView: View {
     @State private var copiedCommand = false
     /// What this card last drew. Read while the next state is being drawn, so the content that
     /// arrives knows whether it replaced something in an open card or opened with the card.
-    @State private var shownProvider: Provider?
+    @State private var shownTab: UsageTab?
     @State private var shownSignedOut: Bool?
     @State private var shownSkeleton = false
     /// A sign-in check just succeeded: the status line confirms it for a moment.
@@ -17,6 +17,8 @@ struct MenuCardView: View {
     let provider: Provider
     let display: ProviderDisplay
     let isRefreshing: Bool
+    /// Set for a tab with no quota provider. `provider` then only keeps the quota views typed.
+    var tab: UsageTab?
     /// False for the offscreen card dump, which captures a stable frame without transitions.
     var animatesFill = true
     /// Windows that reset and the final remaining percentage observed before each reset.
@@ -36,23 +38,23 @@ struct MenuCardView: View {
     var onCostBreakdownExpandedChanged: (Bool, String?) -> Void = { _, _ in }
     var quotaResetDisplayMode = QuotaResetDisplayMode.countdown
     var onQuotaResetDisplayModeChanged: (QuotaResetDisplayMode) -> Void = { _ in }
-    var onProviderSelected: (Provider) -> Void = { _ in }
+    var onTabSelected: (UsageTab) -> Void = { _ in }
     var onRefresh: () -> Void = {}
     var onRefreshLocalUsage: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             self.header
-            if !self.display.isSignedOut, let error = self.display.error {
+            if self.selectedTab != .pi, !self.display.isSignedOut, let error = self.display.error {
                 self.refreshWarning(error)
                     .padding(.top, 8)
             }
             Divider().padding(.vertical, 8)
             self.content
-                .id(self.provider)
+                .id(self.selectedTab)
                 // Only a switch inside an open card slides; opening the card never does.
                 .transition(self.switchedProvider
-                    ? .providerSlide(fromTrailing: self.providerIndex > 0)
+                    ? .providerSlide(fromTrailing: self.arrivesFromTrailing)
                     : .identity)
         }
         .padding(.horizontal, 14)
@@ -63,11 +65,11 @@ struct MenuCardView: View {
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
         .environment(\.cardMotionEnabled, self.animatesFill)
         .onAppear {
-            self.shownProvider = self.provider
+            self.shownTab = self.selectedTab
             self.shownSignedOut = self.display.isSignedOut
         }
-        .onChange(of: self.provider) { _, provider in
-            self.shownProvider = provider
+        .onChange(of: self.selectedTab) { _, tab in
+            self.shownTab = tab
             self.shownSignedOut = self.display.isSignedOut
             self.copiedCommand = false
             self.confirmsSignIn = false
@@ -84,12 +86,18 @@ struct MenuCardView: View {
         }
     }
 
-    private var providerIndex: Int {
-        Provider.allCases.firstIndex(of: self.provider) ?? 0
+    private var selectedTab: UsageTab { self.tab ?? UsageTab(provider: self.provider) }
+
+    /// Content enters from the side its tab sits on, relative to the tab it replaces.
+    private var arrivesFromTrailing: Bool {
+        let tabs = UsageTab.allCases
+        guard let shown = self.shownTab, let from = tabs.firstIndex(of: shown),
+              let to = tabs.firstIndex(of: self.selectedTab) else { return false }
+        return to > from
     }
 
     private var switchedProvider: Bool {
-        self.shownProvider != nil && self.shownProvider != self.provider
+        self.shownTab != nil && self.shownTab != self.selectedTab
     }
 
     /// Quota replacing the sign-in guide in an open card, rather than quota the card opened with.
@@ -103,8 +111,8 @@ struct MenuCardView: View {
         VStack(alignment: .leading, spacing: 8) {
             // The switch names the provider, so the card needs no title of its own.
             ProviderTabBar(
-                selection: self.provider,
-                onSelect: self.onProviderSelected
+                selection: self.selectedTab,
+                onSelect: self.onTabSelected
             )
             HStack(spacing: 0) {
                 if self.confirmsSignIn {
@@ -139,6 +147,15 @@ struct MenuCardView: View {
     }
 
     private var statusLine: String {
+        if self.selectedTab == .pi {
+            if case .failed = self.display.localScanStatus, self.display.cost?.days.isEmpty != false {
+                return "Scan failed"
+            }
+            if let cost = self.display.cost {
+                return "Updated \(Formatters.relativeAge(since: cost.scannedAt, now: self.now))"
+            }
+            return self.display.localScanStatus == .scanning ? "Scanning…" : "No data yet"
+        }
         if self.display.isSignedOut { return "Not signed in" }
         if self.display.error != nil, let snapshot = self.display.snapshot {
             return "Last updated \(Formatters.relativeAge(since: snapshot.fetchedAt, now: self.now))"
@@ -155,7 +172,9 @@ struct MenuCardView: View {
 #endif
 
     private var planLabel: String? {
-        self.display.snapshot?.planLabel
+        // Pi has no plan: every request is shown at what the API would charge for it.
+        if self.selectedTab == .pi { return "API prices" }
+        return self.display.snapshot?.planLabel
     }
 
     // MARK: - Body
@@ -284,7 +303,7 @@ struct MenuCardView: View {
 
     @ViewBuilder
     private var localUsage: some View {
-        if let cost = self.display.cost {
+        if let cost = self.display.cost, self.selectedTab != .pi || !cost.days.isEmpty {
             CostSectionView(
                 snapshot: cost,
                 labelMode: self.costChartLabelMode,
@@ -329,14 +348,16 @@ struct MenuCardView: View {
     @ViewBuilder
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if self.display.isSignedOut {
+            if self.selectedTab == .pi {
+                self.piUsage
+            } else if self.display.isSignedOut {
                 self.signInGuide
             } else if let snapshot = self.display.snapshot {
                 self.quota(snapshot)
                     .cardReveal(active: self.arrivedFromSignIn)
             }
             // Local logs remain readable without the credentials required for quota and credits.
-            if self.display.cost != nil || self.display.localScanStatus != .idle {
+            if self.selectedTab != .pi, self.display.cost != nil || self.display.localScanStatus != .idle {
                 if self.display.isSignedOut || self.display.snapshot != nil {
                     Divider().padding(.vertical, 8)
                 }
@@ -345,6 +366,26 @@ struct MenuCardView: View {
                 }
             }
 
+        }
+    }
+
+    /// Pi's card: where the spend went, then the same local usage section the other tabs have.
+    @ViewBuilder
+    private var piUsage: some View {
+        if let cost = self.display.cost, cost.days.isEmpty, case .completed = self.display.localScanStatus {
+            Text("No Pi usage recorded in the last 30 days.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 4)
+        } else {
+            if let cost = self.display.cost, !cost.days.isEmpty {
+                PiUpstreamSectionView(snapshot: cost, labelMode: self.costChartLabelMode)
+                    .placeholderReveal(active: self.shownSkeleton)
+                Divider().padding(.vertical, 8)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                self.localUsage
+            }
         }
     }
 

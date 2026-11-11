@@ -93,8 +93,8 @@ enum UsageReportTests {
         Harness.expectClose(report.days[0].cost, 28, "Standard tokens cost $1 each")
         Harness.expect(!report.days[1].recorded, "missing day is not recorded")
         Harness.expectEqual(report.days[1].total, 0, "missing day is zero-filled")
-        Harness.expectEqual(report.days[2].total, 59, "future rows are excluded")
-        Harness.expectEqual(report.days[2].unpricedTokens, 19, "unpriced Claude and OpenCode rows stay unpriced")
+        Harness.expectEqual(report.days[2].total, 9059, "future rows are excluded")
+        Harness.expectEqual(report.days[2].unpricedTokens, 9019, "unpriced Claude and OpenCode rows stay unpriced")
         // 7 Standard tokens at $1, then 33 long-context Fast tokens at $2 x 10.
         Harness.expectClose(report.days[2].cost, 667, "each tier is priced at its own rates")
 
@@ -105,7 +105,7 @@ enum UsageReportTests {
         Harness.expectEqual(lastModels.first?.cacheWrite1h, 2, "one-hour cache writes sum as a subset")
         Harness.expect(report.modelNames.contains(riskyModel), "HTML-risk model name remains intact")
         Harness.expect(!report.modelNames.contains("excluded-model"), "excluded OpenCode row stays out")
-        Harness.expect(!report.modelNames.contains("excluded-pi"), "excluded Pi row stays out")
+        Harness.expect(report.modelNames.contains("excluded-pi"), "formerly excluded Pi rows count under Pi Agent")
         Harness.expectEqual(Array(report.history.suffix(3)), report.days, "history ends with the selected window")
         Harness.expect(report.history.contains { $0.day == "2026-09-12" && $0.recorded },
                        "history keeps saved days before the window")
@@ -247,10 +247,10 @@ enum UsageReportTests {
             INSERT INTO codex_day (\(RecordedUsageFixture.codexColumns)) VALUES ('uncommitted', '\(fixture.day())', 'pending', 0, 0, 700, 0, 0, 0, 0);
             """)
         let report = try self.read(fixture)
-        Harness.expectEqual(report.windowTotal, 102, "the report sees committed usage from the open writer's WAL")
+        Harness.expectEqual(report.windowTotal, 9102, "the report sees committed usage from the open writer's WAL")
         Harness.expect(!report.modelNames.contains("pending"), "uncommitted writes remain invisible")
         try fixture.database.exec("ROLLBACK; UPDATE pi_message SET input = 7 WHERE key = 'pi-a';")
-        Harness.expectEqual(try self.read(fixture).windowTotal, 103,
+        Harness.expectEqual(try self.read(fixture).windowTotal, 9103,
                             "the writer remains usable after the read-only report read")
     }
 
@@ -269,8 +269,8 @@ enum UsageReportTests {
                     """)
             }
         )
-        Harness.expectEqual(report.windowTotal, 102, "one report retains the pre-commit values from every source")
-        Harness.expectEqual(report.sourceTotal("Pi Agent"), 6,
+        Harness.expectEqual(report.windowTotal, 9102, "one report retains the pre-commit values from every source")
+        Harness.expectEqual(report.sourceTotal("Pi Agent"), 9006,
                             "schema discovery and token queries see the same version of a dropped source")
         let next = try self.read(fixture)
         Harness.expectEqual(next.windowTotal, 196, "a later report read sees the complete new committed state")
@@ -328,7 +328,7 @@ enum UsageReportTests {
             Harness.expect(message.contains("integer overflow"), "the report propagates the SQLite stepping error")
         }
         try fixture.database.exec("DELETE FROM pi_message WHERE key IN ('overflow-a', 'overflow-b')")
-        Harness.expectEqual(try self.read(fixture).windowTotal, 102, "the report recovers after the failed source is repaired")
+        Harness.expectEqual(try self.read(fixture).windowTotal, 9102, "the report recovers after the failed source is repaired")
     }
 
     private static func read(_ fixture: RecordedUsageFixture) throws -> UsageReportSnapshot {
