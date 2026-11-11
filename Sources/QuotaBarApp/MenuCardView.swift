@@ -45,7 +45,7 @@ struct MenuCardView: View {
             self.header
             if !self.display.isSignedOut, let error = self.display.error {
                 self.refreshWarning(error)
-                    .padding(.top, 9)
+                    .padding(.top, 8)
             }
             Divider().padding(.vertical, 8)
             self.content
@@ -56,8 +56,8 @@ struct MenuCardView: View {
                     : .identity)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 4)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
         .frame(width: 280, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
@@ -123,6 +123,7 @@ struct MenuCardView: View {
                                 .accessibilityHidden(true)
                         }
                         Text(self.statusLine)
+                            .monospacedDigit()
                     }
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -162,7 +163,7 @@ struct MenuCardView: View {
     /// One compact notice: what happened and the action on one line, the reason under it. The
     /// fill stays neutral; the glyph alone carries the warning color.
     private func refreshWarning(_ error: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -199,10 +200,9 @@ struct MenuCardView: View {
         }
         .font(.system(size: 11))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .padding(8)
+        .background(Theme.cardWellFill, in: RoundedRectangle(cornerRadius: Theme.cardWellRadius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardWellRadius).strokeBorder(Theme.cardWellStroke, lineWidth: 0.5))
     }
 
     /// Whether a provider's message carries its own retry time, such as "after 4:24 PM".
@@ -218,7 +218,7 @@ struct MenuCardView: View {
     }
 
     private var signInGuide: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Sign in to \(self.provider.displayName)")
                 .font(QuotaHeadline.font)
             HStack(spacing: 8) {
@@ -244,9 +244,9 @@ struct MenuCardView: View {
                 .accessibilityLabel("Copy \(self.signInCommand) command")
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+            .padding(.vertical, 8)
+            .background(Theme.cardWellFill, in: RoundedRectangle(cornerRadius: Theme.cardWellRadius))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardWellRadius).strokeBorder(Theme.cardWellStroke, lineWidth: 0.5))
 
             if let reason = self.display.signedOutReason, !reason.isEmpty {
                 Text(reason)
@@ -328,7 +328,7 @@ struct MenuCardView: View {
 
     @ViewBuilder
     private var content: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             if self.display.isSignedOut {
                 self.signInGuide
             } else if let snapshot = self.display.snapshot {
@@ -338,30 +338,33 @@ struct MenuCardView: View {
             // Local logs remain readable without the credentials required for quota and credits.
             if self.display.cost != nil || self.display.localScanStatus != .idle {
                 if self.display.isSignedOut || self.display.snapshot != nil {
-                    Divider().padding(.top, 2)
+                    Divider().padding(.vertical, 8)
                 }
-                self.localUsage
+                VStack(alignment: .leading, spacing: 12) {
+                    self.localUsage
+                }
             }
 
         }
-        .padding(.bottom, 10)
     }
 
     /// The quota windows, in one stack so they can arrive together after a sign-in.
     private func quota(_ snapshot: UsageSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let session = snapshot.session {
-                self.window(window: session, kind: .session)
-            } else if snapshot.sessionIsUnlimited {
-                // Held in the session slot rather than dropped, so a plan without the
-                // five-hour cap lines up with one that has it.
-                UnlimitedWindowRow(
-                    title: QuotaWindowKind.session.title,
-                    tint: Theme.accent(for: self.provider)
-                )
-            }
-            if let weekly = snapshot.weekly {
-                self.window(window: weekly, kind: .weekly)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let session = snapshot.session {
+                    self.window(window: session, kind: .session)
+                } else if snapshot.sessionIsUnlimited {
+                    // Held in the session slot rather than dropped, so a plan without the
+                    // five-hour cap lines up with one that has it.
+                    UnlimitedWindowRow(
+                        title: QuotaWindowKind.session.title,
+                        tint: Theme.accent(for: self.provider)
+                    )
+                }
+                if let weekly = snapshot.weekly {
+                    self.window(window: weekly, kind: .weekly)
+                }
             }
             if self.hasPaceMarker(snapshot) {
                 HStack(spacing: 6) {
@@ -372,14 +375,16 @@ struct MenuCardView: View {
                         .accessibilityHidden(true)
                     Text("Expected remaining")
                 }
-                .font(.system(size: 11))
+                .font(.system(size: 10))
                 .foregroundStyle(.secondary)
+                .padding(.top, 8)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Vertical markers show expected remaining quota")
                 .help("The vertical marks show the remaining quota expected at this point in each window.")
             }
             if let credits = snapshot.credits, credits.hasSpendableBalance {
-                CreditsSectionView(credits: credits)
+                CreditsSectionView(credits: credits, isStale: self.display.error != nil)
+                    .padding(.top, 12)
             }
             if snapshot.session == nil, snapshot.weekly == nil, !snapshot.sessionIsUnlimited {
                 Text("No quota windows reported.")
@@ -455,7 +460,7 @@ private struct QuotaWindowRow: View {
     @StateObject private var celebration = QuotaCelebrationRelay()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             QuotaHeadline(
                 title: self.title,
                 percent: self.window.remainingPercent,
@@ -528,6 +533,7 @@ private struct QuotaWindowRow: View {
                         .accessibilityHidden(true)
                 }
                 Text(paceSummary)
+                    .monospacedDigit()
                     // A forecast from a saved reading is no more current than the reading.
                     .foregroundStyle(self.paceIsDeficit && !self.isStale ? Color.primary : Color.secondary)
             }
@@ -561,7 +567,7 @@ private struct UnlimitedWindowRow: View {
     let tint: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(self.title)
                     .font(QuotaHeadline.font)

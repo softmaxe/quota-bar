@@ -30,4 +30,9 @@ enum Theme {
     static let chartReference = Self.dynamic(light: (105, 105, 105), dark: (156, 156, 156))
 
     static let progressTrack = Color(nsColor: .tertiaryLabelColor).opacity(0.22)
+
+    static let cardWellRadius: CGFloat = 7
+    static let cardWellFill = Color.primary.opacity(0.06)
+    static let cardWellStroke = Color.primary.opacity(0.08)
+    static let cardControlRadius: CGFloat = 5
 }

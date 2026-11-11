@@ -111,7 +111,7 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         SettingsPane("General") {
-            SettingsSection("Menu bar") {
+            SettingsSection("Show in menu bar") {
                 VStack(spacing: 0) {
                     ForEach(Array(Provider.allCases.enumerated()), id: \.element) { index, provider in
                         if index > 0 { Divider() }
@@ -134,14 +134,14 @@ struct GeneralSettingsView: View {
             SettingsSection("Behavior") {
                 VStack(spacing: 0) {
                     SettingsRow(
-                        title: "Check for new readings",
+                        title: "Refresh quota",
                         detail: self.settings.refreshFrequency.risksRateLimit
-                            ? "The quota endpoints are shared with the Codex and Claude CLIs. "
+                            ? "The quota endpoints are shared with the Claude and Codex CLIs. "
                                 + "Polling this often can get you rate-limited."
-                            : "How often QuotaBar asks Codex and Claude for your remaining quota.",
+                            : "How often QuotaBar checks Claude and Codex for remaining quota.",
                         detailColor: self.settings.refreshFrequency.risksRateLimit ? .orange : .secondary
                     ) {
-                        Picker("Check for new readings", selection: self.$settings.refreshFrequency) {
+                        Picker("Refresh quota", selection: self.$settings.refreshFrequency) {
                             ForEach(RefreshFrequency.allCases) { frequency in
                                 Text(frequency.label).tag(frequency)
                             }

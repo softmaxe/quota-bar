@@ -16,25 +16,31 @@ struct QuotaHeadline: View {
     /// so each row has one anchor: how much is left.
     static let font = Font.system(size: 13, weight: .medium)
     static let valueFont = Font.system(size: 15, weight: .semibold)
+    static let unitFont = Font.system(size: 13, weight: .regular)
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(self.title)
                 .font(Self.font)
             Spacer(minLength: 8)
-            // A new reading rolls in from the direction it moved, over a tenth of a second.
-            Text("\(Formatters.percent(self.percent)) left")
-                .monospacedDigit()
-                .font(Self.valueFont)
-                .foregroundStyle(self.isExhausted ? Color.red : self.isStale ? Color.secondary : Color.primary)
-                .rollingValue(self.percent, direction: self.percent)
-                .overlay {
-                    Text("\(Formatters.percent(self.percent)) left")
-                        .monospacedDigit()
-                        .rollingValue(self.percent, direction: self.percent)
-                        .font(Self.valueFont)
-                        .foregroundStyle(self.tint.opacity(self.accentOpacity))
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                // Only the reading rolls; its unit keeps a quiet, steady baseline.
+                Text(Formatters.percent(self.percent))
+                    .monospacedDigit()
+                    .font(Self.valueFont)
+                    .foregroundStyle(self.isExhausted ? Color.red : self.isStale ? Color.secondary : Color.primary)
+                    .rollingValue(self.percent, direction: self.percent)
+                    .overlay {
+                        Text(Formatters.percent(self.percent))
+                            .monospacedDigit()
+                            .rollingValue(self.percent, direction: self.percent)
+                            .font(Self.valueFont)
+                            .foregroundStyle(self.tint.opacity(self.accentOpacity))
+                    }
+                Text("left")
+                    .font(Self.unitFont)
+                    .foregroundStyle(.secondary)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(self.title) \(Formatters.percent(self.percent)) left")
