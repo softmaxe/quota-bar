@@ -223,23 +223,27 @@ final class PricingTableModel: ObservableObject {
 
     private let costService: CostService
     private var rateCard = RateCard()
+    private var lastUsage: [Provider: [ModelUsageTotal]] = [:]
 
     /// Supplies usage and rates for settings dumps and app-model verification. The optional
     /// read controls completion and failure without replacing the concrete SQLite adapter.
     struct PreviewFixtures {
         let usage: [Provider: [ModelUsageTotal]]
         let rateCard: RateCard
+        let readRateCard: (@MainActor () -> RateCard)?
         let beforeCommit: (@MainActor () async -> Void)?
         let readUsage: (@MainActor () async throws -> [Provider: [ModelUsageTotal]])?
 
         init(
             usage: [Provider: [ModelUsageTotal]],
             rateCard: RateCard = RateCard(),
+            readRateCard: (@MainActor () -> RateCard)? = nil,
             beforeCommit: (@MainActor () async -> Void)? = nil,
             readUsage: (@MainActor () async throws -> [Provider: [ModelUsageTotal]])? = nil
         ) {
             self.usage = usage
             self.rateCard = rateCard
+            self.readRateCard = readRateCard
             self.beforeCommit = beforeCommit
             self.readUsage = readUsage
         }
@@ -256,8 +260,8 @@ final class PricingTableModel: ObservableObject {
     func load() async {
         let cached: ThirdPartyRates
         if let fixtures = self.fixtures {
-            self.rateCard = fixtures.rateCard
-            cached = fixtures.rateCard.thirdParty
+            self.rateCard = fixtures.readRateCard?() ?? fixtures.rateCard
+            cached = self.rateCard.thirdParty
         } else {
             let modelsDev = ModelsDevPricing.live
             cached = modelsDev.cached()
@@ -265,6 +269,8 @@ final class PricingTableModel: ObservableObject {
             self.modelsDevEnabled = modelsDev.enabled
         }
         self.modelsDevFetchedAt = cached.fetchedAt
+        // Rates take effect even when an earlier usage read is still running or this one fails.
+        self.rows = Self.buildRows(usage: self.lastUsage, rateCard: self.rateCard)
         await self.readUsage()
         guard self.fixtures == nil else { return }
         self.scanStatusMessages = await self.costService.currentScanStatuses().compactMap {
@@ -282,6 +288,7 @@ final class PricingTableModel: ObservableObject {
         self.isReadingUsage = true
         self.isLoading = self.rows.isEmpty
         defer {
+            self.rows = Self.buildRows(usage: self.lastUsage, rateCard: self.rateCard)
             self.isReadingUsage = false
             self.isLoading = false
         }
@@ -302,14 +309,11 @@ final class PricingTableModel: ObservableObject {
                 }.value
             }
             if let beforeCommit = self.fixtures?.beforeCommit { await beforeCommit() }
-            self.rows = Self.buildRows(usage: usageByProvider, rateCard: self.rateCard)
+            self.lastUsage = usageByProvider
             self.hasLoadedUsage = true
             self.usageReadError = nil
         } catch {
             // A failed refresh keeps the last successful counts; with none, the rates still show.
-            if self.rows.isEmpty {
-                self.rows = Self.buildRows(usage: [:], rateCard: self.rateCard)
-            }
             self.usageReadError = error.localizedDescription
         }
     }

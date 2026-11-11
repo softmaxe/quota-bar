@@ -5,7 +5,8 @@ import Foundation
 /// Checks the pricing list's sections, vendors and order, the search, and folding a vendor.
 @MainActor
 enum PricingListTests {
-    static func run() {
+    static func run() async {
+        await Self.failedUsageReadKeepsCurrentRates()
         let model = PricingTableModel(costService: CostService())
         model.debugSetRows([
             Self.row("claude-opus-4", usageTokens: 900, input: 15, output: 75, cacheRead: 1.5, settingsRank: 1),
@@ -77,6 +78,45 @@ enum PricingListTests {
 
         model.searchText = "nothing"
         Harness.expect(model.listRows.isEmpty, "a search with no match empties the list")
+    }
+
+    private static func failedUsageReadKeepsCurrentRates() async {
+        await AppCheck.run("pricing reload keeps usage counts but applies current rates after a read failure") {
+            var rates = RateCard(thirdParty: ThirdPartyRates(current: [
+                "audit-model": ModelPricing(input: 2, output: 4),
+            ]))
+            var shouldFail = false
+            var tokens = 123
+            let model = PricingTableModel(costService: CostService(), fixtures: .init(
+                usage: [:], readRateCard: { rates }, readUsage: {
+                    if shouldFail { throw CheckFailure(description: "Usage unavailable") }
+                    return [.codex: [ModelUsageTotal(model: "audit-model", tokens: tokens)]]
+                }
+            ))
+            await model.load()
+            try AppCheck.require(model.rows.first { $0.model == "audit-model" }?.input == 2,
+                                 "fixture did not load models.dev rates")
+            rates = RateCard()
+            shouldFail = true
+            await model.load()
+            let unpriced = model.rows.first { $0.model == "audit-model" }
+            try AppCheck.require(unpriced?.usageTokens == 123 && unpriced?.source == nil && unpriced?.rates == nil,
+                                 "disabling models.dev kept stale prices or dropped usage")
+            try AppCheck.require(model.usageReadError != nil && model.hasLoadedUsage,
+                                 "failed refresh lost the saved-usage state")
+            rates = RateCard(thirdParty: ThirdPartyRates(current: [
+                "audit-model": ModelPricing(input: 7, output: 9),
+            ]))
+            await model.load()
+            let repriced = model.rows.first { $0.model == "audit-model" }
+            try AppCheck.require(repriced?.input == 7 && repriced?.source == .modelsDev && repriced?.usageTokens == 123,
+                                 "new rates did not rebuild rows from retained usage")
+            shouldFail = false
+            tokens = 456
+            await model.retryUsage()
+            try AppCheck.require(model.rows.first { $0.model == "audit-model" }?.usageTokens == 456
+                                 && model.usageReadError == nil, "retry did not replace the retained usage counts")
+        }
     }
 
     private static func row(
