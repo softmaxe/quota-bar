@@ -3,29 +3,31 @@
 (() => {
   const COPY = {
     en: {
-      usage:'Usage',cost:'Cost',tokens:'Tokens',totals:'Token totals',breakdown:'Breakdown',model:'Model',day:'Day',
-      range:(a,b)=>`${a} to ${b}`,
+      usage:'Usage',cost:'Cost',tokens:'Tokens',breakdown:'Breakdown',model:'Model',day:'Day',
+      range:(a,b)=>`${a} – ${b}`,
       daysRecorded:n=>`${n} ${n===1?'day':'days'} recorded`,apiEstimate:'API estimate',
       unpricedInfo:p=>`API estimate excludes ${p} of tokens, which are unpriced.`,
       ofCost:p=>`${p} of cost`,ofTokens:p=>`${p} of tokens`,tokenCount:v=>`${v} tokens`,
-      dailyCost:'Daily cost',average:'avg',dailyTokens:'Daily processed tokens',
+      dailyCost:'Daily cost',average:'avg',dailyAverage:'Daily average',peakDay:'Peak',dailyTokens:'Daily processed tokens',
       processedTokens:'Processed tokens',cachedInput:'Cached input',uncachedInput:'Uncached input',output:'Output',cacheSavings:'Cache savings',
       costByType:'Cost by type',tokensByType:'Tokens by type',costBySpeed:'Cost by speed',
       input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',standard:'Standard',fast:'Fast',premium:'Extra for Fast',
+      savingsDetail:'vs. uncached input rate',weekdays:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
       share:'Share',total:'Total',noActivity:'No activity in this window.',unpriced:'Unpriced',noRecord:'No record',
       metric:'Usage metric',language:'Language',breakdownGroup:'Usage breakdown',
       last7:'7 days',last30:'30 days',custom:'Custom',period:'Usage period',rangeFrom:'Start date',rangeTo:'End date',
     },
     zh: {
-      usage:'用量',cost:'费用',tokens:'Tokens',totals:'Token 合计',breakdown:'明细',model:'模型',day:'日期',
-      range:(a,b)=>`${a} 至 ${b}`,
+      usage:'用量',cost:'费用',tokens:'Tokens',breakdown:'明细',model:'模型',day:'日期',
+      range:(a,b)=>`${a} – ${b}`,
       daysRecorded:n=>`${n} 天有记录`,apiEstimate:'API 估算',
       unpricedInfo:p=>`API 估算未计入 ${p} 的未定价 tokens。`,
       ofCost:p=>`占费用 ${p}`,ofTokens:p=>`占 tokens ${p}`,tokenCount:v=>`${v} tokens`,
-      dailyCost:'每日费用',average:'日均',dailyTokens:'每日处理的 Tokens',
+      dailyCost:'每日费用',average:'日均',dailyAverage:'日均',peakDay:'峰值',dailyTokens:'每日处理的 Tokens',
       processedTokens:'处理的 Tokens',cachedInput:'缓存输入',uncachedInput:'未缓存输入',output:'输出',cacheSavings:'缓存节省',
       costByType:'按类型的费用',tokensByType:'按类型的 tokens',costBySpeed:'按速度的费用',
       input:'输入',cacheRead:'缓存读取',cacheWrite:'缓存写入',standard:'标准',fast:'快速',premium:'快速额外支出',
+      savingsDetail:'相比未缓存输入价',weekdays:['周日','周一','周二','周三','周四','周五','周六'],
       share:'占比',total:'合计',noActivity:'此区间没有用量。',unpriced:'未定价',noRecord:'无记录',
       metric:'用量指标',language:'语言',breakdownGroup:'用量明细',
       last7:'7 天',last30:'30 天',custom:'自定义',period:'统计区间',rangeFrom:'开始日期',rangeTo:'结束日期',
@@ -173,30 +175,50 @@
   function summary(){
     const root=document.getElementById('summary');root.replaceChildren();
     const hero=metric==='cost'?(unknownCost(totals)?t('unpriced'):usd(totals.cost)):tokens(totals.total);
-    const meta=h('span',{class:'hero-meta'},h('span',{},t('daysRecorded')(recordedDays),metric==='cost'?' · '+t('apiEstimate'):''));
+    const heroValue=h('span',{class:'hero-value',title:metric==='cost'?t('apiEstimate'):count(totals.total)+' tokens'});
+    // Only the headline separates units, so the figures carry its visual weight.
+    if(metric==='cost'&&!unknownCost(totals))heroValue.append(h('span',{class:'unit'},'$'),hero.slice(1));
+    else if(metric==='tokens'&&/[KMBT]$/.test(hero))heroValue.append(hero.slice(0,-1),h('span',{class:'unit'},hero.slice(-1)));
+    else heroValue.textContent=hero;
+    const other=metric==='cost'?t('tokenCount')(tokens(totals.total)):(unknownCost(totals)?t('unpriced'):usd(totals.cost));
+    const meta=h('span',{class:'hero-meta'},h('span',{},t('daysRecorded')(recordedDays)+' · '),
+      h('span',{title:metric==='tokens'?t('apiEstimate'):null},other));
     if(metric==='cost'&&totals.unpricedTokens>0&&totals.total>0){
       meta.append(h('span',{class:'info',tabindex:0,'data-tip':t('unpricedInfo')(percent(totals.unpricedTokens/totals.total)),'aria-label':t('unpricedInfo')(percent(totals.unpricedTokens/totals.total))},infoIcon()));
     }
-    root.append(h('div',{class:'hero'},h('span',{class:'hero-value',title:metric==='cost'?usd(totals.cost):count(totals.total)+' tokens'},hero),meta));
+    root.append(h('div',{class:'hero'},heroValue,meta));
+    const split=h('div',{class:'provider-split',role:'img','aria-label':providers.map(id=>`${presentation(id).label} ${format(value(sourceRows.get(id)))}`).join(', ')});
+    for(const id of providers){const v=value(sourceRows.get(id));if(v>0)split.append(h('span',{style:`flex:${v} 1 0;background:${presentation(id).color}`}));}
+    if(split.childElementCount)root.append(split);
+    const rows=h('div',{class:'provider-list'});root.append(rows);
     for(const id of providers){
       const row=sourceRows.get(id),p=presentation(id),n=providerDays(id);
       const share=metric==='cost'?(totals.cost>0?row.cost/totals.cost:0):(totals.total>0?row.total/totals.total:0);
-      root.append(h('div',{class:'provider'},
+      rows.append(h('div',{class:'provider'},
         h('div',{class:'provider-line'},
           h('span',{class:'provider-name'},mark(id,16),
             h('span',{class:'provider-label',title:t('daysRecorded')(n)},h('span',{class:'label'},p.label))),
           h('span',{class:'provider-value'},metric==='cost'&&unknownCost(row)?t('unpriced'):format(value(row)))),
-        h('span',{class:'provider-sub'},metric==='cost'
-          ?`${t('ofCost')(percent(share))} · ${t('tokenCount')(tokens(row.total))}`
-          :`${t('ofTokens')(percent(share))} · ${unknownCost(row)?t('unpriced'):usd(row.cost)}`)));
+        h('div',{class:'provider-sub'},h('span',{},t(metric==='cost'?'ofCost':'ofTokens')(percent(share))),
+          h('span',{},metric==='cost'?t('tokenCount')(tokens(row.total)):(unknownCost(row)?t('unpriced'):usd(row.cost))))));
     }
-    // What the cache saved closes the column, level with the chart's baseline beside it.
-    if(breakdownCost&&breakdownCost.cacheSavings>0)root.append(h('div',{class:'summary-foot metric'},
-      h('span',{class:'label'},t('cacheSavings')),h('span',{class:'value num'},usd(breakdownCost.cacheSavings))));
+    // The period's daily mean and peak close the column, level with the chart's baseline beside it.
+    const {mean,peak}=dailyStats();
+    if(mean>0&&peak&&days.length>1)root.append(h('div',{class:'summary-foot'},
+      h('div',{class:'foot-row'},h('span',{},t('dailyAverage')),h('span',{class:'num fg'},format(mean))),
+      h('div',{class:'foot-row'},h('span',{},`${t('peakDay')} · ${dayShort(peak.day)}`),h('span',{class:'num fg'},format(peak.value)))));
+  }
+
+  // The mean covers recorded, priced days only, so a gap in the record does not pull it down.
+  function dailyStats(){
+    const values=days.map(value),observed=days.map((d,i)=>i).filter(i=>days[i].recorded&&(metric==='tokens'||!unknownCost(days[i])));
+    const mean=observed.length?observed.reduce((sum,i)=>sum+values[i],0)/observed.length:0;
+    const peak=observed.reduce((best,i)=>best==null||values[i]>values[best]?i:best,null);
+    return {mean,peak:peak!=null&&values[peak]>0?{day:days[peak].day,value:values[peak]}:null};
   }
 
   // Column chart: one stacked column per day, sharing a zero-based scale.
-  const VIEW_W=960,VIEW_H=260,PLOT_TOP=8,TICKS=4;
+  const PLOT_TOP=8,TICKS=4;
   function niceScale(peak){
     if(peak<=0)return {max:0,ticks:[0]};
     const raw=peak/TICKS,mag=10**Math.floor(Math.log10(raw)),norm=raw/mag;
@@ -207,48 +229,61 @@
   function chart(){
     const root=document.getElementById('chart');root.replaceChildren();
     document.getElementById('chart-title').textContent=t(metric==='tokens'?'dailyTokens':'dailyCost');
-    // The key sits beside the title, next to the bars it explains.
-    document.getElementById('chart-legend').replaceChildren(...providers.map(id=>h('span',{},
-      h('i',{style:`background:${presentation(id).color}`,'aria-hidden':'true'}),presentation(id).label)));
+    const {mean}=dailyStats();
+    // The dashed key names the average line, as the menu card does.
+    document.getElementById('chart-legend').replaceChildren(...[mean>0?h('span',{class:'avg-key'},h('b',{'aria-hidden':'true'}),t('average')):null,
+      ...providers.map(id=>h('span',{},h('i',{style:`background:${presentation(id).color}`,'aria-hidden':'true'}),presentation(id).label))].filter(Boolean));
+    const axis=h('div',{class:'y-axis'}),plot=h('div',{class:'plot'}),xAxis=h('div',{class:'x-axis'});
+    root.append(h('div',{class:'chart-row'},axis,plot),xAxis);
+    // Pixel coordinates keep the column width, corner radius, and stack gaps true at every size.
+    const w=plot.getBoundingClientRect().width,height=plot.clientHeight;
+    if(!w)return;
     const series=providers.map(id=>({id,values:daySources.map(m=>value(m.get(id)))}));
-    // Daily values are discrete, so each day is one column with its sources stacked in it.
     const stacks=daySources.map((_,i)=>series.reduce((sum,x)=>sum+x.values[i],0));
-    const peak=Math.max(0,...stacks);
-    const scale=niceScale(peak),toY=v=>scale.max===0?VIEW_H:VIEW_H-v/scale.max*(VIEW_H-PLOT_TOP);
-    const slot=days.length?VIEW_W/days.length:VIEW_W,barW=Math.max(1,slot*0.68),stepX=slot;
-    const axis=h('div',{class:'y-axis'});
-    const observed=stacks.filter((_,i)=>days[i].recorded&&(metric==='tokens'||!unknownCost(days[i])));
-    const dailyMean=observed.length?observed.reduce((x,y)=>x+y,0)/observed.length:0;
-    const nearMean=v=>v>0&&dailyMean>0&&Math.abs(toY(v)-toY(dailyMean))<14;
-    scale.ticks.forEach(v=>{if(!nearMean(v))axis.append(h('span',{style:`top:${toY(v)/VIEW_H*100}%`},tickFormat(v)));});
-    // The average reads on the axis, at its own height, where a tick would.
-    if(dailyMean>0)axis.append(h('span',{class:'avg-tick',style:`top:${toY(dailyMean)/VIEW_H*100}%`,title:t('average')},`${t('average')} ${metric==='cost'?usd(dailyMean):tickFormat(Math.round(dailyMean))}`));
-    const svg=s('svg',{viewBox:`0 0 ${VIEW_W} ${VIEW_H}`,preserveAspectRatio:'none',role:'img','aria-label':t(metric==='tokens'?'dailyTokens':'dailyCost')});
-    // A gridline and its label that would run alongside the average give way to it.
-    scale.ticks.forEach(v=>{if(nearMean(v))return;
-      svg.append(s('line',{x1:0,x2:VIEW_W,y1:toY(v),y2:toY(v),stroke:'var(--border)','stroke-width':1,'vector-effect':'non-scaling-stroke'}));});
-    const cursor=s('rect',{y:0,width:slot,height:VIEW_H,fill:'var(--foreground)','fill-opacity':.06,visibility:'hidden'});
+    const scale=niceScale(Math.max(0,...stacks)),toY=v=>scale.max===0?height:height-v/scale.max*(height-PLOT_TOP);
+    const slot=days.length?w/days.length:w,barW=Math.min(slot*0.68,28);
+    const svg=s('svg',{viewBox:`0 0 ${w} ${height}`,preserveAspectRatio:'none',role:'img','aria-label':t(metric==='tokens'?'dailyTokens':'dailyCost')});
+    scale.ticks.forEach(v=>{
+      axis.append(h('span',{style:`top:${toY(v)}px`},tickFormat(v)));
+      svg.append(s('line',{x1:0,x2:w,y1:toY(v),y2:toY(v),stroke:'var(--border)','stroke-opacity':v===0?1:.6,'stroke-width':1}));
+    });
+    const cursor=s('rect',{y:0,width:slot,height,fill:'var(--foreground)','fill-opacity':.06,visibility:'hidden'});
     svg.append(cursor);
-    // The daily average, behind the columns, as the menu card draws it.
-    const mean=dailyMean;
-    if(mean>0)svg.append(s('line',{x1:0,x2:VIEW_W,y1:toY(mean),y2:toY(mean),stroke:'var(--muted-foreground)','stroke-width':1,'stroke-dasharray':'3 3','vector-effect':'non-scaling-stroke'}));
-    // Larger sources sit at the bottom of every column, in the same order as the summary.
+    if(mean>0)svg.append(s('line',{x1:0,x2:w,y1:toY(mean),y2:toY(mean),stroke:'var(--muted-foreground)','stroke-width':1,'stroke-dasharray':'3 3'}));
+    const defs=s('defs');svg.append(defs);
+    // Larger sources sit at the bottom; one clip rounds only the top of the entire stack.
     const order=series.map(x=>({...x,total:x.values.reduce((a,b)=>a+b,0)})).sort((a,b)=>b.total-a.total);
+    const columns=[];
     daySources.forEach((_,i)=>{
-      let base=0;const x=i*slot+(slot-barW)/2;
+      const x=i*slot+(slot-barW)/2,top=toY(stacks[i]),r=Math.min(3,barW/2,height-top);
+      const clip=s('clipPath',{id:`column-${i}`});
+      clip.append(s('path',{d:`M${x},${height}V${top+r}Q${x},${top} ${x+r},${top}H${x+barW-r}Q${x+barW},${top} ${x+barW},${top+r}V${height}Z`}));defs.append(clip);
+      const column=s('g',{class:'column','clip-path':`url(#column-${i})`});columns.push(column);
+      let base=0;
       for(const item of order){
         const v=item.values[i];if(!(v>0))continue;
         const y0=toY(base),y1=toY(base+v);base+=v;
-        svg.append(s('rect',{x,y:y1,width:barW,height:Math.max(0,y0-y1-(base<stacks[i]?1.5:0)),fill:presentation(item.id).color}));
+        const gap=base<stacks[i]?1:0;
+        column.append(s('rect',{x,y:y1+gap,width:barW,height:Math.max(0,y0-y1-gap),fill:presentation(item.id).color}));
       }
+      svg.append(column);
     });
-    const plot=h('div',{class:'plot'},svg);
+    plot.append(svg);
+    const indices=days.length<=10?days.map((_,i)=>i):Array.from({length:6},(_,i)=>Math.round(i*(days.length-1)/5));
+    for(const i of indices){
+      // Only the first day and a new month name the month; the rest are day numbers.
+      const day=days[i].day,d=Number(day.slice(-2));
+      const node=h('span',{},i===0||d===1?dayShort(day):(language==='zh'?`${d}日`:String(d)));xAxis.append(node);
+      const center=(i+.5)/days.length*100,half=node.offsetWidth/2;
+      node.style.left=`clamp(${half}px,${center}%,calc(100% - ${half}px))`;
+    }
     const tip=h('div',{class:'chart-tip',hidden:true});plot.append(tip);
     plot.addEventListener('mousemove',event=>{
       const box=plot.getBoundingClientRect();if(!box.width||!days.length)return;
       const x=Math.min(box.width,Math.max(0,event.clientX-box.left)),y=Math.min(box.height,Math.max(0,event.clientY-box.top));
       const index=Math.min(days.length-1,Math.max(0,Math.floor(x/box.width*days.length)));
-      cursor.setAttribute('x',index*stepX);cursor.setAttribute('visibility','visible');
+      cursor.setAttribute('x',index*slot);cursor.setAttribute('visibility','visible');
+      plot.dataset.hover=String(index);columns.forEach((column,i)=>column.classList.toggle('hovered',i===index));
       const day=days[index],values=daySources[index];
       tip.replaceChildren(h('div',{class:'when'},dayShort(day.day)+(day.recorded?'':' · '+t('noRecord'))),
         ...providers.map(id=>h('div',{class:'tip-row'},h('span',{class:'who'},mark(id,12),presentation(id).label),h('span',{class:'num fg'},format(value(values.get(id)))))),
@@ -259,18 +294,16 @@
       tip.style.left=Math.min(Math.max(0,left),Math.max(0,box.width-w))+'px';
       tip.style.top=Math.min(Math.max(0,top),Math.max(0,box.height-ht))+'px';
     });
-    plot.addEventListener('mouseleave',()=>{tip.hidden=true;cursor.setAttribute('visibility','hidden');});
-    const mid=days[Math.floor(days.length/2)];
-    root.append(h('div',{class:'chart-row'},axis,plot),
-      h('div',{class:'x-axis'},h('span',{},days[0]?dayShort(days[0].day):''),h('span',{},mid?dayShort(mid.day):''),h('span',{},days.at(-1)?dayShort(days.at(-1).day):'')));
+    plot.addEventListener('mouseleave',()=>{tip.hidden=true;cursor.setAttribute('visibility','hidden');delete plot.dataset.hover;columns.forEach(column=>column.classList.remove('hovered'));});
   }
 
-  function metrics(){
-    const root=document.getElementById('metrics');root.replaceChildren();
-    [['processedTokens',tokens(totals.total),count(totals.total)],['cachedInput',tokens(totals.cacheRead),count(totals.cacheRead)],
-     ['uncachedInput',tokens(totals.input),count(totals.input)],['output',tokens(totals.output),count(totals.output)]]
-      .forEach(([key,shown,exact])=>root.append(h('div',{class:'metric'},h('span',{class:'label'},t(key)),h('span',{class:'value',title:exact},shown))));
-  }
+  // Observe the stable chart container, so replacing the plot never creates a resize loop.
+  let chartWidth=0,chartFrame=0;
+  const chartObserver=new ResizeObserver(entries=>{
+    const width=entries[0].contentRect.width;if(width===chartWidth)return;chartWidth=width;
+    cancelAnimationFrame(chartFrame);chartFrame=requestAnimationFrame(chart);
+  });
+  chartObserver.observe(document.getElementById('chart'));
 
   function shareBar(label,segments,fmt,aside){
     const visible=segments.filter(x=>x.value>0),total=visible.reduce((a,x)=>a+x.value,0);
@@ -279,27 +312,28 @@
       h('div',{class:'share-head'},h('h3',{},label),aside??null),
       h('div',{class:'share-bar',role:'img','aria-label':`${label}: ${visible.map(x=>`${x.label} ${fmt(x.value)}`).join(', ')}`},
         visible.map((x,i)=>h('div',{style:`flex:${x.value} 1 0;background:${x.color}`,'data-seg':i,'data-tip':`${x.label} · ${fmt(x.value)} · ${percent(x.value/total)}`}))),
-      h('div',{class:'share-legend'},visible.map((x,i)=>h('span',{'data-seg':i},h('i',{style:`background:${x.color}`,'aria-hidden':'true'}),h('span',{class:'muted'},x.label),h('span',{class:'num fg'},fmt(x.value)),h('span',{class:'num muted'},percent(x.value/total))))));
+      h('div',{class:'share-legend'},visible.map((x,i)=>h('span',{'data-cell':i},h('i',{style:`background:${x.color}`,'aria-hidden':'true'}),h('span',{class:'muted'},x.label),h('span',{class:'num fg'},fmt(x.value)),h('span',{class:'num muted'},percent(x.value/total))))));
   }
   function shares(){
     const root=document.getElementById('shares');root.replaceChildren();
     if(totals.total<=0)return;
-    if(metric==='tokens'){
-      root.append(shareBar(t('tokensByType'),[
-        {label:t('input'),value:totals.input,color:TYPE_COLORS.input},{label:t('cacheRead'),value:totals.cacheRead,color:TYPE_COLORS.cacheRead},
-        {label:t('cacheWrite'),value:totals.cacheWrite,color:TYPE_COLORS.cacheWrite},{label:t('output'),value:totals.output,color:TYPE_COLORS.output}],tokens)??'');
-      return;
-    }
-    const c=breakdownCost;
-    const byType=shareBar(t('costByType'),[
-      {label:t('input'),value:c.input,color:TYPE_COLORS.input},{label:t('cacheRead'),value:c.cacheRead,color:TYPE_COLORS.cacheRead},
-      {label:t('cacheWrite'),value:c.cacheWrite,color:TYPE_COLORS.cacheWrite},{label:t('output'),value:c.output,color:TYPE_COLORS.output}],usd);
-    if(byType)root.append(byType);
-    if(c.fast>0){
+    const c=breakdownCost,label=t(metric==='tokens'?'tokensByType':'costByType');
+    const types=['input','cacheRead','cacheWrite','output'].map(key=>({key,label:t(key),color:TYPE_COLORS[key],
+      value:metric==='tokens'?totals[key]:c[key],other:metric==='tokens'?usd(c[key]):t('tokenCount')(tokens(totals[key]))})).filter(x=>x.value>0);
+    const total=types.reduce((sum,x)=>sum+x.value,0),savings=c.cacheSavings>0;
+    const cells=h('div',{class:'type-cells'+(savings?' with-savings':'')},types.map((x,i)=>h('div',{class:'type-cell','data-cell':i},
+      h('span',{class:'type-label'},h('i',{style:`background:${x.color}`,'aria-hidden':'true'}),x.label),
+      h('span',{class:'type-value',title:metric==='tokens'?count(x.value):usd(x.value)},format(x.value)),
+      h('span',{class:'type-detail'},`${percent(x.value/total)} · ${x.other}`))));
+    if(savings)cells.append(h('div',{class:'type-cell cache-savings'},h('span',{class:'type-label'},t('cacheSavings')),
+      h('span',{class:'type-value'},usd(c.cacheSavings)),h('span',{class:'type-detail'},t('savingsDetail'))));
+    if(types.length||savings)root.append(h('div',{class:'share composition'},h('h2',{class:'heading'},label),
+      h('div',{class:'share-bar',role:'img','aria-label':`${label}: ${types.map(x=>`${x.label} ${format(x.value)}`).join(', ')}`},
+        types.map((x,i)=>h('div',{style:`flex:${x.value} 1 0;background:${x.color}`,'data-seg':i,'data-tip':`${x.label} · ${format(x.value)} · ${percent(x.value/total)}`}))),cells));
+    if(metric==='cost'&&c.fast>0){
       const bySpeed=shareBar(t('costBySpeed'),[{label:t('standard'),value:Math.max(0,totals.cost-c.fast),color:'var(--speed-standard)'},{label:t('fast'),value:c.fast,color:'var(--speed-fast)'}],usd,
         h('span',{class:'share-aside'},t('premium')+' ',h('span',{class:'num fg'},usd(c.fastPremium))));
-      // Two rows like its neighbour's key, so both blocks end on the same line.
-      bySpeed?.querySelector('.share-legend')?.classList.add('stacked');
+      bySpeed?.classList.add('speed-share');
       if(bySpeed)root.append(bySpeed);
     }
   }
@@ -319,22 +353,24 @@
           // The track is the whole window, so the bar's length is the share printed beside it.
           h('span',{class:'model-bar','aria-hidden':'true'},bar&&share!=null?h('span',{style:`width:${Math.max(1,share*100)}%;background:${presentation(id).color}`}):null),
           h('span',{class:'share-value'},share==null?'':percent(share)))),
-        h('td',{class:'cost',title:usd(m.cost)},unknownCost(m)?h('span',{class:'muted'},t('unpriced')):usd(m.cost)),
-        h('td',{title:count(m.total)},tokens(m.total))));
+        h('td',{class:'cost'+(metric==='cost'?' active-metric':''),title:usd(m.cost)},unknownCost(m)?t('unpriced'):usd(m.cost)),
+        h('td',{class:metric==='tokens'?'active-metric':null,title:count(m.total)},tokens(m.total))));
     });
-    return h('table',{class:'models'},h('thead',{},h('tr',{},h('th',{},t('model')),h('th',{class:'share-col'},t('share')),h('th',{},t('cost')),h('th',{},t('tokens')))),body);
+    return h('table',{class:'models'},h('thead',{},h('tr',{},h('th',{},t('model')),h('th',{class:'share-col'},t('share')),
+      h('th',{class:metric==='cost'?'active-metric':null},t('cost')),h('th',{class:metric==='tokens'?'active-metric':null},t('tokens')))),body);
   }
   function dayTable(){
     const body=h('tbody');
     [...days].map((d,i)=>[d,daySources[i]]).reverse().forEach(([d,m])=>{
       const dash=()=>h('td',{},'—');
-      body.append(h('tr',{class:d.recorded?'':'missing'},h('td',{},dayShort(d.day)),
+      body.append(h('tr',{class:d.recorded?'':'missing'},h('td',{},dayShort(d.day),' ',h('span',{class:'muted'},t('weekdays')[new Date(toTime(d.day)).getUTCDay()])),
         ...providers.map(id=>d.recorded?h('td',{title:usd(m.get(id)?.cost??0)},usd(m.get(id)?.cost??0)):dash()),
-        d.recorded?h('td',{class:'total',title:usd(d.cost)},unknownCost(d)?t('unpriced'):usd(d.cost)):dash(),
-        d.recorded?h('td',{title:count(d.total)},tokens(d.total)):h('td',{},t('noRecord'))));
+        d.recorded?h('td',{class:'total'+(metric==='cost'?' active-metric':''),title:usd(d.cost)},unknownCost(d)?t('unpriced'):usd(d.cost)):dash(),
+        d.recorded?h('td',{class:metric==='tokens'?'active-metric':null,title:count(d.total)},tokens(d.total)):h('td',{},t('noRecord'))));
     });
     return h('div',{class:'table-scroll',role:'region',tabindex:0,'aria-label':t('breakdown')},
-      h('table',{class:'days'},h('thead',{},h('tr',{},h('th',{},t('day')),...providers.map(id=>h('th',{},presentation(id).label)),h('th',{},t('total')),h('th',{},t('tokens')))),body));
+      h('table',{class:'days'},h('thead',{},h('tr',{},h('th',{},t('day')),...providers.map(id=>h('th',{},presentation(id).label)),
+        h('th',{class:metric==='cost'?'active-metric':null},t('total')),h('th',{class:metric==='tokens'?'active-metric':null},t('tokens')))),body));
   }
   function breakdownSection(){
     document.getElementById('breakdown').replaceChildren(breakdown==='model'?modelTable():dayTable());
@@ -361,7 +397,7 @@
     document.querySelectorAll('[data-metric]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.metric===metric)));
     document.querySelectorAll('[data-language]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.language===language)));
     document.querySelectorAll('[data-breakdown]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.breakdown===breakdown)));
-    summary();chart();metrics();shares();breakdownSection();
+    summary();chart();shares();breakdownSection();
   }
 
   const STORE='quotabar-report:'+location.pathname;

@@ -24,13 +24,14 @@
       <button type="button" data-period="30" data-i18n="last30">30 days</button>
       <button type="button" data-period="custom" data-i18n="custom">Custom</button>
     </div>
-    <div class="segmented compact" role="group" data-language-group>
-      <button type="button" data-language="zh">中</button>
-      <button type="button" data-language="en">EN</button>
-    </div>
     <div class="segmented" role="group" data-metric-group>
       <button type="button" data-metric="tokens" data-i18n="tokens">Tokens</button>
       <button type="button" data-metric="cost" data-i18n="cost">Cost</button>
+    </div>
+    <span class="control-divider" aria-hidden="true"></span>
+    <div class="language-toggle" role="group" data-language-group>
+      <button type="button" data-language="zh">中</button>
+      <button type="button" data-language="en">EN</button>
     </div>
   </div>
 </header>
@@ -45,11 +46,6 @@
       </div>
       <div class="chart" id="chart" data-chart="daily"></div>
     </div>
-  </section>
-
-  <section class="stack">
-    <h2 class="heading" data-i18n="totals">Totals</h2>
-    <div class="metrics" id="metrics"></div>
   </section>
 
   <section class="shares" id="shares"></section>
