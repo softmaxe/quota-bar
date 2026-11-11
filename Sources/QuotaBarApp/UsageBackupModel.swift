@@ -17,8 +17,9 @@ final class UsageBackupModel: ObservableObject {
         case failed(String)
     }
 
-    /// nil until the database has been read once.
+    /// nil until the database has been read successfully once.
     @Published private(set) var summary: SavedUsageSummary?
+    @Published private(set) var summaryReadFailed = false
     @Published private(set) var activity: Activity?
     @Published private(set) var outcome: Outcome?
 
@@ -43,8 +44,9 @@ final class UsageBackupModel: ObservableObject {
             try? CostUsageReader.savedUsage(databaseURL: databaseURL)
         }.value
         // A failed read keeps what was last shown rather than going back to "reading".
-        guard read == self.summaryReads, let summary else { return }
-        self.summary = summary
+        guard read == self.summaryReads else { return }
+        self.summaryReadFailed = summary == nil
+        if let summary { self.summary = summary }
     }
 
     func exportBackup(to url: URL) async {

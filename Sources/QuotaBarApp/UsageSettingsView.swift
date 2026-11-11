@@ -45,7 +45,9 @@ struct UsageSettingsView: View {
 
     /// "56,412 records since Nov 3, 2025 · 27.4 MB", or what is known of it so far.
     private var savedSummary: String {
-        guard let summary = self.backup.summary else { return "Reading what is saved…" }
+        guard let summary = self.backup.summary else {
+            return self.backup.summaryReadFailed ? "Couldn't read saved usage" : "Reading what is saved…"
+        }
         let records = summary.records == 1 ? "1 record" : "\(summary.records.formatted()) records"
         let since = summary.firstDay == nil ? records : "\(records) since \(self.firstDay)"
         return summary.bytes > 0 ? "\(since) · \(self.size)" : since
@@ -242,7 +244,8 @@ struct UsageSettingsView: View {
                         // What is saved, in one line; importing only ever adds to it.
                         Text(self.savedSummary)
                             .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(self.backup.summary == nil && self.backup.summaryReadFailed
+                                ? Color.orange : Color.secondary)
                             .monospacedDigit()
                             .help("Export writes a copy. Import merges one back in and only adds.")
                     }

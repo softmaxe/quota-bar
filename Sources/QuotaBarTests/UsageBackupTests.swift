@@ -21,6 +21,7 @@ enum UsageBackupTests {
         await Self.invalidTokenCountsChangeNothing()
         await Self.corruptExistingCursorIsRescanned()
         await Self.settingsPaneReportsEachOutcome()
+        await Self.summaryReadFailureRecovers()
     }
 
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000002.jsonl"
@@ -467,6 +468,38 @@ enum UsageBackupTests {
             try? await Task.sleep(for: .milliseconds(5))
         }
         Harness.expectEqual(scans, Provider.allCases.count, "an import scans every provider")
+    }
+
+    @MainActor
+    private static func summaryReadFailureRecovers() async {
+        let fixture = BackupFixture(name: "summary-failure")
+        defer { fixture.remove() }
+        let suite = "QuotaBarSummaryFailureTests"
+        let defaults = EphemeralDefaults.make(suite)
+        defer { EphemeralDefaults.clear(suite) }
+        let databaseURL = fixture.logs.root.appendingPathComponent("unreadable.sqlite")
+        let store = UsageStore(
+            settings: SettingsStore(defaults: defaults),
+            costService: CostService(databaseURL: databaseURL),
+            historyStore: UsageHistoryStore(fileURL: fixture.logs.root.appendingPathComponent("history.json")),
+            recoveryDefaults: defaults
+        )
+        defer { store.stop() }
+        let model = UsageBackupModel(store: store)
+        Harness.expect(model.summary == nil && !model.summaryReadFailed, "summary initially awaits its first read")
+        let invalid = Data(String(repeating: "not a database\n", count: 200).utf8)
+        try? invalid.write(to: databaseURL)
+        await model.loadSummary()
+        Harness.expect(model.summary == nil && model.summaryReadFailed, "an initial failed read leaves loading")
+
+        try? FileManager.default.removeItem(at: databaseURL)
+        await model.loadSummary()
+        Harness.expect(model.summary?.records == 0 && !model.summaryReadFailed, "a successful retry clears the failure")
+        let lastGood = model.summary
+        try? invalid.write(to: databaseURL)
+        await model.loadSummary()
+        Harness.expect(model.summaryReadFailed, "a later unreadable database reports failure")
+        Harness.expectEqual(model.summary, lastGood, "a later read failure preserves the last good summary")
     }
 
     private static func expectRefused(_ file: URL, by fixture: BackupFixture, _ label: String) async {
