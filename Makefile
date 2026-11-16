@@ -4,12 +4,13 @@ CONFIG ?= debug
 PROVIDER ?= codex
 PREVIEW_STATE ?= loaded
 SNAPSHOT_DIR ?= $(BUILD_DIR)/screenshots/card
+TEST_RUNNER ?=
 SWIFT := Scripts/swift.sh
 BIN := $(BUILD_DIR)/$(CONFIG)/$(APP_NAME)
 DEBUG_BIN := $(BUILD_DIR)/debug/$(APP_NAME)
 LOG_SUBSYSTEM := com.quotabar.app
 
-.PHONY: build run preview card-snapshot probe probe-cost benchmark-cost benchmark-startup logs kill test app readme-assets clean
+.PHONY: build run preview card-snapshot probe probe-cost benchmark-cost benchmark-startup logs kill test rust-check app readme-assets clean
 
 build:
 	$(SWIFT) build -c $(CONFIG) --product $(APP_NAME)
@@ -67,9 +68,14 @@ app:
 
 ## Core and app regressions use a plain executable of assertions. Always a debug build: the
 ## suite imports the app with @testable, which needs a module compiled for testing.
-test:
+test: rust-check
 	$(SWIFT) build -c debug --product $(APP_NAME)Tests
-	$(BUILD_DIR)/debug/$(APP_NAME)Tests
+	$(TEST_RUNNER) $(BUILD_DIR)/debug/$(APP_NAME)Tests
+
+rust-check:
+	cargo fmt --manifest-path Rust/QuotaBarCore/Cargo.toml -- --check
+	CARGO_TARGET_DIR="$(CURDIR)/.build/rust" MACOSX_DEPLOYMENT_TARGET=14.0 cargo test --locked --manifest-path Rust/QuotaBarCore/Cargo.toml
+	CARGO_TARGET_DIR="$(CURDIR)/.build/rust" MACOSX_DEPLOYMENT_TARGET=14.0 cargo clippy --locked --manifest-path Rust/QuotaBarCore/Cargo.toml --all-targets -- -D warnings
 
 clean:
 	$(SWIFT) package clean

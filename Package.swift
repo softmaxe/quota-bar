@@ -11,9 +11,11 @@ let package = Package(
         .library(name: "QuotaBarCore", targets: ["QuotaBarCore"]),
     ],
     targets: [
+        .systemLibrary(name: "CQuotaBarRust"),
         // Data layer: credentials, usage endpoints, snapshot models. No AppKit.
         .target(
             name: "QuotaBarCore",
+            dependencies: ["CQuotaBarRust"],
             resources: [.copy("Resources/UsageReport"), .copy("Resources/Pricing")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

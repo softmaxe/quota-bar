@@ -89,6 +89,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned Rust toolchain
+        run: bash Scripts/setup_rust_ci.sh
+
       - name: Require the native menu bar SDK
         run: |
           set -euo pipefail

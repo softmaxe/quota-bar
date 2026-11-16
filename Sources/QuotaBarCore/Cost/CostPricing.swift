@@ -5,6 +5,7 @@
 // against published price lists. The rates themselves live in the price book
 // (`Resources/Pricing/price-book.json`), and `RateCard` decides which apply to a day.
 
+import CQuotaBarRust
 import Foundation
 
 public struct ModelPricing: Sendable, Equatable {
@@ -90,44 +91,42 @@ public struct ModelPricing: Sendable, Equatable {
     /// The one-hour cache-write rate actually billed, derived from the input rate when the
     /// rates do not state one.
     public func cacheWrite1hRate(longContext: Bool) -> Double {
-        let inputRate = (longContext ? self.inputAbove : nil) ?? self.input
-        if let stated = (longContext ? self.cacheWrite1hAbove : nil) ?? self.cacheWrite1h { return stated }
-        return inputRate * Self.oneHourCacheWriteMultiplier
+        var pricing = self.rustPricing
+        return qb_pricing_cache_write_1h_rate(&pricing, longContext ? 1 : 0)
     }
 
     /// Cost in USD for one bucket of tokens, or nil when rates or the amount are invalid.
     public func cost(for totals: TokenTotals, longContext: Bool) -> Double? {
-        guard Self.violations(in: self.rateValues).isEmpty,
-              [totals.input, totals.output, totals.cacheWrite, totals.cacheWrite1h, totals.cacheRead]
-                .allSatisfy({ $0 >= 0 }) else { return nil }
-        let million = 1_000_000.0
-        let inputRate = (longContext ? self.inputAbove : nil) ?? self.input
-        let outputRate = (longContext ? self.outputAbove : nil) ?? self.output
-        // A model without its own cache rates bills cached tokens at the full input rate.
-        let cacheWriteRate = (longContext ? self.cacheWriteAbove : nil) ?? self.cacheWrite ?? inputRate
-        let cacheReadRate = (longContext ? self.cacheReadAbove : nil) ?? self.cacheRead ?? inputRate
+        var pricing = self.rustPricing
+        var tokens = QBPricingTokens(
+            input: Int64(totals.input), output: Int64(totals.output),
+            cache_write: Int64(totals.cacheWrite), cache_write_1h: Int64(totals.cacheWrite1h),
+            cache_read: Int64(totals.cacheRead)
+        )
+        var cost = 0.0
+        return qb_pricing_cost(&pricing, &tokens, longContext ? 1 : 0, &cost) != 0 ? cost : nil
+    }
 
-        // Anthropic prices a one-hour cache write at twice the input rate, against 1.25x for the
-        // five-minute default. The table's cache-write column is the five-minute rate, so unless
-        // a one-hour rate is stated the longer TTL is derived the way Anthropic publishes it.
-        let write1h = Double(min(totals.cacheWrite1h, totals.cacheWrite))
-        let write5m = Double(totals.cacheWrite) - write1h
-
-        let millionths = Double(totals.input) * inputRate
-            + Double(totals.output) * outputRate
-            + write5m * cacheWriteRate
-            + write1h * self.cacheWrite1hRate(longContext: longContext)
-            + Double(totals.cacheRead) * cacheReadRate
-        if millionths.isFinite { return millionths / million }
-
-        // Retry in USD when the intermediate amount in millionths overflowed.
-        // This preserves the existing rounding for ordinary rates.
-        let cost = Double(totals.input) * (inputRate / million)
-            + Double(totals.output) * (outputRate / million)
-            + write5m * (cacheWriteRate / million)
-            + write1h * (self.cacheWrite1hRate(longContext: longContext) / million)
-            + Double(totals.cacheRead) * (cacheReadRate / million)
-        return cost.isFinite && cost >= 0 ? cost : nil
+    /// The fixed-width ABI keeps absent rates distinct from stated zero rates.
+    private var rustPricing: QBModelPricing {
+        var present: UInt32 = 0
+        if self.cacheWrite != nil { present |= 1 << 0 }
+        if self.cacheWrite1h != nil { present |= 1 << 1 }
+        if self.cacheRead != nil { present |= 1 << 2 }
+        if self.inputAbove != nil { present |= 1 << 3 }
+        if self.outputAbove != nil { present |= 1 << 4 }
+        if self.cacheWriteAbove != nil { present |= 1 << 5 }
+        if self.cacheWrite1hAbove != nil { present |= 1 << 6 }
+        if self.cacheReadAbove != nil { present |= 1 << 7 }
+        if self.thresholdTokens != nil { present |= 1 << 8 }
+        return QBModelPricing(
+            input: self.input, output: self.output,
+            cache_write: self.cacheWrite ?? 0, cache_write_1h: self.cacheWrite1h ?? 0,
+            cache_read: self.cacheRead ?? 0, input_above: self.inputAbove ?? 0,
+            output_above: self.outputAbove ?? 0, cache_write_above: self.cacheWriteAbove ?? 0,
+            cache_write_1h_above: self.cacheWrite1hAbove ?? 0, cache_read_above: self.cacheReadAbove ?? 0,
+            threshold_tokens: Int64(self.thresholdTokens ?? 0), present: present
+        )
     }
 }
 

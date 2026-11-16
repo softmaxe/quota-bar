@@ -69,6 +69,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned Rust toolchain
+        if: ${{ needs.changes.outputs.build == 'true' }}
+        run: bash Scripts/setup_rust_ci.sh
+
       - name: Print tool versions
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: |

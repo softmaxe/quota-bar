@@ -294,6 +294,8 @@ Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`�
 
 构建需要完整的 Xcode 及 Swift 6 工具链。项目使用 Swift Package Manager。`Scripts/swift.sh` 默认使用 `/Applications/Xcode.app/Contents/Developer`，不会修改全局 `xcode-select` 设置。
 
+Rust kernels also require `rustup` and the toolchain pinned in `rust-toolchain.toml`. Install rustup with `brew install rustup` and add its `bin` directory to PATH as Homebrew instructs. Use `make` or `Scripts/swift.sh` for builds: the wrapper builds the matching Cargo profile, links the static library, and invalidates SwiftPM's cache when Rust changes. Bare `swift build` and opening the package directly in Xcode do not run this integration. Prebuilt app users do not need Rust. See [Rust core boundaries and validation](docs/rust-migration.md).
+
 发布工作流要求 macOS 27 SDK，以支持 macOS 27 的原生菜单栏会话。使用较旧 SDK 的本地构建会采用旧版菜单栏处理方式。最低运行系统仍为 macOS 14。
 
 ```bash
