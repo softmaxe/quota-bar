@@ -285,6 +285,8 @@ Codex quota requests use the `chatgpt_base_url` in `$CODEX_HOME/config.toml`, if
 
 Building requires full Xcode with a Swift 6 toolchain. The project uses Swift Package Manager. `Scripts/swift.sh` defaults to `/Applications/Xcode.app/Contents/Developer` without changing the global `xcode-select` setting.
 
+Rust kernels also require `rustup` and the toolchain pinned in `rust-toolchain.toml`. Install rustup with `brew install rustup` and add its `bin` directory to PATH as Homebrew instructs. Use `make` or `Scripts/swift.sh` for builds: the wrapper builds the matching Cargo profile, links the static library, and invalidates SwiftPM's cache when Rust changes. Bare `swift build` and opening the package directly in Xcode do not run this integration. Prebuilt app users do not need Rust. See [Rust core boundaries and validation](docs/rust-migration.md).
+
 The release workflow requires the macOS 27 SDK for native menu bar sessions on macOS 27. Local builds with older SDKs use the legacy menu bar handling. The minimum runtime remains macOS 14.
 
 ```bash

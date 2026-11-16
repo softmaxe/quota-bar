@@ -1,5 +1,10 @@
 # Performance validation
 
+The subsequent Rust migration and its final Swift/Rust comparison are documented in
+[rust-migration.md](rust-migration.md) and [rust-validation.md](rust-validation.md).
+The measurements below describe the earlier Swift optimization and remain historical
+evidence; they are not the migrated application's benchmark results.
+
 ## Scope
 
 The November 2026 optimization removes redundant report reads and display publications,

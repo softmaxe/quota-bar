@@ -1,0 +1,4 @@
+module CQuotaBarRust {
+    header "include/QuotaBarRust.h"
+    export *
+}

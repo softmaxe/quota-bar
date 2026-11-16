@@ -1,3 +1,4 @@
+import CQuotaBarRust
 import CryptoKit
 import Darwin
 import Foundation
@@ -5,8 +6,6 @@ import Foundation
 /// Streams the newline-delimited records of a JSONL file, resuming from a byte offset.
 package enum LogFileScanner {
     private static let prefixDigestBytes = 64 * 1024
-    private static let chunkSize = 1 << 20
-    private static let longLinePrefixBytes = 64 * 1024
 
     package struct ScanPlan {
         package let cursor: FileCursor
@@ -94,75 +93,47 @@ package enum LogFileScanner {
         where isWanted: (UnsafeRawBufferPointer) -> Bool = { _ in true },
         handle: (UnsafeRawBufferPointer) -> Void
     ) throws -> Int64 {
-        let start = max(0, offset)
-        let descriptor = Darwin.open(url.path, O_RDONLY | O_CLOEXEC)
-        guard descriptor >= 0 else { throw Self.posixError() }
-        defer { _ = Darwin.close(descriptor) }
-        guard Darwin.lseek(descriptor, off_t(start), SEEK_SET) >= 0 else {
-            throw Self.posixError()
-        }
-
-        var buffer = [UInt8](repeating: 0, count: Self.chunkSize)
-        var carry: [UInt8] = []
-        var skippingLine = false
-        var readPosition = start
-        var consumed = start
-
-        while limit.map({ readPosition < $0 }) ?? true {
-            let requested = limit.map { min(Int64(Self.chunkSize), max(0, $0 - readPosition)) }
-                ?? Int64(Self.chunkSize)
-            guard requested > 0 else { break }
-
-            let count: Int = try buffer.withUnsafeMutableBytes { storage in
-                var result: Int
-                repeat {
-                    result = Darwin.read(descriptor, storage.baseAddress, Int(requested))
-                } while result < 0 && errno == EINTR
-                guard result >= 0 else { throw Self.posixError() }
-                return result
-            }
-            guard count > 0 else { break }
-
-            let chunkStart = readPosition
-            buffer.withUnsafeBytes { storage in
-                guard let base = storage.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
-                var lineStart = 0
-                while lineStart < count,
-                      let found = memchr(base.advanced(by: lineStart), Int32(UInt8(ascii: "\n")), count - lineStart) {
-                    let newline = base.distance(to: found.assumingMemoryBound(to: UInt8.self))
-                    let length = newline - lineStart
-                    if skippingLine {
-                        skippingLine = false
-                    } else if carry.isEmpty {
-                        let line = UnsafeRawBufferPointer(start: base.advanced(by: lineStart), count: length)
-                        if length > 0, isWanted(line) {
-                            // Handlers parse with Foundation, whose autoreleased objects would
-                            // otherwise pile up until the scan's task finishes.
-                            autoreleasepool { handle(line) }
-                        }
-                    } else {
-                        carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: length))
-                        if carry.withUnsafeBytes(isWanted) {
-                            autoreleasepool { carry.withUnsafeBytes(handle) }
-                        }
-                        carry.removeAll(keepingCapacity: true)
-                    }
-                    consumed = chunkStart + Int64(newline) + 1
-                    lineStart = newline + 1
-                }
-                if lineStart < count, !skippingLine {
-                    let wasShort = carry.count < Self.longLinePrefixBytes
-                    carry.append(contentsOf: UnsafeBufferPointer(start: base.advanced(by: lineStart), count: count - lineStart))
-                    if wasShort, carry.count >= Self.longLinePrefixBytes, !carry.withUnsafeBytes(isWanted) {
-                        skippingLine = true
-                        carry.removeAll(keepingCapacity: true)
+        try withoutActuallyEscaping(isWanted) { wanted in
+            try withoutActuallyEscaping(handle) { handle in
+                let callbacks = LineCallbacks(wanted: wanted, handle: handle)
+                var consumed: Int64 = 0
+                let error = withExtendedLifetime(callbacks) {
+                    url.path.withCString { path in
+                        qb_read_lines(
+                            path, offset, limit == nil ? 0 : 1, limit ?? 0,
+                            { bytes, count, context in
+                                let callbacks = Unmanaged<LineCallbacks>.fromOpaque(context!).takeUnretainedValue()
+                                return callbacks.wanted(UnsafeRawBufferPointer(start: bytes, count: count)) ? 1 : 0
+                            },
+                            { bytes, count, context in
+                                let callbacks = Unmanaged<LineCallbacks>.fromOpaque(context!).takeUnretainedValue()
+                                // Foundation handlers must release temporary objects after each record.
+                                autoreleasepool {
+                                    callbacks.handle(UnsafeRawBufferPointer(start: bytes, count: count))
+                                }
+                            },
+                            Unmanaged.passUnretained(callbacks).toOpaque(), &consumed
+                        )
                     }
                 }
+                guard error == 0 else {
+                    throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
+                }
+                return consumed
             }
-            readPosition += Int64(count)
         }
+    }
 
-        return consumed
+    /// Rust borrows this context synchronously; neither it nor a line buffer escapes the call.
+    private final class LineCallbacks {
+        let wanted: (UnsafeRawBufferPointer) -> Bool
+        let handle: (UnsafeRawBufferPointer) -> Void
+
+        init(wanted: @escaping (UnsafeRawBufferPointer) -> Bool,
+             handle: @escaping (UnsafeRawBufferPointer) -> Void) {
+            self.wanted = wanted
+            self.handle = handle
+        }
     }
 
     private static func posixError() -> POSIXError {

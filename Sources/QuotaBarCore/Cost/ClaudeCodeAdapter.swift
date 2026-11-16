@@ -8,6 +8,7 @@
 
 import CryptoKit
 import Foundation
+import CQuotaBarRust
 
 /// Turns Claude Code transcript lines into observed requests.
 package struct ClaudeCodeAdapter: AppendedLogAdapter {
@@ -51,6 +52,48 @@ package struct ClaudeCodeAdapter: AppendedLogAdapter {
     }
 
     package struct Parser: AppendedLogParser {
+        private let fallback = FoundationParser()
+
+        package init() {}
+
+        package var savedState: String? { nil }
+
+        package func request(in line: UnsafeRawBufferPointer) -> ObservedRequest? {
+            var result = QBClaudeResult()
+            qb_claude_decode(line.bindMemory(to: UInt8.self).baseAddress, line.count, &result)
+            defer { qb_claude_free(result.owner) }
+            if result.status == QB_CLAUDE_IGNORED { return nil }
+            guard result.status == QB_CLAUDE_PARSED else {
+                return self.fallback.request(in: line)
+            }
+
+            // Keep Foundation's Unicode/date handling and persisted identity conventions.
+            let model = Self.string(result.model).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !model.isEmpty, model != "<synthetic>",
+                  let date = ISO8601.parse(Self.string(result.timestamp)) else { return nil }
+            let messageID = Self.string(result.message_id)
+            let requestID = Self.string(result.request_id)
+            let key = messageID.isEmpty && requestID.isEmpty
+                ? "uuid:\(Self.string(result.uuid))" : "\(messageID)|\(requestID)"
+            let counts = result.counts
+            return ObservedRequest(
+                key: key, timestamp: date, model: model,
+                tokens: TokenTotals(input: Int(counts.0), output: Int(counts.1), cacheWrite: Int(counts.2),
+                                    cacheWrite1h: Int(counts.3), cacheRead: Int(counts.4)),
+                isFast: Self.string(result.speed).lowercased() == "fast"
+            )
+        }
+
+        private static func string(_ value: QBByteString) -> String {
+            guard let pointer = value.ptr, value.len > 0 else { return "" }
+            // Rust owns these validated UTF-8 bytes until the deferred release above.
+            return String(decoding: UnsafeBufferPointer(start: pointer, count: value.len), as: UTF8.self)
+        }
+    }
+
+    /// Compatibility path for Foundation-specific decoding and ID-less canonical hashes.
+    /// It also remains the differential-test oracle for the native kernel.
+    package struct FoundationParser: AppendedLogParser {
         private let decoder = JSONDecoder()
 
         package init() {}
