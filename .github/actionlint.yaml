@@ -1,0 +1,4 @@
+# The repository's macOS 27 SDK runner is a custom runner label.
+self-hosted-runner:
+  labels:
+    - xcode-27

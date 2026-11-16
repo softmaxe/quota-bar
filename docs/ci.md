@@ -6,9 +6,24 @@ in `Scripts/ci_requires_build.sh` lets both checks finish on Linux without a
 macOS build. Any other path runs the existing tests and release packaging.
 Classification errors fail the required checks.
 
-CodeQL scans Swift, JavaScript/TypeScript, and Actions after pushes to `main`,
+CodeQL scans Swift, Rust, JavaScript/TypeScript, and Actions after pushes to `main`,
 weekly, and on manual dispatch. It is independent of PR merging. Review scan
 failures and security alerts separately from the required PR checks.
+
+Every Swift build job (PR checks, release packaging and CodeQL's manual Swift
+build) installs the toolchain pinned in `rust-toolchain.toml` before invoking
+`Scripts/swift.sh`. `make test` checks Rust formatting, unit tests and Clippy
+before the Swift assertion suite. Packaging links the release static archive
+and retains the existing signature and architecture checks. Rust source, Cargo
+manifest/lockfile, C bridge and toolchain changes all require both macOS checks;
+they are outside the documentation allowlist.
+
+The Rust CodeQL job uses `build-mode: none` on Linux, as supported by
+[CodeQL's Rust analysis](https://github.blog/changelog/2025-10-14-codeql-scanning-rust-and-c-c-without-builds-is-now-generally-available/).
+It does not execute the Darwin-specific native kernels. Dependabot checks the
+Cargo manifest and lockfile in `Rust/QuotaBarCore` monthly, alongside the existing
+GitHub Actions updates. Compiler updates remain explicit changes to the pinned
+toolchain and must pass both macOS checks.
 
 ## Activate the CodeQL workflow
 
@@ -24,7 +39,7 @@ analysis uploads from custom workflows, so adding the YAML alone is not enough.
    `gh workflow enable codeql.yml`, then
    `gh workflow run codeql.yml --ref main`.
 4. Inspect the resulting run using `gh run list --workflow codeql.yml` and
-   `gh run view <id>`. Migration is complete when all three language jobs
+   `gh run view <id>`. Migration is complete when all configured language jobs
    succeed, including analysis upload. Fix and rerun failures before considering
    the migration complete.
 

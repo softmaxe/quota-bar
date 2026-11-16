@@ -33,6 +33,9 @@ jobs:
           - language: javascript-typescript
             os: ubuntu-24.04
             build-mode: none
+          - language: rust
+            os: ubuntu-24.04
+            build-mode: none
           - language: actions
             os: ubuntu-24.04
             build-mode: none
@@ -41,6 +44,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install pinned Rust toolchain for Swift linking
+        if: ${{ matrix.language == 'swift' }}
+        run: bash Scripts/setup_rust_ci.sh
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4

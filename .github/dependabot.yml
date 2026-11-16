@@ -11,3 +11,13 @@ updates:
           - "*"
     commit-message:
       prefix: ci
+  - package-ecosystem: cargo
+    directory: /Rust/QuotaBarCore
+    schedule:
+      interval: monthly
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: build
