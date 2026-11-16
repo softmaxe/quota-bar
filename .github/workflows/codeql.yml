@@ -33,6 +33,9 @@ jobs:
           - language: javascript-typescript
             os: ubuntu-24.04
             build-mode: none
+          - language: python
+            os: ubuntu-24.04
+            build-mode: none
           - language: rust
             os: ubuntu-24.04
             build-mode: none

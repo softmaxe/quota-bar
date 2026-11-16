@@ -6,7 +6,7 @@ in `Scripts/ci_requires_build.sh` lets both checks finish on Linux without a
 macOS build. Any other path runs the existing tests and release packaging.
 Classification errors fail the required checks.
 
-CodeQL scans Swift, Rust, JavaScript/TypeScript, and Actions after pushes to `main`,
+CodeQL scans Swift, Rust, Python, JavaScript/TypeScript, and Actions after pushes to `main`,
 weekly, and on manual dispatch. It is independent of PR merging. Review scan
 failures and security alerts separately from the required PR checks.
 
