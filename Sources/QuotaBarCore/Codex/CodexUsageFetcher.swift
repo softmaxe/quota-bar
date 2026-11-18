@@ -168,8 +168,6 @@ public enum CodexUsageFetcher {
             throw CodexFetchError.unauthorized
         case 429:
             throw CodexFetchError.rateLimited(HTTPRetryAfter.date(from: response))
-        case 403:
-            throw CodexFetchError.serverError(403, String(data: data, encoding: .utf8))
         default:
             throw CodexFetchError.serverError(response.statusCode, String(data: data, encoding: .utf8))
         }
@@ -204,10 +202,8 @@ public enum CodexUsageFetcher {
 
     private static func parseBaseURL(from contents: String) -> String? {
         for rawLine in contents.split(whereSeparator: \.isNewline) {
-            let line = rawLine.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: true).first
-            let trimmed = line?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: true)
+            let line = rawLine.prefix { $0 != "#" }
+            let parts = line.split(separator: "=", maxSplits: 1)
             guard parts.count == 2,
                   parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "chatgpt_base_url" else { continue }
             var value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
