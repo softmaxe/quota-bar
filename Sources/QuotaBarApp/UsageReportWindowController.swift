@@ -76,8 +76,7 @@ final class UsageReportWindowController: NSObject, NSWindowDelegate, WKNavigatio
         }
     }
 
-    /// How often an open window rescans local logs. Scans are incremental, so after the first
-    /// pass each one only reads what the sources appended since.
+    /// How often an open window requests fresh local usage.
     static let rescanInterval: TimeInterval = 60
 
     private let operations: Operations

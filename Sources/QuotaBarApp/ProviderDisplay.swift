@@ -1,8 +1,7 @@
 import QuotaBarCore
 import Foundation
 
-/// A quota refresh problem, separate from a missing login and from the local usage scan.
-/// Local usage collection runs independently of the provider's quota request.
+/// Progress of the local usage scan, which runs independently of the quota request.
 enum LocalScanStatus: Equatable {
     case idle
     case scanning

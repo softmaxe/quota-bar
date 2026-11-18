@@ -19,16 +19,9 @@ struct UsageUnitSwitch: View {
             options: Self.modes,
             selection: self.selection,
             style: Self.style,
-            emphasisAnimation: {
-                CostChartHoverMotion.systemReduceMotion ? nil : .easeOut(duration: 0.12)
-            },
-            edgeCurves: {
-                TabSwitchMotion.edgeCurves(movingRight: $0, reduceMotion: CostChartHoverMotion.systemReduceMotion)
-            },
             keyboardSelection: .inheritTransaction,
             shortcut: { _ in nil },
             accessibilityLabel: Self.title,
-            selectedTraits: .isSelected,
             onSelect: self.onSelect
         ) { mode, isSelected, isEmphasized, emphasisAnimation in
             Text(Self.title(of: mode))

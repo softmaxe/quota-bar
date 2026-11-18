@@ -201,7 +201,7 @@ struct CostSectionView: View {
                         let scale = max(self.displayScale, 1)
                         // Align the one-point stroke's edges to pixels so it stays crisp at 1× too.
                         let y = ((rawY - 0.5) * scale).rounded() / scale + 0.5
-                        let tops = self.barTops(slotWidth: slotWidth)
+                        let tops = self.barTops()
                         // One continuous rule, with a 2pt clearance cut around every bar, so a
                         // bar ending just under it never looks outlined by it.
                         Canvas { context, _ in
@@ -369,7 +369,7 @@ struct CostSectionView: View {
     }
 
     /// Each day's bar top in the chart's space, or nil for a day drawn as a stub.
-    private func barTops(slotWidth: CGFloat) -> [CGFloat?] {
+    private func barTops() -> [CGFloat?] {
         let maxValue = CostChartHighlightPolicy.maxValue(for: self.bars, mode: self.selectedLabelMode)
         return self.bars.map { day in
             let value = CostChartHighlightPolicy.value(for: day, mode: self.selectedLabelMode)
@@ -709,8 +709,8 @@ struct CostSectionView: View {
         return "\(percent)%"
     }
 
-    /// The model's name over a bar of its share of the day, in the chosen unit. When the day mixes
-    /// tools, each row also names the tool it came from, in words and by its mark.
+    /// The model's share of the day in the selected unit. Pi rows name their upstream provider;
+    /// rows from mixed tools name their source.
     private func breakdownRow(
         _ entry: (key: ModelUsageKey, model: String, usage: ModelDayUsage),
         showsSource: Bool,

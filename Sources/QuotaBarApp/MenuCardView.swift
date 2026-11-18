@@ -398,10 +398,7 @@ struct MenuCardView: View {
                 } else if snapshot.sessionIsUnlimited {
                     // Held in the session slot rather than dropped, so a plan without the
                     // five-hour cap lines up with one that has it.
-                    UnlimitedWindowRow(
-                        title: QuotaWindowKind.session.title,
-                        tint: Theme.accent(for: self.provider)
-                    )
+                    UnlimitedWindowRow(title: QuotaWindowKind.session.title)
                 }
                 if let weekly = snapshot.weekly {
                     self.window(window: weekly, kind: .weekly)
@@ -516,7 +513,6 @@ private struct QuotaWindowRow: View {
                 // A saved reading loses its hue rather than going muddy: grey at the same weight.
                 tint: self.isStale ? Color.primary.opacity(0.42) : Theme.accent(for: self.provider),
                 pacePercent: self.pacePercent,
-                paceIsDeficit: self.paceIsDeficit,
                 isExhausted: self.isExhausted,
                 isStale: self.isStale,
                 animatesFill: self.animatesFill,
@@ -600,12 +596,9 @@ private struct QuotaWindowRow: View {
     }
 }
 
-/// A window the plan does not cap: the same headline, bar and trailing label as a metered row, so
-/// the card keeps its shape, but nothing on it counts down. The bar sits full and faded, since
-/// there is no balance for it to spend and a full-strength fill would read as a fresh reset.
+/// An uncapped window keeps the metered row's layout and uses a neutral dashed rule.
 private struct UnlimitedWindowRow: View {
     let title: String
-    let tint: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

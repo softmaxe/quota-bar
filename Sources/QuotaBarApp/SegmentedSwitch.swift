@@ -16,7 +16,7 @@ struct SegmentedSwitchStyle {
 }
 
 /// Equal-width custom segments with shared focus, hover, press, and selection feedback.
-/// Labels and motion policies remain with the caller so the two switches keep their own behavior.
+/// Callers supply their labels, shortcuts and keyboard selection behavior.
 struct SegmentedSwitch<Option: Hashable, Label: View>: View {
     enum KeyboardSelection {
         case cutAllAnimations
@@ -26,12 +26,9 @@ struct SegmentedSwitch<Option: Hashable, Label: View>: View {
     let options: [Option]
     let selection: Option
     let style: SegmentedSwitchStyle
-    let emphasisAnimation: () -> Animation?
-    let edgeCurves: (Bool) -> (minX: Animation?, maxX: Animation?)
     let keyboardSelection: KeyboardSelection
     let shortcut: (Option) -> KeyboardShortcut?
     let accessibilityLabel: (Option) -> String
-    let selectedTraits: AccessibilityTraits
     let onSelect: (Option) -> Void
     let label: (Option, Bool, Bool, Animation?) -> Label
 
@@ -47,24 +44,18 @@ struct SegmentedSwitch<Option: Hashable, Label: View>: View {
         options: [Option],
         selection: Option,
         style: SegmentedSwitchStyle,
-        emphasisAnimation: @escaping () -> Animation?,
-        edgeCurves: @escaping (Bool) -> (minX: Animation?, maxX: Animation?),
         keyboardSelection: KeyboardSelection,
         shortcut: @escaping (Option) -> KeyboardShortcut?,
         accessibilityLabel: @escaping (Option) -> String,
-        selectedTraits: AccessibilityTraits,
         onSelect: @escaping (Option) -> Void,
         @ViewBuilder label: @escaping (Option, Bool, Bool, Animation?) -> Label
     ) {
         self.options = options
         self.selection = selection
         self.style = style
-        self.emphasisAnimation = emphasisAnimation
-        self.edgeCurves = edgeCurves
         self.keyboardSelection = keyboardSelection
         self.shortcut = shortcut
         self.accessibilityLabel = accessibilityLabel
-        self.selectedTraits = selectedTraits
         self.onSelect = onSelect
         self.label = label
         let span = Self.span(of: selection, in: options)
@@ -87,7 +78,7 @@ struct SegmentedSwitch<Option: Hashable, Label: View>: View {
                     }
                     .onHover { hovered in self.hovered = hovered ? option : nil }
                     .accessibilityLabel(self.accessibilityLabel(option))
-                    .accessibilityAddTraits(option == self.selection ? self.selectedTraits : [])
+                    .accessibilityAddTraits(option == self.selection ? .isSelected : [])
             }
         }
         .frame(height: self.style.segmentHeight)
@@ -103,7 +94,10 @@ struct SegmentedSwitch<Option: Hashable, Label: View>: View {
         }
         .onChange(of: self.selection) { _, newValue in
             let span = Self.span(of: newValue, in: self.options)
-            let curves = self.edgeCurves(span.minX >= self.pillMinX)
+            let curves = TabSwitchMotion.edgeCurves(
+                movingRight: span.minX >= self.pillMinX,
+                reduceMotion: CostChartHoverMotion.systemReduceMotion
+            )
             let animates = self.clickedOption == newValue
             self.clickedOption = nil
             // Two transactions keep the leading and trailing edges on their own clocks.
@@ -116,7 +110,7 @@ struct SegmentedSwitch<Option: Hashable, Label: View>: View {
     private func segment(_ option: Option) -> some View {
         let isSelected = option == self.selection
         // Re-read Reduce Motion on local hover updates as well as parent selection updates.
-        let emphasisAnimation = self.emphasisAnimation()
+        let emphasisAnimation: Animation? = CostChartHoverMotion.systemReduceMotion ? nil : .easeOut(duration: 0.12)
         return self.label(option, isSelected, isSelected || self.hovered == option, emphasisAnimation)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
