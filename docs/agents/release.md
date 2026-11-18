@@ -22,8 +22,6 @@ Documentation-only PRs complete the same required checks on Linux without
 compiling. Other changes retain both macOS checks and release packaging.
 
 Done when `gh pr view <n> --json state --jq .state` prints `MERGED`.
-When a PR introduces the custom CodeQL workflow, also complete the one-time
-[CodeQL activation](../ci.md#activate-the-codeql-workflow) after merging.
 
 ## Publish a release
 

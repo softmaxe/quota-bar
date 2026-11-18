@@ -28,7 +28,8 @@ jobs:
       matrix:
         include:
           - language: swift
-            os: xcode-27
+            # Traced Swift extraction requires macOS and Xcode 26 or earlier.
+            os: macos-15
             build-mode: manual
           - language: javascript-typescript
             os: ubuntu-24.04
@@ -48,9 +49,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pinned Rust toolchain for Swift linking
+      - name: Select the Swift analysis toolchain
         if: ${{ matrix.language == 'swift' }}
-        run: bash Scripts/setup_rust_ci.sh
+        run: |
+          echo "DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer" >> "$GITHUB_ENV"
+          bash Scripts/setup_rust_ci.sh
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
@@ -61,7 +64,7 @@ jobs:
       - name: Build Swift targets
         if: ${{ matrix.language == 'swift' }}
         # A fresh build lets CodeQL observe every target without running app tests.
-        run: Scripts/swift.sh build -c debug --scratch-path "$RUNNER_TEMP/codeql-build"
+        run: Scripts/swift.sh build -c debug --arch arm64 --scratch-path "$RUNNER_TEMP/codeql-build"
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
