@@ -37,10 +37,8 @@ final class UsageStore: ObservableObject {
 
     private var timer: Timer?
     private var refreshTasks: [Provider: Task<Void, Never>] = [:]
-    private var costTasks: [Provider: Task<Void, Never>] = [:]
-    private var pendingCostRefreshes: Set<Provider> = []
-    private var piCostTask: Task<Void, Never>?
-    private var piCostRefreshPending = false
+    private var costTasks: [UsageTab: Task<Void, Never>] = [:]
+    private var pendingCostRefreshes: Set<UsageTab> = []
     private let fetchPiCost: () async -> CostSnapshot?
     private let historyStore: UsageHistoryStore
     private let recovery: QuotaRecoveryTracker
@@ -48,6 +46,7 @@ final class UsageStore: ObservableObject {
     private var settingsObserver: AnyCancellable?
     private var providerObserver: AnyCancellable?
     private var modelsDevObserver: AnyCancellable?
+    private var pricingChangeTask: Task<Void, Never>?
     /// The models.dev download in flight, so cost refreshes started meanwhile do not queue more.
     private var thirdPartyRatesTask: Task<Void, Never>?
     /// Whether each provider may be refreshed now, claimed by whichever path asked.
@@ -58,7 +57,6 @@ final class UsageStore: ObservableObject {
     private let fetchCost: (Provider) async -> CostSnapshot?
     /// Downloads models.dev when it is due; true when the rates changed.
     private let updateThirdPartyRates: () async -> Bool
-    private let invalidatePricing: () async -> Void
     private let remoteLogMirror: RemoteLogMirror
     /// The cost service every local scan goes through.
     let costService: CostService
@@ -87,7 +85,6 @@ final class UsageStore: ObservableObject {
         // Pi reads nothing there unless it is supplied too.
         self.fetchPiCost = fetchPiCost ?? (fetchCost == nil ? { await costService.refresh(.pi) } : { nil })
         self.updateThirdPartyRates = updateThirdPartyRates ?? { await costService.updateThirdPartyRates() }
-        self.invalidatePricing = { await costService.invalidatePricing() }
         self.remoteLogMirror = RemoteLogMirror(root: costService.remoteLogsURL)
     }
 
@@ -124,9 +121,12 @@ final class UsageStore: ObservableObject {
                     self.thirdPartyRatesTask?.cancel()
                     self.thirdPartyRatesTask = nil
                 }
-                Task { @MainActor in
-                    await self.invalidatePricing()
+                self.pricingChangeTask?.cancel()
+                self.pricingChangeTask = Task { [weak self, costService = self.costService] in
+                    await costService.invalidatePricing()
+                    guard let self, !Task.isCancelled else { return }
                     self.refreshCostsAfterPricingChange()
+                    self.pricingChangeTask = nil
                 }
             }
     }
@@ -154,11 +154,17 @@ final class UsageStore: ObservableObject {
         self.timer = nil
         for task in self.refreshTasks.values { task.cancel() }
         self.refreshTasks = [:]
-        for task in self.costTasks.values { task.cancel() }
+        self.refreshingProviders = []
+        for (tab, task) in self.costTasks {
+            task.cancel()
+            self[tab].localScanStatus = .idle
+        }
         self.costTasks = [:]
         self.pendingCostRefreshes = []
         self.thirdPartyRatesTask?.cancel()
         self.thirdPartyRatesTask = nil
+        self.pricingChangeTask?.cancel()
+        self.pricingChangeTask = nil
         self.settingsObserver = nil
         self.providerObserver = nil
         self.modelsDevObserver = nil
@@ -190,7 +196,9 @@ final class UsageStore: ObservableObject {
         self.refreshingProviders.insert(provider)
 
         self.refreshTasks[provider] = Task { [weak self, historyStore, fetchState] in
+            guard !Task.isCancelled else { return }
             let state = await fetchState(provider, interaction)
+            guard !Task.isCancelled else { return }
 
             // Sampling the weekly window builds the history the pace model regresses over.
             // CodexBar records only Codex here; the model is provider-agnostic, so both are.
@@ -199,16 +207,14 @@ final class UsageStore: ObservableObject {
                 history = await historyStore.record(provider: provider, window: weekly)
             }
 
-            await MainActor.run {
-                guard let self else { return }
-                self.apply(state: state, to: provider, history: history)
-                Self.log(provider: provider, state: state)
-                self.refreshingProviders.remove(provider)
-                self.refreshTasks[provider] = nil
-            }
+            guard let self, !Task.isCancelled else { return }
+            self.apply(state: state, to: provider, history: history)
+            Self.log(provider: provider, state: state)
+            self.refreshingProviders.remove(provider)
+            self.refreshTasks[provider] = nil
         }
 
-        self.refreshCosts(for: provider)
+        self.refreshCosts(for: UsageTab(provider: provider))
     }
 
     private static func fetch(
@@ -221,86 +227,74 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Log scanning runs on its own task: the first pass reads hundreds of megabytes and must not
-    /// hold up the quota numbers, which are what the menu bar icon needs. Utility priority lets
-    /// that multi-second pass yield the performance cores to whatever the user is doing.
-    private func refreshCosts(for provider: Provider, repeatingRunningScan: Bool = false) {
-        self.updateThirdPartyRatesIfDue()
-        guard self.costTasks[provider] == nil else {
-            if repeatingRunningScan { self.pendingCostRefreshes.insert(provider) }
-            return
+    private subscript(tab: UsageTab) -> ProviderDisplay {
+        get {
+            guard let provider = tab.quotaProvider else { return self.piDisplay }
+            return self.displays[provider] ?? ProviderDisplay()
         }
-
-        self.displays[provider, default: ProviderDisplay()].localScanStatus = .scanning
-        self.costTasks[provider] = Task(priority: .utility) { [weak self, fetchCost, costService] in
-            let scanned = await fetchCost(provider)
-            let scanFailed = await costService.currentScanStatuses().contains { entry in
-                guard entry.source.tab == UsageTab(provider: provider) else { return false }
-                if case .error = entry.status { return true }
-                return false
-            }
-            await MainActor.run {
-                guard let self else { return }
-                var display = self.displays[provider] ?? ProviderDisplay()
-                if let scanned {
-                    display.cost = scanned
-                    display.localScanStatus =
-                        scanFailed
-                        ? .failed("Some local usage could not be scanned. Available usage is shown; retry the scan.")
-                        : .completed(self.dateClock())
-                } else {
-                    display.localScanStatus =
-                        .failed("Local usage scan failed. Previous usage remains available.")
-                }
-                self.displays[provider] = display
-                self.costTasks[provider] = nil
-                self.finishedLocalScans += 1
-                if self.pendingCostRefreshes.remove(provider) != nil {
-                    self.refreshCosts(for: provider)
-                }
+        set {
+            if let provider = tab.quotaProvider {
+                self.displays[provider] = newValue
+            } else {
+                self.piDisplay = newValue
             }
         }
     }
 
-    /// Scans Pi's sessions. It shares nothing with a quota refresh, so it has no cooldown; calls
-    /// during a scan coalesce, and one that must see newer data queues a single follow-up.
+    /// Local scans run independently of quota. Each tab coalesces overlapping requests and
+    /// queues one follow-up when changed pricing or new logs need a fresh scan.
+    private func refreshCosts(for tab: UsageTab, repeatingRunningScan: Bool = false) {
+        self.updateThirdPartyRatesIfDue()
+        guard self.costTasks[tab] == nil else {
+            if repeatingRunningScan { self.pendingCostRefreshes.insert(tab) }
+            return
+        }
+
+        self[tab].localScanStatus = .scanning
+        self.costTasks[tab] = Task(priority: .utility) { [weak self, fetchCost, fetchPiCost, costService] in
+            guard !Task.isCancelled else { return }
+            let scanned: CostSnapshot?
+            if let provider = tab.quotaProvider {
+                scanned = await fetchCost(provider)
+            } else {
+                scanned = await fetchPiCost()
+            }
+            guard !Task.isCancelled else { return }
+            let scanFailed = await costService.currentScanStatuses().contains { entry in
+                guard entry.source.tab == tab else { return false }
+                if case .error = entry.status { return true }
+                return false
+            }
+            // stop() may have cancelled this task and a new scan may now own the tab.
+            guard let self, !Task.isCancelled else { return }
+            var display = self[tab]
+            if let scanned {
+                display.cost = scanned
+                if scanFailed {
+                    let message = tab == .pi
+                        ? "Some Pi sessions could not be scanned. Available usage is shown; retry the scan."
+                        : "Some local usage could not be scanned. Available usage is shown; retry the scan."
+                    display.localScanStatus = .failed(message)
+                } else {
+                    display.localScanStatus = .completed(self.dateClock())
+                }
+            } else {
+                display.localScanStatus = .failed("Local usage scan failed. Previous usage remains available.")
+            }
+            self[tab] = display
+            self.costTasks[tab] = nil
+            self.finishedLocalScans += 1
+            if self.pendingCostRefreshes.remove(tab) != nil {
+                self.refreshCosts(for: tab)
+            }
+        }
+    }
+
     func refreshPiUsage(repeatingRunningScan: Bool = false) {
-        self.updateThirdPartyRatesIfDue()
-        guard self.piCostTask == nil else {
-            if repeatingRunningScan { self.piCostRefreshPending = true }
-            return
-        }
-        self.piDisplay.localScanStatus = .scanning
-        self.piCostTask = Task(priority: .utility) { [weak self, fetchPiCost, costService] in
-            let scanned = await fetchPiCost()
-            let scanFailed = await costService.currentScanStatuses().contains { entry in
-                guard entry.source.tab == .pi else { return false }
-                if case .error = entry.status { return true }
-                return false
-            }
-            await MainActor.run {
-                guard let self else { return }
-                if let scanned {
-                    self.piDisplay.cost = scanned
-                    self.piDisplay.localScanStatus =
-                        scanFailed
-                        ? .failed("Some Pi sessions could not be scanned. Available usage is shown; retry the scan.")
-                        : .completed(self.dateClock())
-                } else {
-                    self.piDisplay.localScanStatus =
-                        .failed("Local usage scan failed. Previous usage remains available.")
-                }
-                self.piCostTask = nil
-                self.finishedLocalScans += 1
-                if self.piCostRefreshPending {
-                    self.piCostRefreshPending = false
-                    self.refreshPiUsage()
-                }
-            }
-        }
+        self.refreshCosts(for: .pi, repeatingRunningScan: repeatingRunningScan)
     }
 
-    var isScanningPi: Bool { self.piCostTask != nil }
+    var isScanningPi: Bool { self.costTasks[.pi] != nil }
 
 #if DEBUG
     func debugSetPiDisplay(_ display: ProviderDisplay) { self.piDisplay = display }
@@ -315,8 +309,7 @@ final class UsageStore: ObservableObject {
     /// Newly mirrored logs and imported usage need a scan that starts after them, so a scan
     /// already running does not stand in for this one.
     func refreshAllLocalUsageAfterChange() {
-        for provider in Provider.allCases { self.refreshCosts(for: provider, repeatingRunningScan: true) }
-        self.refreshPiUsage(repeatingRunningScan: true)
+        for tab in UsageTab.allCases { self.refreshCosts(for: tab, repeatingRunningScan: true) }
     }
 
     /// Checks models.dev alongside a cost refresh without holding the scan up. The service
@@ -324,26 +317,24 @@ final class UsageStore: ObservableObject {
     private func updateThirdPartyRatesIfDue() {
         guard self.thirdPartyRatesTask == nil else { return }
         self.thirdPartyRatesTask = Task(priority: .utility) { [weak self, updateThirdPartyRates] in
+            guard !Task.isCancelled else { return }
             let changed = await updateThirdPartyRates()
-            await MainActor.run {
-                guard let self else { return }
-                self.thirdPartyRatesTask = nil
-                if changed { self.refreshCostsAfterPricingChange() }
-            }
+            guard let self, !Task.isCancelled else { return }
+            self.thirdPartyRatesTask = nil
+            if changed { self.refreshCostsAfterPricingChange() }
         }
     }
 
     /// Retries only the selected provider's local usage scan. This has no quota cooldown and
     /// shares the scan task with automatic and pricing-triggered work, so repeated clicks coalesce.
     func retryLocalUsage() {
-        self.refreshCosts(for: self.settings.menuBarProvider)
+        self.refreshCosts(for: UsageTab(provider: self.settings.menuBarProvider))
     }
 
     /// Scans every provider's local usage, for the usage window, which reports all sources at
     /// once. Each scan shares its provider's task with every other path, so calls coalesce.
     func refreshAllLocalUsage() {
-        for provider in Provider.allCases { self.refreshCosts(for: provider) }
-        self.refreshPiUsage()
+        for tab in UsageTab.allCases { self.refreshCosts(for: tab) }
     }
 
     /// Whether a user click on the Refresh row would start a refresh now.
