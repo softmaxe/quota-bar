@@ -13,11 +13,7 @@ public enum CodexProvider {
         credentialLoader: CodexCredentialLoader? = nil
     ) async -> ProviderState {
         if let until = await gate.blocked(.codex) {
-            return .rateLimited(
-                reason: "Codex usage API rate-limited. Try again after "
-                    + until.formatted(date: .omitted, time: .shortened) + ".",
-                retryAfter: until
-            )
+            return Self.rateLimited(until: until)
         }
 
         let session: CodexCredentialSession
@@ -46,49 +42,40 @@ public enum CodexProvider {
             }
         }
 
-        do {
-            let response = try await CodexUsageFetcher.fetchUsage(
+        func fetchUsage(_ credentials: CodexCredentials) async throws -> CodexUsageResponse {
+            try await CodexUsageFetcher.fetchUsage(
                 accessToken: credentials.accessToken,
                 accountId: credentials.accountId,
                 env: env,
                 transport: transport
             )
+        }
+
+        do {
+            let response: CodexUsageResponse
+            do {
+                response = try await fetchUsage(credentials)
+            } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
+                // Retry once with the refreshed token. Both attempts use the same 429 policy.
+                let refreshed = try await session.refresh(credentials, transport: transport)
+                response = try await fetchUsage(refreshed)
+            }
             await gate.recordSuccess(.codex)
             return .loaded(Self.snapshot(from: response))
         } catch let CodexFetchError.rateLimited(retryAfter) {
-            await gate.recordRateLimit(.codex, retryAfter: retryAfter)
-            let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
-            return .rateLimited(
-                reason: "Codex usage API rate-limited. Try again after "
-                    + until.formatted(date: .omitted, time: .shortened) + ".",
-                retryAfter: until
-            )
-        } catch CodexFetchError.unauthorized where !credentials.refreshToken.isEmpty {
-            // The stored token was stale after all — refresh once, then retry.
-            do {
-                let refreshed = try await session.refresh(credentials, transport: transport)
-                let response = try await CodexUsageFetcher.fetchUsage(
-                    accessToken: refreshed.accessToken,
-                    accountId: refreshed.accountId,
-                    env: env,
-                    transport: transport
-                )
-                await gate.recordSuccess(.codex)
-                return .loaded(Self.snapshot(from: response))
-            } catch let CodexFetchError.rateLimited(retryAfter) {
-                await gate.recordRateLimit(.codex, retryAfter: retryAfter)
-                let until = await gate.blocked(.codex) ?? Date().addingTimeInterval(5 * 60)
-                return .rateLimited(
-                    reason: "Codex usage API rate-limited. Try again after "
-                        + until.formatted(date: .omitted, time: .shortened) + ".",
-                    retryAfter: until
-                )
-            } catch {
-                return .failed(error.localizedDescription)
-            }
+            let deadline = await gate.applyRateLimit(.codex, retryAfter: retryAfter)
+            return Self.rateLimited(until: deadline)
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    private static func rateLimited(until: Date) -> ProviderState {
+        .rateLimited(
+            reason: "Codex usage API rate-limited. Try again after "
+                + until.formatted(date: .omitted, time: .shortened) + ".",
+            retryAfter: until
+        )
     }
 
     public static func snapshot(from response: CodexUsageResponse, now: Date = Date()) -> UsageSnapshot {
