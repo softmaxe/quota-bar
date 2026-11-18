@@ -144,10 +144,6 @@ fn scalar(value: &Value) -> Result<i64, ()> {
         // exponent spellings. Delegate all floating encodings, not only values >2^53.
         return Err(());
     }
-    if value.is_u64() {
-        // An unsigned value outside Int64 is also outside LooseScalar's Double bound.
-        return Ok(0);
-    }
     if let Some(boolean) = value.as_bool() {
         return Ok(i64::from(boolean));
     }

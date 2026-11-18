@@ -2,8 +2,9 @@
 
 ## Scope and baseline
 
-The reference is commit `f8df98b129c9138ccb9e6290d6c801e805fed1be`. The final candidate
-contains Rust kernels for Claude decoding, structural JSON classification, bounded
+The measurements were taken during the migration included in `96fc2af`, using Swift
+commit `f8df98b129c9138ccb9e6290d6c801e805fed1be` as the reference. The candidate
+contained Rust kernels for Claude decoding, structural JSON classification, bounded
 JSONL streaming, token-rate arithmetic and usage aggregation. See
 [Migration boundaries](rust-migration.md) for their architecture. The migration keeps
 Swift's file planning, inode/size checks, CryptoKit prefix digests and memoization,
@@ -74,10 +75,8 @@ and crossed FFI only for the handler. It measured 18.45/10.06 ms on short lines,
 but omitted the final filter boundary and therefore does not describe production
 performance. The final table above supersedes those timings.
 
-Raw seven-run arrays, the standalone build harness and frozen baseline inputs are
-retained in `/tmp/quota-rust-scanner-experiment/production` on the validation Mac.
-The correctness checks are added to the source tree; the microbenchmark harness is a temporary
-experiment and is not part of the product or standard test command.
+The standalone scanner microbenchmark was a local experiment. The repository preserves
+its correctness corpus in `RustLogFileScannerTests` and the Rust scanner unit tests.
 
 ## Scanner ablation in the complete pipeline
 
@@ -98,9 +97,7 @@ cursor contents matched.
 The complete-pipeline scanner comparison is effectively equal. It supports
 retaining the Rust reader under the chosen preference for migration at comparable
 performance, while preserving the short-line microbenchmark caveat above. It
-does not attribute the other kernels' gains to the scanner. Raw results are in
-`build/rust-validation/scanner-ablation`; `before` means the Rust scanner and
-`after` means the restored Swift scanner in that run.
+does not attribute the other kernels' gains to the scanner.
 
 ## Final complete-pipeline results
 
@@ -123,17 +120,14 @@ Codex and unchanged scans are effectively equal. The three Claude fixtures show
 lower initial-import elapsed time, but are synthetic workloads rather than a
 claim about every history or the app's startup time.
 
-`build/rust-validation/final-pipeline-unicode/benchmark-summary.json` retains all
-runs and ranges. Its metadata binds every input source file and the fixture hook
-to the executable hashes. The equally instrumented release probes are 2,774,256
-bytes before and 3,297,824 bytes after, an increase of 523,568 bytes (about 0.50 MiB).
-Intermediate four-kernel and pre-Unicode-fix runs remain separately labeled and
-are not the final artifact's results. In particular, the earlier `pipeline-final`
-and `final-pipeline` directory names do not designate the corrected final build;
-`final-pipeline-unicode` does. Its metadata also names the preserved final binary
-used before the ablation copy was rebuilt.
+The equally instrumented release probes were 2,774,256 bytes before and
+3,297,824 bytes after, an increase of 523,568 bytes (about 0.50 MiB).
 
 ## Aggregation ablation and its tradeoff
+
+In the isolated same-module, whole-module-optimized benchmark, the original Swift
+aggregator folded 120, 840 and 4,800 rows in 0.175, 1.293 and 7.269 ms respectively.
+The Rust aggregator took 0.087, 0.598 and 3.398 ms including input/output conversion.
 
 The corrected final candidate was compared with a temporary copy restoring only
 `CostAggregator.swift` from the original revision. Every other Rust kernel stayed
@@ -155,11 +149,6 @@ under the chosen preference for comparable performance: small-group conversion
 work has a modest cost even though larger isolated aggregation workloads improve.
 This is not evidence that aggregation accelerates every complete scan. No further
 runs were added after that confirmation.
-
-Raw corrected ablation data is in `build/rust-validation/aggregator-ablation-unicode`
-and `aggregator-short-confirmation`; in both, `before` means Rust aggregation and
-`after` means the original Swift aggregation. The pre-correction
-`aggregator-ablation` results remain intermediate evidence only.
 
 ## Reproducing full pipeline validation
 
@@ -214,16 +203,12 @@ The output is ignored build data. Neither command reads CLI credentials, scans
 personal sessions or starts the normal application integrations. The same commands
 on the final candidate initially produced 27 byte-identical PNGs. The five
 `*-reset-clock.png` files differed because the sample factory uses the current
-minute for its absolute reset labels. The original before and after images remain
-under `build/rust-validation/before` and `after`.
+minute for its absolute reset labels.
 
 The untouched baseline binary and final binary were then rendered consecutively
 within the same minute, without editing any pixels or source. All 32 resulting
 PNGs are byte-identical: 26 card variants and six interaction states, including
-light/dark, sign-in and refresh failure. They are in `paired-before` and
-`paired-after`; `screenshot-comparison-paired.json` records every hash, and
-`paired-render-metadata.json` records commands and wall times. UI source and motion
-behavior are unchanged, so no animation comparison is claimed or needed.
+light/dark, sign-in and refresh failure. The comparison covered static rendering.
 
 ## Menu construction and process startup
 
@@ -236,8 +221,7 @@ startup improvement is claimed.
 The flag does not start provider integrations or scan logs. Both binaries ran
 with the same runtime sandbox; process-wall time includes its launcher and normal
 process loading/exit. These are fresh-process, warm-filesystem observations, not
-cold-disk application-launch measurements. All 14 stdout/stderr records and timing
-arrays are retained under `build/rust-validation/startup`.
+cold-disk application-launch measurements.
 
 ## Boundaries retained in Swift
 

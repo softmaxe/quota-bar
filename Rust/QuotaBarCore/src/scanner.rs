@@ -1,4 +1,5 @@
 //! Bounded JSONL streaming. Swift owns scan plans, transactions and callback lifetimes.
+use crate::find_byte;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -15,7 +16,6 @@ unsafe extern "C" {
     fn read(fd: c_int, buffer: *mut c_void, count: usize) -> isize;
     fn close(fd: c_int) -> c_int;
     fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64;
-    fn memchr(bytes: *const c_void, value: c_int, length: usize) -> *const c_void;
 }
 
 struct Descriptor(c_int);
@@ -76,13 +76,10 @@ fn read_lines(
 
         let mut start = 0;
         while start < count {
-            // SAFETY: both the pointer and search length remain inside the initialized read.
-            let found = unsafe { memchr(buffer.as_ptr().add(start).cast(), 10, count - start) };
-            if found.is_null() {
+            let Some(distance) = find_byte(&buffer[start..count], b'\n') else {
                 break;
-            }
-            // SAFETY: memchr returned a pointer into this buffer.
-            let newline = unsafe { found.cast::<u8>().offset_from(buffer.as_ptr()) as usize };
+            };
+            let newline = start + distance;
             if skipping {
                 skipping = false;
             } else if carry.is_empty() {
@@ -133,11 +130,12 @@ pub unsafe extern "C" fn qb_read_lines(
     context: *mut c_void,
     consumed: *mut i64,
 ) -> i32 {
-    if path.is_null() || consumed.is_null() || wanted.is_none() || handle.is_none() {
+    if path.is_null() || consumed.is_null() {
         return EINVAL;
     }
-    let wanted = wanted.unwrap();
-    let handle = handle.unwrap();
+    let (Some(wanted), Some(handle)) = (wanted, handle) else {
+        return EINVAL;
+    };
     let result = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the ABI caller supplies a valid terminated path.
         let path = unsafe { CStr::from_ptr(path) };

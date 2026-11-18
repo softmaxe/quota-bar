@@ -2,6 +2,7 @@
 """Compare two release probes on a deterministic long-string transcript workload."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,8 @@ def main() -> None:
     )
     binaries = {"before": args.before.resolve(), "after": args.after.resolve()}
     results: dict[str, list[float]] = {label: [] for label in binaries}
+    # Keep all records inside the rolling cost window for both executables.
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     with tempfile.TemporaryDirectory(prefix="quotabar-classifier-") as directory:
         root = Path(directory)
         projects = root / "claude/projects/app"
@@ -40,7 +43,7 @@ def main() -> None:
                     row = {
                         "padding": padding,
                         "type": "user" if line_index % 2 else "assistant",
-                        "timestamp": "2026-11-07T02:00:00.000Z",
+                        "timestamp": timestamp,
                         "requestId": identifier,
                         "message": {
                             "id": identifier,
@@ -52,7 +55,8 @@ def main() -> None:
         environment = dict(os.environ)
         for key, child in {
             "CLAUDE_CONFIG_DIR": "claude", "CODEX_HOME": "codex",
-            "PI_CODING_AGENT_DIR": "pi", "OPENCODE_DATA_HOME": "opencode",
+            "PI_CODING_AGENT_DIR": "pi", "PI_CODING_AGENT_SESSION_DIR": "pi/sessions",
+            "OPENCODE_DATA_HOME": "opencode",
         }.items():
             environment[key] = str(root / child)
         for iteration in range(args.iterations):
