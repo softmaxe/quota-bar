@@ -2,27 +2,8 @@
 //! This is not a JSON validator: escaped keys/target values remain indeterminate, and
 //! classification stops at the first matching key without validating trailing input.
 
-use std::ffi::{c_int, c_void};
+use crate::find_byte;
 use std::ops::Range;
-
-unsafe extern "C" {
-    #[link_name = "memchr"]
-    fn c_memchr(data: *const c_void, byte: c_int, len: usize) -> *const c_void;
-}
-
-/// Uses the same bounded libc search as the previous Swift implementation.
-fn find_byte(bytes: &[u8], byte: u8) -> Option<usize> {
-    // SAFETY: The slice is readable for exactly its length. memchr returns either null
-    // or a pointer within this slice, so the offset stays within the same allocation.
-    unsafe {
-        let found = c_memchr(bytes.as_ptr().cast(), byte.into(), bytes.len());
-        if found.is_null() {
-            None
-        } else {
-            Some(found.cast::<u8>().offset_from(bytes.as_ptr()) as usize)
-        }
-    }
-}
 
 const MISSING: i32 = 0;
 const INDETERMINATE: i32 = 1;

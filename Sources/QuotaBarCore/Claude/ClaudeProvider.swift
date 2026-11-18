@@ -56,24 +56,8 @@ public enum ClaudeProvider {
         }
 
         do {
-            let response = try await ClaudeUsageFetcher.fetchUsage(
-                accessToken: credentials.accessToken,
-                transport: transport
-            )
-            await gate.recordSuccess(.claude)
-            return .loaded(Self.snapshot(from: response, credentials: credentials))
-        } catch let error as ClaudeFetchError {
-            if case let .rateLimited(retryAfter) = error {
-                await gate.recordRateLimit(.claude, retryAfter: retryAfter)
-                let until = await gate.blocked(.claude) ?? Date().addingTimeInterval(5 * 60)
-                return .rateLimited(
-                    reason: ClaudeFetchError.rateLimited(until).localizedDescription,
-                    retryAfter: until
-                )
-            }
-            guard case .unauthorized = error else {
-                return .failed(error.localizedDescription)
-            }
+            return try await Self.fetchUsage(credentials: credentials, transport: transport, gate: gate)
+        } catch ClaudeFetchError.unauthorized {
             return await Self.recoverAfterUnauthorized(
                 originalCredentials: credentials,
                 interaction: interaction,
@@ -157,12 +141,11 @@ public enum ClaudeProvider {
         )
     }
 
-    private static func retryUsage(
+    private static func fetchUsage(
         credentials: ClaudeCredentials,
         transport: any HTTPTransport,
         gate: UsageRateLimitGate
-    ) async -> ProviderState {
-        // This is the one and only retry.
+    ) async throws -> ProviderState {
         do {
             let response = try await ClaudeUsageFetcher.fetchUsage(
                 accessToken: credentials.accessToken,
@@ -170,20 +153,23 @@ public enum ClaudeProvider {
             )
             await gate.recordSuccess(.claude)
             return .loaded(Self.snapshot(from: response, credentials: credentials))
-        } catch let error as ClaudeFetchError {
-            if case let .rateLimited(retryAfter) = error {
-                await gate.recordRateLimit(.claude, retryAfter: retryAfter)
-                let until = await gate.blocked(.claude) ?? Date().addingTimeInterval(5 * 60)
-                return .rateLimited(
-                    reason: ClaudeFetchError.rateLimited(until).localizedDescription,
-                    retryAfter: until
-                )
-            }
-            if case .unauthorized = error {
-                await gate.recordRejected(.claude, token: credentials.accessToken)
-                return .failed("Claude credential recovery produced a token the usage API rejected.")
-            }
-            return .failed(error.localizedDescription)
+        } catch let ClaudeFetchError.rateLimited(retryAfter) {
+            let deadline = await gate.applyRateLimit(.claude, retryAfter: retryAfter)
+            return .rateLimited(reason: ClaudeFetchError.rateLimited(deadline).localizedDescription, retryAfter: deadline)
+        }
+    }
+
+    private static func retryUsage(
+        credentials: ClaudeCredentials,
+        transport: any HTTPTransport,
+        gate: UsageRateLimitGate
+    ) async -> ProviderState {
+        // This is the one and only retry.
+        do {
+            return try await Self.fetchUsage(credentials: credentials, transport: transport, gate: gate)
+        } catch ClaudeFetchError.unauthorized {
+            await gate.recordRejected(.claude, token: credentials.accessToken)
+            return .failed("Claude credential recovery produced a token the usage API rejected.")
         } catch {
             return .failed(error.localizedDescription)
         }

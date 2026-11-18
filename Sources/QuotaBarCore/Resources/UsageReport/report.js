@@ -9,7 +9,7 @@
       unpricedInfo:p=>`API estimate excludes ${p} of tokens, which are unpriced.`,
       ofCost:p=>`${p} of cost`,ofTokens:p=>`${p} of tokens`,tokenCount:v=>`${v} tokens`,
       dailyCost:'Daily cost',average:'avg',dailyAverage:'Daily average',peakDay:'Peak',dailyTokens:'Daily processed tokens',
-      processedTokens:'Processed tokens',cachedInput:'Cached input',uncachedInput:'Uncached input',output:'Output',cacheSavings:'Cache savings',
+      output:'Output',cacheSavings:'Cache savings',
       costByType:'Cost by type',tokensByType:'Tokens by type',costBySpeed:'Cost by speed',
       input:'Input',cacheRead:'Cache read',cacheWrite:'Cache write',standard:'Standard',fast:'Fast',premium:'Extra for Fast',
       savingsDetail:'vs. uncached input rate',weekdays:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
@@ -24,7 +24,7 @@
       unpricedInfo:p=>`API 估算未计入 ${p} 的未定价 tokens。`,
       ofCost:p=>`占费用 ${p}`,ofTokens:p=>`占 tokens ${p}`,tokenCount:v=>`${v} tokens`,
       dailyCost:'每日费用',average:'日均',dailyAverage:'日均',peakDay:'峰值',dailyTokens:'每日处理的 Tokens',
-      processedTokens:'处理的 Tokens',cachedInput:'缓存输入',uncachedInput:'未缓存输入',output:'输出',cacheSavings:'缓存节省',
+      output:'输出',cacheSavings:'缓存节省',
       costByType:'按类型的费用',tokensByType:'按类型的 tokens',costBySpeed:'按速度的费用',
       input:'输入',cacheRead:'缓存读取',cacheWrite:'缓存写入',standard:'标准',fast:'快速',premium:'快速额外支出',
       savingsDetail:'相比未缓存输入价',weekdays:['周日','周一','周二','周三','周四','周五','周六'],
@@ -83,15 +83,13 @@
 
   // Saved history, one entry per calendar day. Every figure on the page is summed from the days
   // inside the selected period, so changing the period needs no new snapshot.
-  const FIELDS=['input','output','cacheRead','cacheWrite','cacheWrite1h','cost','unpricedTokens','total'];
+  const FIELDS=['input','output','cacheRead','cacheWrite','cost','unpricedTokens','total'];
   const COST_FIELDS=['input','output','cacheRead','cacheWrite','cacheSavings','fast','fastPremium'];
   // The app's live view replaces the snapshot in place, so everything read from it is reassignable.
-  let report,BY_DAY,FIRST_DAY,LAST_DAY,DEFAULT_PERIOD;
-  function load(next){
-    report=next;
+  let BY_DAY,FIRST_DAY,LAST_DAY;
+  function load(report){
     BY_DAY=new Map(report.history.map(d=>[d.day,d]));
     FIRST_DAY=report.history[0]?.day??'';LAST_DAY=report.history.at(-1)?.day??'';
-    DEFAULT_PERIOD=String(report.days.length)==='7'?'7':'30';
   }
   load(REPORT);
   const toTime=day=>Date.parse(day+'T00:00:00Z');
@@ -101,7 +99,7 @@
   const addInto=(target,row,keys)=>{for(const k of keys)target[k]+=row?.[k]??0;return target;};
   function periodRange(){
     if(period==='custom'&&range.from&&range.to)return range.from<=range.to?range:{from:range.to,to:range.from};
-    return {from:shiftDay(LAST_DAY,1-Number(period==='7'?7:30)),to:LAST_DAY};
+    return {from:shiftDay(LAST_DAY,1-(period==='7'?7:30)),to:LAST_DAY};
   }
 
   let days=[],daySources=[],totals,breakdownCost,recordedDays=0,sourceRows=new Map(),providers=[],models=[];
@@ -117,7 +115,10 @@
     breakdownCost=days.reduce((sum,day)=>addInto(sum,day.costBreakdown,COST_FIELDS),zero(COST_FIELDS));
     recordedDays=days.filter(d=>d.recorded).length;
     sourceRows=new Map();
-    daySources.forEach(m=>m.forEach((row,id)=>{if(!sourceRows.has(id))sourceRows.set(id,{name:row.name,source:id,...zero(FIELDS)});addInto(sourceRows.get(id),row,FIELDS);}));
+    daySources.forEach(m=>m.forEach((row,id)=>{
+      if(!sourceRows.has(id))sourceRows.set(id,zero(FIELDS));
+      addInto(sourceRows.get(id),row,FIELDS);
+    }));
     providers=[...sourceRows.keys()].filter(id=>{const r=sourceRows.get(id);return r.total>0||r.cost>0;})
       .sort((a,b)=>(ORDER.indexOf(a)+1||99)-(ORDER.indexOf(b)+1||99));
     // Keep routing providers separate even when they sell the same model.
@@ -319,7 +320,7 @@
     const root=document.getElementById('shares');root.replaceChildren();
     if(totals.total<=0)return;
     const c=breakdownCost,label=t(metric==='tokens'?'tokensByType':'costByType');
-    const types=['input','cacheRead','cacheWrite','output'].map(key=>({key,label:t(key),color:TYPE_COLORS[key],
+    const types=Object.keys(TYPE_COLORS).map(key=>({label:t(key),color:TYPE_COLORS[key],
       value:metric==='tokens'?totals[key]:c[key],other:metric==='tokens'?usd(c[key]):t('tokenCount')(tokens(totals[key]))})).filter(x=>x.value>0);
     const total=types.reduce((sum,x)=>sum+x.value,0),savings=c.cacheSavings>0;
     const cells=h('div',{class:'type-cells'+(savings?' with-savings':'')},types.map((x,i)=>h('div',{class:'type-cell','data-cell':i},
@@ -328,7 +329,7 @@
       h('span',{class:'type-detail'},`${percent(x.value/total)} · ${x.other}`))));
     if(savings)cells.append(h('div',{class:'type-cell cache-savings'},h('span',{class:'type-label'},t('cacheSavings')),
       h('span',{class:'type-value'},usd(c.cacheSavings)),h('span',{class:'type-detail'},t('savingsDetail'))));
-    if(types.length||savings)root.append(h('div',{class:'share composition'},h('h2',{class:'heading'},label),
+    if(types.length||savings)root.append(h('div',{class:'share'},h('h2',{class:'heading'},label),
       h('div',{class:'share-bar',role:'img','aria-label':`${label}: ${types.map(x=>`${x.label} ${format(x.value)}`).join(', ')}`},
         types.map((x,i)=>h('div',{style:`flex:${x.value} 1 0;background:${x.color}`,'data-seg':i,'data-tip':`${x.label} · ${format(x.value)} · ${percent(x.value/total)}`}))),cells));
     if(metric==='cost'&&c.fast>0){
@@ -341,11 +342,10 @@
 
   function modelTable(){
     const rows=[...models].sort(metric==='tokens'?(a,b)=>b.total-a.total||b.cost-a.cost:(a,b)=>b.cost-a.cost||b.total-a.total);
-    const peak=Math.max(0,...rows.map(value));
     const body=h('tbody');
     if(!rows.length)body.append(h('tr',{class:'empty-row'},h('td',{colspan:4},t('noActivity'))));
     rows.forEach(m=>{
-      const id=m.source??providers[0],v=value(m),bar=v>0&&peak>0;
+      const id=m.source??providers[0];
       const share=metric==='tokens'?(totals.total>0?m.total/totals.total:null):(unknownCost(m)||!(totals.cost>0)?null:m.cost/totals.cost);
       // Rows are already ranked, so the share bar does the work a rank column would.
       body.append(h('tr',{},
@@ -353,7 +353,7 @@
           modelName(m.name),m.upstreamProvider?h('span',{class:'model-upstream'},' · '+m.upstreamProvider):null))),
         h('td',{class:'share-col'},h('span',{class:'share-cell'},
           // The track is the whole window, so the bar's length is the share printed beside it.
-          h('span',{class:'model-bar','aria-hidden':'true'},bar&&share!=null?h('span',{style:`width:${Math.max(1,share*100)}%;background:${presentation(id).color}`}):null),
+          h('span',{class:'model-bar','aria-hidden':'true'},share>0?h('span',{style:`width:${Math.max(1,share*100)}%;background:${presentation(id).color}`}):null),
           h('span',{class:'share-value'},share==null?'':percent(share)))),
         h('td',{class:'cost'+(metric==='cost'?' active-metric':''),title:usd(m.cost)},unknownCost(m)?t('unpriced'):usd(m.cost)),
         h('td',{class:metric==='tokens'?'active-metric':null,title:count(m.total)},tokens(m.total))));
@@ -455,6 +455,6 @@
   const requested=params.get('period')??stored.period;
   if(isDay(params.get('from'))&&isDay(params.get('to'))){period='custom';range={from:params.get('from'),to:clampDay(params.get('to'))};}
   else if(requested==='custom'&&storedRange){period='custom';range=storedRange;}
-  else period=requested==='7'||requested==='30'?requested:DEFAULT_PERIOD;
+  else period=requested==='7'||requested==='30'?requested:(REPORT.days.length===7?'7':'30');
   render();
 })();

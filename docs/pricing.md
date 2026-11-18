@@ -1,6 +1,6 @@
 # Maintaining the price book
 
-Claude and OpenAI models that are on their makers' current price lists and still supported are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. Every other model, retired Claude and OpenAI models included, is priced from models.dev through a local cache (see [Models outside the book](#models-outside-the-book)). Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs. Rates, aliases, and supported per-request long-context tiers are resolved again; rows without a saved request context retain their stored tier. See [Historical thresholds](#historical-thresholds).
+Claude and OpenAI models that are on their makers' current price lists and still supported are priced from [`price-book.json`](../Sources/QuotaBarCore/Resources/Pricing/price-book.json), kept by hand. For other models, including retired Claude and OpenAI models, QuotaBar looks up rates in its local [models.dev cache](#models-outside-the-book). Pi can also supply a [logged cost](#pi-logged-cost-fallback) when no rate applies. Cost is computed from stored tokens each time it is read, so editing the book reprices recorded usage as soon as the new build runs. Rates, aliases, and supported per-request long-context tiers are resolved again; rows without a saved request context retain their stored tier. See [Historical thresholds](#historical-thresholds).
 
 ## Layout
 
@@ -57,7 +57,7 @@ A period has these keys:
 
 **Wrong rate.** Fix it in place. Every recorded day it covered is repriced.
 
-**Model is retired.** Delete its entry. All of its recorded usage is then priced from models.dev, whose rates cover no Fast tier, and stays unpriced if models.dev does not list it.
+**Model is retired.** Delete its entry. Recorded Standard usage can then use models.dev rates. If no rate applies, only Pi requests with a usable logged cost contribute to the cost total.
 
 After any edit, update `checkedAt` for the provider or model you compared, then run:
 
@@ -78,7 +78,7 @@ Models the book does not list, such as DeepSeek, GLM, or Kimi used through Codex
 - `context_over_200k` becomes a 200K long-context tier. Requests for models outside the book use the 200K threshold even before their rates are downloaded. Keyed rows with saved request context are classified again when read; aggregate-only rows keep their scan-time tier. There is no Fast tier.
 - A model whose rates changed since the last fetch gets a new period starting that day, so earlier days keep their rates.
 - A new Claude or OpenAI model is priced from models.dev until the book lists it. The book's rates replace models.dev for all of its usage from then on.
-- The **models.dev** switch in **Settings → Pricing** turns this off. Usage of models outside the book is then unpriced and nothing is downloaded.
+- The **models.dev** switch in **Settings → Pricing** turns this off. This disables downloads and pricing from cached models.dev rates. Pi requests can still use their logged costs.
 
 `ThirdPartyRatesTests` covers the parsing, the choice between listings, and the dated cache.
 

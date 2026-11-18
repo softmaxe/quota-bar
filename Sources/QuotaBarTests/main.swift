@@ -117,6 +117,24 @@ Harness.expectEqual(
     "codex usage URL"
 )
 
+do {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let config = """
+    # chatgpt_base_url = "https://retired.example"
+    chatgpt_base_url = "https://current.example" # active proxy
+    """
+    try config.write(to: directory.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+    Harness.expectEqual(
+        CodexUsageFetcher.usageURL(env: ["CODEX_HOME": directory.path]).absoluteString,
+        "https://current.example/api/codex/usage",
+        "commented Codex proxy does not override the active one"
+    )
+} catch {
+    Harness.expect(false, "codex proxy configuration fixture failed: \(error)")
+}
+
 // MARK: - Claude
 
 do {

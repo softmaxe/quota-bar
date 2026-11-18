@@ -42,6 +42,7 @@ enum PricingRefreshTests {
     }
 
     static func run() async {
+        await Self.stoppingDiscardsQueuedPiScans()
         await AppCheck.run("rate changes refresh costs without extra quota requests") {
             let defaults = EphemeralDefaults.make(Self.suite)
             defer { EphemeralDefaults.clear(Self.suite) }
@@ -94,6 +95,53 @@ enum PricingRefreshTests {
             fetches.quota?.resume(returning: .failed("Offline fixture"))
             fetches.quota = nil
             await Task.yield()
+        }
+    }
+
+    private static func stoppingDiscardsQueuedPiScans() async {
+        await AppCheck.run("stopping cancels the current and queued Pi scans") {
+            let suite = "QuotaBarPiScanCancellationTests.\(UUID().uuidString)"
+            let defaults = EphemeralDefaults.make(suite)
+            defer { EphemeralDefaults.clear(suite) }
+            var calls = 0
+            var oldScan: CheckedContinuation<Void, Never>?
+            var wasCancelled: Bool?
+            let replacement = CostSnapshot(
+                tab: .pi, days: [], todayCostUSD: 0, windowCostUSD: 0, latestTokens: 0, windowTokens: 0,
+                topModel: nil, hasUnpricedTokens: false, scannedAt: Date()
+            )
+            let store = UsageStore(
+                settings: SettingsStore(defaults: defaults), costService: CostService(rateCard: RateCard()),
+                fetchPiCost: {
+                    calls += 1
+                    if calls == 1 {
+                        await withCheckedContinuation { oldScan = $0 }
+                        wasCancelled = Task.isCancelled
+                        return nil
+                    }
+                    return replacement
+                },
+                updateThirdPartyRates: { false }, recoveryDefaults: defaults
+            )
+            defer {
+                oldScan?.resume()
+                store.stop()
+            }
+            store.refreshPiUsage()
+            try AppCheck.require(await AsyncWait.wait { oldScan != nil }, "the first Pi scan did not start")
+            store.refreshPiUsage(repeatingRunningScan: true)
+            store.stop()
+            try AppCheck.require(!store.isScanningPi, "stopping left the old Pi scan registered")
+
+            store.refreshPiUsage()
+            try AppCheck.require(await AsyncWait.wait { !store.isScanningPi && store.finishedLocalScans == 1 },
+                                 "the replacement scan could not finish while the old scan was suspended")
+            oldScan?.resume()
+            oldScan = nil
+            try AppCheck.require(await AsyncWait.wait { wasCancelled != nil }, "the old scan did not return")
+            try AppCheck.require(wasCancelled == true && calls == 2 && store.finishedLocalScans == 1
+                                 && store.piDisplay.cost == replacement,
+                                 "stopped work was published or started another Pi scan")
         }
     }
 }

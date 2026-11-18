@@ -24,16 +24,9 @@ struct ProviderTabBar: View {
             options: Self.providers,
             selection: self.selection,
             style: Self.style,
-            emphasisAnimation: {
-                CostChartHoverMotion.systemReduceMotion ? nil : .easeOut(duration: 0.12)
-            },
-            edgeCurves: {
-                TabSwitchMotion.edgeCurves(movingRight: $0, reduceMotion: CostChartHoverMotion.systemReduceMotion)
-            },
             keyboardSelection: .cutAllAnimations,
             shortcut: { KeyboardShortcut(Self.shortcutKey(for: $0), modifiers: .command) },
             accessibilityLabel: { $0.displayName },
-            selectedTraits: .isSelected,
             onSelect: self.onSelect
         ) { provider, isSelected, isEmphasized, emphasisAnimation in
             self.label(provider, isSelected: isSelected, isEmphasized: isEmphasized,

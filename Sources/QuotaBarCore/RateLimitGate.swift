@@ -32,9 +32,16 @@ public actor UsageRateLimitGate {
     }
 
     public func recordRateLimit(_ provider: Provider, retryAfter: Date?, now: Date = Date()) {
+        _ = self.applyRateLimit(provider, retryAfter: retryAfter, now: now)
+    }
+
+    /// Return the deadline from the same actor turn that installs it.
+    func applyRateLimit(_ provider: Provider, retryAfter: Date?, now: Date = Date()) -> Date {
         let requested = retryAfter?.timeIntervalSince(now) ?? Self.defaultBackoff
         let clamped = min(Self.maxBackoff, max(Self.defaultBackoff, requested))
-        self.blockedUntil[provider] = now.addingTimeInterval(clamped)
+        let deadline = now.addingTimeInterval(clamped)
+        self.blockedUntil[provider] = deadline
+        return deadline
     }
 
     public func recordSuccess(_ provider: Provider) {

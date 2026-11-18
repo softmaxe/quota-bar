@@ -73,12 +73,7 @@ func median(_ values: [Double]) -> Double {
     values.sorted()[values.count / 2]
 }
 
-func benchmarkCost(arguments: [String]) async {
-    func fail(_ message: String) -> Never {
-        FileHandle.standardError.write(Data("error: \(message)\n".utf8))
-        exit(2)
-    }
-
+func benchmarkCost(arguments: [String]) async -> String? {
     var provider: Provider?
     var iterations = 3
     var index = 0
@@ -86,29 +81,29 @@ func benchmarkCost(arguments: [String]) async {
         switch arguments[index] {
         case "--provider":
             guard index + 1 < arguments.count, let value = Provider(rawValue: arguments[index + 1]) else {
-                fail("--provider requires codex or claude")
+                return "--provider requires codex or claude"
             }
             provider = value
             index += 2
         case "--iterations":
             guard index + 1 < arguments.count,
                   let value = Int(arguments[index + 1]), value > 0, value % 2 == 1 else {
-                fail("--iterations requires a positive odd integer")
+                return "--iterations requires a positive odd integer"
             }
             iterations = value
             index += 2
         default:
-            fail("unknown benchmark argument \(arguments[index])")
+            return "unknown benchmark argument \(arguments[index])"
         }
     }
-    guard let provider else { fail("--provider is required") }
+    guard let provider else { return "--provider is required" }
 
     let root = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("quotabar-benchmark-\(UUID().uuidString)", isDirectory: true)
     do {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     } catch {
-        fail("could not create the benchmark directory")
+        return "could not create the benchmark directory"
     }
     defer { try? FileManager.default.removeItem(at: root) }
 
@@ -121,9 +116,9 @@ func benchmarkCost(arguments: [String]) async {
             rateCard: RateCard()
         )
         let (cold, coldTime) = await milliseconds { await service.refresh(UsageTab(provider: provider)) }
-        guard let cold else { fail("cold scan failed") }
+        guard let cold else { return "cold scan failed" }
         let (incremental, incrementalTime) = await milliseconds { await service.refresh(UsageTab(provider: provider)) }
-        guard let incremental else { fail("incremental scan failed") }
+        guard let incremental else { return "incremental scan failed" }
         stable = stable && equivalentCost(cold, incremental)
         coldTimes.append(coldTime)
         incrementalTimes.append(incrementalTime)
@@ -140,14 +135,17 @@ func benchmarkCost(arguments: [String]) async {
         format: "incremental_ms median=%.1f min=%.1f max=%.1f",
         median(incrementalTimes), incrementalTimes.min() ?? 0, incrementalTimes.max() ?? 0
     ))
+    return nil
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 if let benchmarkIndex = arguments.firstIndex(of: "--benchmark-cost") {
     var benchmarkArguments = arguments
     benchmarkArguments.remove(at: benchmarkIndex)
-    // Returning first lets the benchmark's `defer` remove its temporary databases.
-    await benchmarkCost(arguments: benchmarkArguments)
+    if let message = await benchmarkCost(arguments: benchmarkArguments) {
+        FileHandle.standardError.write(Data("error: \(message)\n".utf8))
+        exit(2)
+    }
     exit(0)
 }
 

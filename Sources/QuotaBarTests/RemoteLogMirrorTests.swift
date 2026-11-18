@@ -237,7 +237,7 @@ enum RemoteLogMirrorTests {
         let commands = SuspendedRemoteCommand(suspended: 2)
         let mirror = RemoteLogMirror(root: fixture.remoteLogs, run: commands.run)
         let task = Task { try await service.syncRemote(host: "host", mirror: mirror) }
-        Harness.expect(await Self.eventually { commands.isSuspended }, "service holds host during copy")
+        Harness.expect(await AsyncWait.wait { commands.isSuspended }, "service holds host during copy")
         _ = await service.refresh(.codex)
         Harness.expectEqual(fixture.remoteUsage("host")?.records, 0, "background scans cannot see in-flight copies")
         do {
@@ -312,7 +312,9 @@ enum RemoteLogMirrorTests {
     /// Hosts used to follow the refresh cadence, so someone on Manual must not start connecting.
     @MainActor
     private static func manualRefreshKeepsHostsManualUntilChanged() {
-        let defaults = EphemeralDefaults.make("QuotaBarRemoteAutoSyncTests")
+        let suite = "QuotaBarRemoteAutoSyncTests"
+        let defaults = EphemeralDefaults.make(suite)
+        defer { EphemeralDefaults.clear(suite) }
         Harness.expect(SettingsStore(defaults: defaults).remoteAutoSync, "hosts sync on their own by default")
 
         defaults.set(RefreshFrequency.manual.rawValue, forKey: "refreshFrequency")
@@ -409,7 +411,7 @@ enum RemoteLogMirrorTests {
             let root = fixture.root.appendingPathComponent("mirror")
             let mirror = RemoteLogMirror(root: root, run: commands.run)
             let task = Task { try await mirror.sync(host: "host") }
-            let reached = await Self.eventually { commands.isSuspended }
+            let reached = await AsyncWait.wait { commands.isSuspended }
             Harness.expect(reached, "the dummy command reaches its suspension")
             task.cancel()
             commands.release()
@@ -433,7 +435,9 @@ enum RemoteLogMirrorTests {
         for suspended in [1, 2] {
             let fixture = RecorderFixture(name: "remote-readd-\(suspended)")
             defer { fixture.remove() }
-            let settings = SettingsStore(defaults: EphemeralDefaults.make("RemoteReadd-\(suspended)"))
+            let suite = "RemoteReadd-\(suspended)"
+            let settings = SettingsStore(defaults: EphemeralDefaults.make(suite))
+            defer { EphemeralDefaults.clear(suite) }
             let commands = SuspendedRemoteCommand(suspended: suspended)
             var successes = 0
             let model = RemoteSyncModel(
@@ -445,7 +449,7 @@ enum RemoteLogMirrorTests {
             try? FileManager.default.createDirectory(at: retained.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? Data("existing transcript".utf8).write(to: retained)
             model.add("host")
-            let reached = await Self.eventually { commands.isSuspended }
+            let reached = await AsyncWait.wait { commands.isSuspended }
             Harness.expect(reached, "model reaches suspended command")
             model.remove("host")
             Harness.expect(FileManager.default.fileExists(atPath: retained.path), "removing a host preserves old mirror data")
@@ -454,7 +458,7 @@ enum RemoteLogMirrorTests {
             for _ in 0..<100 { await Task.yield() }
             Harness.expectEqual(commands.count, suspended, "replacement waits for previous command to finish")
             commands.release()
-            let finished = await Self.eventually { !model.isSyncing }
+            let finished = await AsyncWait.wait { !model.isSyncing }
             Harness.expect(finished, "replacement finishes within the test deadline")
             Harness.expectEqual(successes, 1, "only replacement requests a scan")
             Harness.expectEqual(commands.count, suspended + 3, "replacement runs exactly one probe and two copies")
@@ -485,14 +489,14 @@ enum RemoteLogMirrorTests {
             withExtendedLifetime(observer) {}
         }
         model.sync("host")
-        let started = await Self.eventually { commands.isSuspended }
+        let started = await AsyncWait.wait { commands.isSuspended }
         Harness.expect(started, "removed-host fixture reaches suspended command")
         model.remove("host")
         Harness.expect(model.isSyncing, "removing a host keeps its winding-down write tracked")
         Harness.expectEqual(model.state(of: "idle-host"), .idle, "other host stays idle")
         let beforeCompletion = publications
         commands.release()
-        let finished = await Self.eventually { !model.isSyncing }
+        let finished = await AsyncWait.wait { !model.isSyncing }
         Harness.expect(finished, "cancelled host finishes within the test deadline")
         Harness.expect(publications > beforeCompletion, "task completion must invalidate Sync now's disabled state")
     }
@@ -506,8 +510,13 @@ enum RemoteLogMirrorTests {
                 "/bin/sh", ["-c", "echo $$ > \"$1\"; exec /bin/sleep 30", "test", marker.path], 2
             )
         }
-        let reached = await Self.eventually { FileManager.default.fileExists(atPath: marker.path) }
-        Harness.expect(reached, "local dummy process starts without network access")
+        var childPID: Int32?
+        let started = await AsyncWait.wait {
+            guard let raw = try? String(contentsOf: marker, encoding: .utf8) else { return false }
+            childPID = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+            return childPID != nil
+        }
+        Harness.expect(started, "local dummy process publishes its PID before cancellation")
         let start = Date()
         task.cancel()
         do {
@@ -517,16 +526,9 @@ enum RemoteLogMirrorTests {
             Harness.expect(error is CancellationError, "native command reports cancellation")
         }
         Harness.expect(Date().timeIntervalSince(start) < 1, "cancellation does not wait for timeout")
-        if let raw = try? String(contentsOf: marker, encoding: .utf8), let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            Harness.expect(kill(pid, 0) == -1, "cancelled child has exited before completion")
+        if let pid = childPID {
+            Harness.expect(kill(pid, 0) == -1 && errno == ESRCH, "cancelled child has exited before completion")
         }
-    }
-
-    @MainActor
-    private static func eventually(_ predicate: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(3)
-        while !predicate(), Date() < deadline { try? await Task.sleep(for: .milliseconds(5)) }
-        return predicate()
     }
 
     private static func expectFailure(
@@ -729,19 +731,11 @@ private extension RecorderFixture {
     }
 
     func writeMirrored(_ relativePath: String, lines: [String]) {
-        let file = self.remoteLogs.appendingPathComponent(relativePath)
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        self.writeLog(at: self.remoteLogs.appendingPathComponent(relativePath), lines: lines)
     }
 
     func appendMirrored(_ relativePath: String, lines: [String]) {
-        guard let handle = try? FileHandle(forWritingTo: self.remoteLogs.appendingPathComponent(relativePath)) else {
-            Harness.expect(false, "could not append to \(relativePath)")
-            return
-        }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+        self.appendLog(at: self.remoteLogs.appendingPathComponent(relativePath), lines: lines)
     }
 }
 

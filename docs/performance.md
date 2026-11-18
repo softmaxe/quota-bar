@@ -55,7 +55,7 @@ real-world speedup percentage. No such percentage or memory reduction is claimed
 
 ## Regression coverage
 
-Run `make test`. After integration with `main`, the 1176 checks include escaped classifier keys and values, decoy markers,
+Run `make test`. The regression suite covers escaped classifier keys and values, decoy markers,
 long preceding values, even and odd backslash runs, unterminated strings, resuming scans,
 rewrite detection, replay deduplication, source failure, pricing changes, and WAL-visible reports.
 The report-update regression holds one provider's scan open while another has completed, checks
@@ -68,12 +68,11 @@ redundant read; restoring the former two display writes makes it fail on an inte
 
 ## Remaining candidates
 
-Claude decoding still accounts for substantial initial-import work. Replacing Foundation's
-JSON decoder or batching file transactions would require evidence and additional failure-boundary
-validation. Pi and OpenCode reread snapshots when their file stamps change; caching individual
-Pi files would require preserving fork deduplication, deletion, and failed-read
-recovery. These remain candidates for representative active-session benchmarks, not proven
-improvements. Absolute optimality cannot be established by these measurements.
+Subsequent work moved ordinary Claude record decoding into Rust and retained Foundation for
+compatibility. See the [Rust core boundaries](rust-migration.md) for the current implementation.
+Batching file transactions would require benchmarks and validation of failure handling.
+Pi and OpenCode reread snapshots when their file stamps change. A per-file Pi cache would
+need to preserve fork deduplication, deletion handling, and recovery from failed reads.
 
 ## Read-time context tiers
 

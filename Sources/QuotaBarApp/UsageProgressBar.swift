@@ -15,8 +15,6 @@ struct UsageProgressBar: View {
     let tint: Color
     /// Where the fill would sit if the budget were being spent evenly, in remaining percent.
     let pacePercent: Double?
-    /// Burning faster than the clock. The marker stays neutral; the outcome line carries the color.
-    let paceIsDeficit: Bool
     /// The window is spent: the track takes a red tint so an empty bar never reads as a blank one.
     let isExhausted: Bool
     /// A saved reading: the pace tick steps back with the grey fill.
@@ -64,7 +62,6 @@ struct UsageProgressBar: View {
         percent: Double,
         tint: Color,
         pacePercent: Double? = nil,
-        paceIsDeficit: Bool = false,
         isExhausted: Bool = false,
         isStale: Bool = false,
         animatesFill: Bool = true,
@@ -77,7 +74,6 @@ struct UsageProgressBar: View {
         self.percent = percent
         self.tint = tint
         self.pacePercent = pacePercent
-        self.paceIsDeficit = paceIsDeficit
         self.isExhausted = isExhausted
         self.isStale = isStale
         self.animatesFill = animatesFill

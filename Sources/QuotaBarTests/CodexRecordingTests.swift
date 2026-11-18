@@ -191,18 +191,10 @@ extension RecorderFixture {
     }
 
     func writeCodexRollout(_ relativePath: String, lines: [String]) {
-        let file = self.codexRollout(relativePath)
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        self.writeLog(at: self.codexRollout(relativePath), lines: lines)
     }
 
     func appendCodexRollout(_ relativePath: String, lines: [String]) {
-        guard let handle = try? FileHandle(forWritingTo: self.codexRollout(relativePath)) else {
-            Harness.expect(false, "could not append to \(relativePath)")
-            return
-        }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+        self.appendLog(at: self.codexRollout(relativePath), lines: lines)
     }
 }

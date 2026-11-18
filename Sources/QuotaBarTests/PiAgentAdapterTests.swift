@@ -75,20 +75,6 @@ enum PiSessionFile {
         try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
     }
 
-    /// Pi Agent's sign-in to OpenAI, and Codex's, so eligibility can be decided.
-    static func signIn(root: URL, piAccount: String, codexAccount: String = "account-a") {
-        let codex = root.appendingPathComponent("codex")
-        let pi = root.appendingPathComponent("pi")
-        try? FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: pi, withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"\#(codexAccount)"}}"#.write(
-            to: codex.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        try? #"{"openai-codex":{"type":"oauth","accountId":"\#(piAccount)"}}"#.write(
-            to: pi.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-    }
-
     static func message(
         _ id: String,
         role: String = "assistant",

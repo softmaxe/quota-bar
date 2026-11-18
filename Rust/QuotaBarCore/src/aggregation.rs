@@ -325,10 +325,18 @@ mod tests {
         let mut unpriced = row();
         unpriced.priced = 0;
         unpriced.cost = f64::NAN;
-        assert_eq!(run(&[unpriced]), Ok(1));
         let mut zero = row();
         zero.cost = 0.0;
-        assert_eq!(run(&[zero]), Ok(1));
+        for row in [unpriced, zero] {
+            let priced = row.priced;
+            let mut groups = [QBAggregateGroup::default()];
+            let mut days = [QBAggregateDay::default()];
+            let mut models = [QBAggregateModel::default()];
+            assert_eq!(fold(&[row], &mut groups, &mut days, &mut models), Ok(1));
+            assert_eq!((groups[0].priced, groups[0].cost), (priced, 0.0));
+            assert_eq!((days[0].priced, days[0].cost), (priced, 0.0));
+            assert_eq!((models[0].priced, models[0].cost), (priced, 0.0));
+        }
     }
 
     #[test]

@@ -1,10 +1,10 @@
 // Browser regression checks for the native usage report page.
 import assert from 'node:assert/strict';
-import {readFileSync,realpathSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {readFileSync,mkdirSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {createRequire} from 'node:module';
 import {execFileSync} from 'node:child_process';
+import {captureReport,launchReportBrowser} from './report_browser.mjs';
 
 const args=process.argv.slice(2);
 const option=(key,fallback)=>args.includes(key)?args[args.indexOf(key)+1]:fallback;
@@ -17,20 +17,22 @@ assert(match,'Expected the native report output');
 const snapshot=JSON.parse(match[1]);
 for(const script of source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g))execFileSync(process.execPath,['--check','-'],{input:script[1],stdio:['pipe','pipe','pipe']});
 assert(!/<(?:script|link|img)[^>]+(?:src|href)=["']https?:/i.test(source));
-const modulePath=process.env.PLAYWRIGHT_MODULE||realpathSync(execFileSync('which',['playwright-cli'],{encoding:'utf8'}).trim());
-const {chromium}=createRequire(modulePath)('playwright');
-const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'});
+const browser=await launchReportBrowser();
 const context=await browser.newContext({viewport:{width:1280,height:960},reducedMotion:'reduce'});
 let external=0;await context.route(/^https?:/,route=>{external++;return route.abort();});
 const errors=[],results=[];
 const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-const reportFile=join(output,'case.html');
+const fixtureDirectory=mkdtempSync(join(output,'case-'));
+const reportFile=join(fixtureDirectory,'usage-report.html');
 const safeJSON=data=>JSON.stringify(data).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
 async function load(data=snapshot,query='lang=en'){
   writeFileSync(reportFile,source.replace(match[0],()=>`const REPORT=${safeJSON(data)};\n/* Report runtime */`));
-  await page.evaluate(()=>{try{localStorage.clear();}catch{}}).catch(()=>{});
+  if(page.url()!=='about:blank')await page.evaluate(()=>localStorage.clear());
   await page.goto(pathToFileURL(reportFile).href+'?'+query);
-  await page.waitForFunction(()=>typeof window.setReportLanguage==='function');
+  await page.locator('.hero-value').waitFor();
+}
+async function screenshot(name){
+  writeFileSync(join(output,name),await captureReport(page));
 }
 const hero=()=>page.locator('.hero-value').textContent();
 async function layout(){
@@ -46,6 +48,8 @@ async function checkLanguage(language){
     const cjk=await page.evaluate(()=>[...document.querySelectorAll('.topbar :not([data-language]),.page *')]
       .filter(n=>!n.children.length&&/[㐀-鿿]/.test(n.textContent)).map(n=>n.textContent));
     assert.deepEqual(cjk,[],'English view shows no Chinese copy');
+  }else{
+    assert.match(await page.getByRole('heading',{level:1}).innerText(),/[㐀-鿿]/,'The report title switches to Chinese');
   }
 }
 
@@ -66,26 +70,31 @@ const usd=v=>'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFracti
 
 try{
   await load();
+  const defaultDays=snapshot.days.length===7?7:30;
+  const recentDays=snapshot.history.slice(-defaultDays);
+  const expectedSegments=Array(defaultDays-recentDays.length).fill(0)
+    .concat(recentDays.map(day=>day.sources.filter(row=>row.cost>0).length));
   for(const language of ['zh','en']){
     await checkLanguage(language);
     const metrics=await layout();
     assert(metrics.scrollWidth<=metrics.width+2,'Desktop overflow');
     assert.equal(metrics.escaped,0,'Content escapes the page');
-    assert.equal(await page.locator('[data-chart=daily] svg rect:not([visibility])').count()>0||snapshot.days.every(day=>day.total===0),true,'Daily chart draws its nonzero columns');
-    await page.screenshot({path:join(output,'native-'+language+'.png'),fullPage:true});
+    const segments=await page.locator('.column').evaluateAll(columns=>columns.map(column=>column.querySelectorAll('rect').length));
+    assert.deepEqual(segments,expectedSegments,'Each day draws one cost segment for each source with a positive estimate');
+    await screenshot('native-'+language+'.png');
     results.push({case:'native-'+language,...metrics});
   }
   await page.locator('[data-metric=tokens]').click();
   assert.equal(await page.locator('[data-metric=tokens]').getAttribute('aria-pressed'),'true');
   await page.locator('[data-breakdown=day]').click();
-  assert.equal(await page.locator('.days tbody tr').count(),snapshot.days.length,'Day breakdown lists every day in the default period');
+  assert.equal(await page.locator('.days tbody tr').count(),defaultDays,'Day breakdown lists every day in the default period');
   await page.locator('[data-language=zh]').click();await page.goto(pathToFileURL(reportFile).href);
   assert.equal(await page.locator('html').getAttribute('lang'),'zh-Hans','Language choice persists for the exported file');
   assert.equal(await page.locator('[data-metric=tokens]').getAttribute('aria-pressed'),'true','Metric choice persists for the exported file');
   for(const width of [640,390]){
     await page.setViewportSize({width,height:700});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),'Narrow report body must reflow');
-    await page.screenshot({path:join(output,'native-'+width+'.png'),fullPage:true});
+    await screenshot('native-'+width+'.png');
   }
   await page.setViewportSize({width:1280,height:960});
 
@@ -114,7 +123,7 @@ try{
   assert.equal(await page.locator('[data-range-to]').inputValue(),'2026-09-09');
   await page.goto(pathToFileURL(reportFile).href+'?lang=en&from=2026-08-10&to=2026-08-01');
   assert.equal(await hero(),usd(sumCost(0,10)),'A reversed custom period is read in date order');
-  await page.screenshot({path:join(output,'custom-period.png'),fullPage:true});
+  await screenshot('custom-period.png');
   results.push({case:'periods',passed:true});
 
   await load(fixture(Array(7).fill(0)));
@@ -134,7 +143,7 @@ try{
     day.sources[0]={...day.sources[0],name:'Pi Agent',source:'piAgent'};
     day.models=['anthropic','openrouter'].map(upstreamProvider=>({
       ...day.models[0],name:'claude-sonnet-5',source:'piAgent',upstreamProvider,
-      ...Object.fromEntries(Object.entries(totals(50))),
+      ...totals(50),
     }));
   }
   await load(routed);
@@ -143,7 +152,7 @@ try{
   assert(routedLabels.some(label=>label.includes('anthropic'))&&routedLabels.some(label=>label.includes('openrouter')),
     'Pi model rows identify their upstream providers');
   assert.equal((await layout()).escaped,0,'Upstream labels stay inside the model column');
-  await page.screenshot({path:join(output,'pi-upstreams.png'),fullPage:true});
+  await screenshot('pi-upstreams.png');
   results.push({case:'pi-upstreams',passed:true});
   await load(fixture(Array(7).fill(100),{unpriced:true}));
   assert.equal(await hero(),'Unpriced');
@@ -152,7 +161,7 @@ try{
   await load(fixture(Array(7).fill(100),{long:true}));
   assert((await page.locator('.model-name').first().textContent()).length>100);
   assert.equal((await layout()).escaped,0,'A long model name wraps inside the page');
-  await page.screenshot({path:join(output,'long-model.png'),fullPage:true});
+  await screenshot('long-model.png');
   results.push({case:'long-model',passed:true});
   await load(fixture(Array(7).fill(1e12)));
   await page.locator('[data-metric=tokens]').click();
@@ -161,4 +170,4 @@ try{
   assert.deepEqual(errors,[]);assert.equal(external,0);
   writeFileSync(join(output,'verification.json'),JSON.stringify({results,errors,external},null,2)+'\n');
   console.log('Passed native report: bilingual copy, persistence, 7/30/custom periods, missing/zero dates, pricing states, offline, narrow windows, and long model IDs.');
-}finally{rmSync(reportFile,{force:true});await browser.close();}
+}finally{rmSync(fixtureDirectory,{recursive:true,force:true});await browser.close();}

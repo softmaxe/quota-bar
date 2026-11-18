@@ -544,11 +544,10 @@ final class CostCache {
         day: String,
         model: String,
         longContext: Bool,
-        totals: TokenTotals,
         contextInput: Int?,
-        request: ObservedRequest? = nil
+        request: ObservedRequest
     ) throws {
-        if let request, let entryID = request.entryID, request.upstreamProvider == "openai-codex" {
+        if let entryID = request.entryID, request.upstreamProvider == "openai-codex" {
             // A legacy row has no timestamp/raw model. Adopt it once, on the first compatible
             // replay, retaining its historical day. Later short-ID collisions get their own keys.
             let promote = try self.reusable("""
@@ -600,13 +599,13 @@ final class CostCache {
         sqlite3_bind_text(stmt, 3, day, -1, sqliteTransient)
         sqlite3_bind_text(stmt, 4, model, -1, sqliteTransient)
         sqlite3_bind_int64(stmt, 5, longContext ? 1 : 0)
-        self.bindUsage(stmt, from: 6, totals: totals)
+        self.bindUsage(stmt, from: 6, totals: request.tokens)
         if let contextInput { sqlite3_bind_int64(stmt, 11, Int64(contextInput)) }
-        if let value = request?.upstreamProvider { sqlite3_bind_text(stmt, 12, value, -1, sqliteTransient) }
-        if let value = request?.model { sqlite3_bind_text(stmt, 13, value, -1, sqliteTransient) }
-        if let value = request?.loggedCostUSD { sqlite3_bind_double(stmt, 14, value) }
-        if let value = request?.totalFromProvider { sqlite3_bind_int(stmt, 15, value ? 1 : 0) }
-        if let value = request?.entryID { sqlite3_bind_text(stmt, 16, value, -1, sqliteTransient) }
+        if let value = request.upstreamProvider { sqlite3_bind_text(stmt, 12, value, -1, sqliteTransient) }
+        if let value = request.model { sqlite3_bind_text(stmt, 13, value, -1, sqliteTransient) }
+        if let value = request.loggedCostUSD { sqlite3_bind_double(stmt, 14, value) }
+        if let value = request.totalFromProvider { sqlite3_bind_int(stmt, 15, value ? 1 : 0) }
+        if let value = request.entryID { sqlite3_bind_text(stmt, 16, value, -1, sqliteTransient) }
         try self.step(stmt)
     }
 

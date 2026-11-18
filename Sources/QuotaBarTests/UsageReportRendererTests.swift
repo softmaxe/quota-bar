@@ -11,7 +11,6 @@ func runUsageReportRendererTests() {
         Harness.expectEqual(html.components(separatedBy: "const REPORT=").count - 1, 1, "placeholder-shaped model text cannot insert another script")
         Harness.expect(!html.contains("src=\"http"), "report does not load external scripts")
         Harness.expect(!html.contains("href=\"http"), "report does not load remote fonts")
-        Harness.expect(!html.contains("sourceMappingURL="), "embedded chart library has no external source map")
 
         guard let start = html.range(of: "const REPORT=")?.upperBound,
               let end = html.range(of: ";\n/* Report runtime */", range: start..<html.endIndex)?.lowerBound else {

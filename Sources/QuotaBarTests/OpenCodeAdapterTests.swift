@@ -157,17 +157,17 @@ final class OpenCodeFixtureDatabase {
     init?(at root: URL, partColumns: String = "id TEXT PRIMARY KEY, message_id TEXT NOT NULL, data TEXT NOT NULL", hasSessionColumn: Bool = true) {
         self.hasSessionColumn = hasSessionColumn
         let directory = root.appendingPathComponent("opencode")
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.url = directory.appendingPathComponent("opencode.db")
         do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             self.db = try TestDatabase(self.url)
+            let session = hasSessionColumn ? ", session_id TEXT" : ""
+            try self.db.exec("CREATE TABLE IF NOT EXISTS message (id TEXT PRIMARY KEY, data TEXT NOT NULL\(session))")
+            try self.db.exec("CREATE TABLE IF NOT EXISTS part (\(partColumns))")
         } catch {
-            Harness.expect(false, "OpenCode fixture database opens")
+            Harness.expect(false, "could not prepare the OpenCode fixture database: \(error)")
             return nil
         }
-        self.execute("CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
-        if hasSessionColumn { self.execute("ALTER TABLE message ADD COLUMN session_id TEXT") }
-        self.execute("CREATE TABLE part (\(partColumns))")
     }
 
     func close() {
@@ -220,20 +220,44 @@ final class OpenCodeFixtureDatabase {
         )
     }
 
-    func execute(_ sql: String) {
-        try? self.db.exec(sql)
+    func execute(_ sql: String, _ bindings: String?...) {
+        do {
+            try self.db.exec(sql, bindings: bindings)
+        } catch {
+            Harness.expect(false, "writing the OpenCode fixture failed: \(error)")
+        }
     }
 
     private func setSession(_ sessionID: String?, messageID: String) {
         guard self.hasSessionColumn, let sessionID else { return }
-        try? self.db.exec("UPDATE message SET session_id = ? WHERE id = ?", sessionID, messageID)
+        self.execute("UPDATE message SET session_id = ? WHERE id = ?", sessionID, messageID)
     }
 
     private func insert(_ table: String, id: String, messageID: String? = nil, data: String) {
         if let messageID {
-            try? self.db.exec("INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)", id, messageID, data)
+            self.execute("INSERT INTO \(table) (id, message_id, data) VALUES (?, ?, ?)", id, messageID, data)
         } else {
-            try? self.db.exec("INSERT INTO \(table) (id, data) VALUES (?, ?)", id, data)
+            self.execute("INSERT INTO \(table) (id, data) VALUES (?, ?)", id, data)
+        }
+    }
+}
+
+extension RecorderFixture {
+    func writeOpenCodeUsage(openCodeAccount: String, created: Int64 = 1_788_264_000_000) {
+        let codex = self.root.appendingPathComponent("codex")
+        guard let db = OpenCodeFixtureDatabase(at: self.root) else { return }
+        db.stepFinish("part-1", created: created, model: "gpt-5.6-luna", input: 10)
+        db.close()
+        do {
+            try FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
+            try #"{"tokens":{"account_id":"account-a"}}"#.write(
+                to: codex.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+            )
+            try #"{"openai":{"type":"oauth","accountId":"\#(openCodeAccount)"}}"#.write(
+                to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
+            )
+        } catch {
+            Harness.expect(false, "could not prepare OpenCode account fixtures: \(error)")
         }
     }
 }

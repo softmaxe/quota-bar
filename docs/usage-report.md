@@ -6,7 +6,7 @@ QuotaBar shows all saved usage in one bilingual page inside the app. The page ca
 
 Choose **Usage…** in the menu card, or press ⌘U while the card is open or a QuotaBar window is active. With no saved usage, the window shows **No saved usage yet** instead of the page.
 
-While the window is open, QuotaBar keeps it current. Opening it shows what is saved, then scans the local logs of every provider, not only the one in the menu bar. It scans again every minute and rereads the database whenever any scan finishes, whichever path started it. Scans are incremental, so after the first pass each one reads only what the sources appended. A newer snapshot reaches the page through `window.updateReport`, which redraws in place and keeps the chosen period, metric, breakdown, language, and scroll position. A custom end date past the new last day is clamped. Closing the window stops the timer and keeps the page loaded for the next open.
+Opening the window reads saved usage and starts a local scan for every provider. While the window is open, it requests scans every minute and rereads the database whenever a scan finishes. Unchanged sources can reuse cached results. Appended logs resume from saved cursors where supported, and rewritten logs can require a full reread. A newer snapshot reaches the page through `window.updateReport`, which redraws in place and keeps the chosen period, metric, breakdown, language, and scroll position. A custom end date past the new last day is clamped. Closing the window stops the timer and keeps the page loaded for the next open.
 
 ## What the page shows
 
@@ -93,9 +93,10 @@ The default installation is `/Applications/Xcode.app`. Set `DEVELOPER_DIR` to an
 
 The Swift checks cover the calendar windows, the snapshot history and its per-day source and model splits, supported sources, WAL-visible records, missing and zero dates, dated and unpriced costs, numeric bounds, safe JSON insertion, live-update encoding, and resource bundling. JavaScriptCore checks the report's startup language precedence without a browser dependency.
 
-A debug build can open the usage window on 29 sample days, hand it the thirtieth as a live update, check that the page took it, and write what it shows to `<directory>/usage-window.png`:
+Build the debug app to use its report commands. The window dump starts with 29 sample days, delivers the thirtieth as a live update, checks that the page received it, and saves `<directory>/usage-window.png`.
 
 ```sh
+make build
 .build/debug/QuotaBar --dump-usage-window build/usage-window
 ```
 
@@ -110,20 +111,23 @@ It can also open only the usage window on the saved usage, beside an installed Q
 .build/debug/QuotaBar --preview-usage-window
 ```
 
-The optional browser verifier checks a rendered page in both languages, the 7-day, 30-day, and custom periods and their stored choice, narrow layouts, missing and zero dates, unpriced data, long model names, script syntax, and the absence of remote requests. Render the sample page first:
+The optional browser verifier checks both languages, daily chart segments against source costs, 7-day and 30-day periods, custom ranges, saved choices, narrow layouts, missing and zero dates, unpriced data, long model names, script syntax, and offline operation. Install the pinned report tools from the repository root and run the verifier against the rendered sample page.
 
 ```sh
+fnm install
+fnm use
+pnpm install --frozen-lockfile
 .build/debug/QuotaBar --dump-usage-report build
-node Scripts/verify_usage_report.mjs --file build/usage-report.html
+pnpm run report:verify --file build/usage-report.html
 ```
 
-It requires Node.js, a Playwright installation discoverable through `playwright-cli`, and a Chromium executable. The default executable is Brave at `/Applications/Brave Browser.app/Contents/MacOS/Brave Browser`. Set `PLAYWRIGHT_MODULE` to an absolute Playwright-backed CLI entry path or `CHROMIUM_PATH` to another Chromium executable when those defaults do not match the machine.
+The report tools use the project's `playwright-core` and launch Brave at `/Applications/Brave Browser.app/Contents/MacOS/Brave Browser`. Set `CHROMIUM_PATH` to use another local Chromium executable. To use an existing Playwright installation, set `PLAYWRIGHT_MODULE` to the absolute entry file of a CLI that depends on `playwright`. Both scripts also accept direct invocation with `node`.
 
 To regenerate the public image with synthetic data:
 
 ```sh
 .build/debug/QuotaBar --dump-usage-report build/sample-report
-node Scripts/report_image.mjs build/sample-report/usage-report.html docs/images/usage-report.png
+pnpm run report:image build/sample-report/usage-report.html docs/images/usage-report.png
 ```
 
 The sample generator uses the native renderer and never reads the local database. The same image

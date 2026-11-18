@@ -87,7 +87,7 @@ claude
 
 Open QuotaBar, click its menu bar icon, and select Claude, Codex, or Pi. Open [Settings](docs/images/settings-general.png) to pick the quota provider the menu bar shows from cards with each one's live quota, choose the refresh interval or **Manual**, to [see model prices and turn models.dev pricing on or off](#model-prices), or to [back up saved usage](#backing-up-saved-usage).
 
-If a provider is not signed in, choose **Copy command**, run it in Terminal, then return and choose **Check sign-in**.
+If a provider is not signed in, choose **Copy**, run the command in Terminal, then return and choose **Check sign-in**.
 
 QuotaBar reads Codex credentials from `$CODEX_HOME/auth.json`, or `~/.codex/auth.json` by default. It reads Claude credentials from the `Claude Code-credentials` entry in macOS Keychain.
 
@@ -111,7 +111,7 @@ After QuotaBar detects a reset, opening the card plays a brief bar animation whi
 
 Choose manual refresh or an interval of 1, 2, 5, 15, or 30 minutes in Settings. The default is 5 minutes.
 
-- Polling, opening the card, and clicking **Refresh** update only the selected provider. Switching tabs requests an update for the newly selected provider.
+- Polling and opening the card request a refresh for the menu bar's quota provider. Selecting Claude or Codex changes that provider. Selecting Pi or reopening its card requests a local Pi scan and keeps the same menu bar gauge.
 - Each quota provider has a one-minute refresh cooldown. A server rate limit can extend the wait. Pi refreshes only its local sessions and has no quota cooldown.
 - An explicit Claude credential-recovery action can bypass the local cooldown, but still respects the server limit.
 
@@ -157,7 +157,7 @@ QuotaBar counts tokens in local session logs and estimates what that usage would
 
 Choose **Tokens** or **Cost** above the chart. The chart shows the last 10 calendar days; the summary shows the selected day and the last 30 days, each with its value in the other unit underneath.
 
-Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. The summary's first figure follows the selection and reads **Today** until another day is chosen. Under that row, **Cache hit** gives the share of the day's input served from the prompt cache, over a bar of its cache reads, cache writes, fresh input, and output. Click the row under the chart to list that day's models and keep the date fixed. Each model shows the mark of the tool that used it, a bolt for Fast usage, and a bar of its share of the day in the chosen unit. Click the pinned day again, or reopen the card, to resume hover previews. Switching units keeps the selected date.
+Hover to preview a day, click to pin it, or use the Left and Right Arrow keys when a date is focused. The summary's first figure follows the selection and reads **Today** until another day is chosen. Click the date row below the chart to list that day's models and keep the date fixed. **Cache hit** divides the day's input into **Cache read** and **Uncached**. Its tooltip also lists cache writes, fresh input, and output. Each model shows its share of the day in the chosen unit, with a bolt for Fast usage. Pi rows name the upstream provider when known. On days with multiple tools, other rows name their tool. Click the pinned day again, or reopen the card, to resume hover previews. Switching units keeps the selected date.
 
 The chart distinguishes zero usage from missing data:
 
@@ -168,7 +168,7 @@ The chart distinguishes zero usage from missing data:
 | **—** in Cost view | Usage is recorded, but no rate applies. The chart shows a dashed stub. |
 | **No price** in a day's model list | The model has no rate on that day. Cost totals include priced usage only, so they leave its tokens out. |
 
-**Settings → Pricing** lists every model with its rates and where they come from. Unpriced models are local or free models, new Claude or OpenAI models the price book does not list yet, and Fast usage of models without a Fast multiplier.
+**Settings → Pricing** lists the rates available for each model and their source. A model outside the bundled price book can still have a models.dev rate. Fast usage needs a Fast multiplier.
 
 ### Data sources
 
@@ -181,7 +181,7 @@ The chart distinguishes zero usage from missing data:
 
 For OpenCode `openai` usage, QuotaBar checks OpenCode's current OAuth credentials against the Codex account. Matching usage counts toward Codex totals. Other providers, API-key credentials, and account mismatches are excluded. These totals do not affect quota bars.
 
-Pi Agent usage has its own **Pi** tab. Every request counts, whichever upstream provider served it and whether a subscription or an API key paid for it, and is priced at the model's API rate. The tab has no quota bars. A model with no known rate uses the cost Pi logged for it. See [Limitations](#limitations) for historical OpenCode authentication changes.
+Pi Agent usage has its own **Pi** tab. Every request counts, whichever upstream provider served it and whether a subscription or an API key paid for it, and is priced at the model's API rate. The tab has no quota bars. When no rate applies, QuotaBar uses a positive cost logged by Pi if available. See [Limitations](#limitations) for historical OpenCode authentication changes.
 
 <p align="center">
   <img src="docs/images/pi-usage.png" width="280" alt="Pi usage card with upstream provider shares and local usage rendered with sample data">
@@ -189,16 +189,13 @@ Pi Agent usage has its own **Pi** tab. Every request counts, whichever upstream 
 
 ### Remote machines
 
-To count Claude Code and Codex sessions from another machine, open **Settings → Usage**, press **Add host**, and type its SSH host or pick one from your SSH config. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. With **Sync automatically** off, only adding a host and **Sync now** connect. Each row shows when the host last synced or why it failed, how many usage records its logs hold, how many of those are new, and how much was copied. Press **Retry** on a failed host, or use its **···** menu to sync that host alone or stop syncing it. New records are the ones no other log recorded first, so a host whose sessions are already here can sync successfully with few or none. A machine that is off only delays its own sync.
+To count Claude Code and Codex sessions from another machine, open **Settings → Usage**, press **Add host**, and type its SSH host or pick one from your SSH config. QuotaBar copies the machine's `.jsonl` logs with `rsync` over `ssh` when the host is added, when the app starts, every 15 minutes, and when you press **Sync now**. Turning off **Sync automatically** disables startup and scheduled syncs. Each row shows the sync status and how many usage records belong to that host. The `unique` count identifies records first seen on that host, and `cached` shows how much space its log copies currently occupy on this Mac. Press **Retry** on a failed host, or use its **···** menu to sync that host alone or stop syncing it. A machine that is off only delays its own sync.
 
 The host needs key-based SSH sign-in that works without a prompt, and `rsync` installed. QuotaBar reads `~/.claude/projects`, `~/.config/claude/projects`, `~/.codex/sessions`, and `~/.codex/archived_sessions` on the machine, not custom `CLAUDE_CONFIG_DIR` or `CODEX_HOME` locations. OpenCode and Pi Agent are local only.
 
 Remote usage adds to the same totals as this Mac's; the menu and the usage report have no per-machine breakdown. Sessions present on both count once. Removing a host stops syncing it and keeps what was recorded.
 
 After a successful sync and scan, QuotaBar automatically removes eligible local log copies that have been unchanged for at least 24 hours. Recorded usage and scan positions stay in SQLite. Each later sync validates an evicted file's remote contents before skipping its download. If the session grows, QuotaBar downloads that file again and resumes after the recorded portion. Incomplete or failed scans keep their files, and a rewritten historical portion preserves the existing usage and reports a scan failure. Remote originals are never deleted. See [Remote log cache](docs/remote-log-cache.md) for the cleanup guarantees.
-
-The host row labels the contribution as `unique` and the remaining local log size
-as `cached`; neither is the number of records or bytes transferred by the last sync.
 
 ### Saved history
 
@@ -226,11 +223,11 @@ A backup holds token counts, dates, models, pricing tiers, record IDs, scan posi
 
 ### Pricing rules
 
-- Every cost is an estimate at API list prices.
+- Estimates use API list prices when available. A Pi request can also carry a cost reported by its provider or estimated by Pi.
 - Claude and OpenAI models on their makers' current price lists use the bundled [price book](Sources/QuotaBarCore/Resources/Pricing/price-book.json), which stores rates in dated periods. Each day's usage uses that day's rates.
 - Other models, including retired Claude and OpenAI models, use rates from [models.dev](https://models.dev): the model maker's own price when it lists one, otherwise the middle price across providers. QuotaBar keeps them in a local cache and refreshes it at most once a day. When a price changes, earlier days keep the old rates. Models listed only for free stay unpriced. Turn this off with the **models.dev** switch in **Settings → Pricing**.
 - Fast usage (Codex priority tier and Claude Fast mode) multiplies the price book's rates by that period's Fast multiplier, including cache rates. Without a Fast multiplier, and for models priced from models.dev, Fast usage stays unpriced. Claude usage scanned before QuotaBar recorded Fast mode stays Standard.
-- Long-context rates apply when a request's input and cache tokens exceed its threshold. QuotaBar records that classification during scanning; later threshold changes do not reclassify saved usage.
+- Long-context rates apply when a request's input and cache tokens exceed its threshold. For Claude, OpenCode, and Pi requests with a saved context size, QuotaBar applies the model's threshold for the recorded day when reading usage. Codex aggregates and older requests without a saved context size keep their scan-time tier.
 
 Provider billing rules, cache accounting, and price changes can make estimates differ from an invoice. See [Maintaining the price book](docs/pricing.md) to update bundled rates and for how models.dev rates are chosen.
 
@@ -312,7 +309,7 @@ make app
 | `make run` | Build and run in the foreground. |
 | `make preview` | Open the isolated sample interface without stopping the installed app. |
 | `make card-snapshot` | Render offscreen card images to `.build/screenshots/card`. |
-| `make test` | Run core assertions and UI/policy verifiers. |
+| `make test` | Check Rust formatting, run Rust tests and Clippy, then run the Swift core and app assertions. |
 | `make probe` | Check both provider integrations. |
 | `make probe-cost` | Rescan local logs and print cost totals. |
 | `make benchmark-startup` | Measure status-item construction offline in a debug build. |
@@ -335,13 +332,13 @@ To preview interactions with sample quota and cost data, run:
 make preview
 ```
 
-Set `PREVIEW_STATE=signed-out`, `stale`, or `motion` to inspect those states; the default is `loaded`. Preview uses isolated preferences and temporary history. It does not read credentials, contact providers, or scan real logs. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
+Set `PREVIEW_STATE=signed-out`, `stale`, or `motion` to inspect those states; the default is `loaded`. The quota card and usage report show sample data. Preview keeps its own preferences and temporary usage database. **Add host** starts a real SSH sync, and **Open at login** changes the macOS login item. Choose **Quit** in the preview to clear its temporary data. Running it alongside the installed app adds a second menu bar icon.
 
 `make card-snapshot` writes offscreen card images to `.build/screenshots/card`. Set `SNAPSHOT_DIR` to write somewhere else.
 
 `make readme-assets` renders both READMEs' shared images from the current views with sample data, including the light and dark card, sign-in, and refresh-failure states. Regenerate them after changing the UI.
 
-Image generation requires ffmpeg. The report screenshot also needs Node.js and Playwright from `playwright-cli` or `PLAYWRIGHT_MODULE`. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See [report development checks](docs/usage-report.md#verification) and [rendering notes](docs/design-implementation.md).
+Image generation requires ffmpeg. For the report screenshot, run `fnm install`, `fnm use`, and `pnpm install --frozen-lockfile` in the repository root. It uses Brave by default, or the browser at `CHROMIUM_PATH`. See the [report development checks](docs/usage-report.md#verification) and [rendering notes](docs/design-implementation.md).
 
 </details>
 
@@ -363,9 +360,9 @@ The workflow packages an `arm64` ZIP and verifies its signature, version, archit
 | Provider is not signed in | Copy the command in the card, complete the CLI login, then choose **Check sign-in**. Use `make probe` for the raw error. |
 | Data is stale or refresh returns HTTP 429 | Read the warning above the saved quota. Wait for the retry countdown, then retry; a server limit may last longer than one minute. |
 | Local scan failed | Read the local usage error and choose **Retry local scan**. Confirm the CLI writes session logs to the paths above. |
-| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. Local, free, and Fast usage of models outside the price book stays unpriced. For other models, confirm the **models.dev** switch in **Settings → Pricing** is on and that models.dev lists the model. |
+| Cost shows — or a model shows No price | Check the model in **Settings → Pricing**. For Standard usage outside the price book, confirm **models.dev** is on and lists a paid rate. Fast usage needs a Fast multiplier. Pi can also use a positive cost from its session log. |
 | A date shows Not scanned yet | Wait for the local scan to finish. This means the date is not covered yet, rather than zero usage. |
-| OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Check **Settings → Pricing** for database or authentication errors. |
+| OpenCode usage is missing | Confirm OpenCode uses `openai` OAuth with the same account as Codex. Recording pauses while either account cannot be read. **Settings → Pricing** shows account mismatches, API-key exclusions, and database errors. |
 | Pi Agent usage is missing | Open the **Pi** tab and choose Refresh. Confirm the sessions are in one of the Pi Agent locations above. |
 
 ## Limitations

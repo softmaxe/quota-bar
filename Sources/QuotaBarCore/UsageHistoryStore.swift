@@ -13,6 +13,15 @@ public struct UsageHistoryRecord: Codable, Sendable {
     public let resetsAt: Date
     public let windowMinutes: Int
 
+    struct WindowKey: Hashable {
+        let resetsAt: Date
+        let windowMinutes: Int
+    }
+
+    var windowKey: WindowKey {
+        WindowKey(resetsAt: self.resetsAt, windowMinutes: self.windowMinutes)
+    }
+
     public init(
         provider: Provider,
         sampledAt: Date,
@@ -143,14 +152,7 @@ public actor UsageHistoryStore {
     ) -> UsageHistoryDataset? {
         guard !records.isEmpty else { return nil }
 
-        struct WeekKey: Hashable {
-            let resetsAt: Date
-            let windowMinutes: Int
-        }
-
-        let grouped = Dictionary(grouping: records) {
-            WeekKey(resetsAt: $0.resetsAt, windowMinutes: $0.windowMinutes)
-        }
+        let grouped = Dictionary(grouping: records, by: \.windowKey)
 
         var weeks: [UsageWeekProfile] = []
         for (key, samples) in grouped {
@@ -171,7 +173,7 @@ public actor UsageHistoryStore {
             ))
         }
 
-        let rhythm = DailyUsageRhythm.learn(from: records, timeZone: timeZone)
+        let rhythm = DailyUsageRhythm.learn(windows: grouped.values, timeZone: timeZone)
         guard !weeks.isEmpty || rhythm != nil else { return nil }
         weeks.sort { $0.resetsAt < $1.resetsAt }
         return UsageHistoryDataset(weeks: weeks, rhythm: rhythm)
@@ -211,17 +213,16 @@ public actor UsageHistoryStore {
         points.sort { $0.u == $1.u ? $0.value < $1.value : $0.u < $1.u }
 
         // Cumulative usage never decreases; a dip means a stale or reordered reading.
-        var monotone = points
         var runningMax = 0.0
-        for index in monotone.indices {
-            runningMax = max(runningMax, monotone[index].value)
-            monotone[index].value = runningMax
+        for index in points.indices {
+            runningMax = max(runningMax, points[index].value)
+            points[index].value = runningMax
         }
 
         var curve = Array(repeating: 0.0, count: gridPointCount)
         let denominator = Double(gridPointCount - 1)
-        let first = monotone[0]
-        let last = monotone[monotone.count - 1]
+        let first = points[0]
+        let last = points[points.count - 1]
         var upperIndex = 1
 
         for index in 0..<gridPointCount {
@@ -229,9 +230,9 @@ public actor UsageHistoryStore {
             if u <= first.u { curve[index] = first.value; continue }
             if u >= last.u { curve[index] = last.value; continue }
 
-            while upperIndex < monotone.count, monotone[upperIndex].u < u { upperIndex += 1 }
-            let high = monotone[min(upperIndex, monotone.count - 1)]
-            let low = monotone[max(0, upperIndex - 1)]
+            while upperIndex < points.count, points[upperIndex].u < u { upperIndex += 1 }
+            let high = points[min(upperIndex, points.count - 1)]
+            let low = points[upperIndex - 1]
             if high.u <= low.u {
                 curve[index] = max(low.value, high.value)
                 continue
@@ -244,7 +245,6 @@ public actor UsageHistoryStore {
 
     public static func normalizeReset(_ value: Date) -> Date {
         let bucket = Self.resetBucket
-        guard bucket > 0 else { return value }
         let rounded = (value.timeIntervalSinceReferenceDate / bucket).rounded() * bucket
         return Date(timeIntervalSinceReferenceDate: rounded)
     }

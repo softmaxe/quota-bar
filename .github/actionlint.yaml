@@ -1,4 +1,4 @@
-# The repository's macOS 27 SDK runner is a custom runner label.
+# GitHub hosts xcode-27, but actionlint does not yet recognize its label.
 self-hosted-runner:
   labels:
     - xcode-27

@@ -7,7 +7,7 @@ Rust/**/target/
 # Build output
 build/
 *.app
-
+node_modules/
 
 # macOS
 .DS_Store

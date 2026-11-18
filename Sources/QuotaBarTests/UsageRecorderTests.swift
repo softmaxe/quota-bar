@@ -319,19 +319,31 @@ struct RecorderFixture {
     }
 
     func writeClaudeTranscript(_ relativePath: String, lines: [String]) {
-        let file = self.claudeTranscript(relativePath)
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        self.writeLog(at: self.claudeTranscript(relativePath), lines: lines)
     }
 
     func appendClaudeTranscript(_ relativePath: String, lines: [String]) {
-        guard let handle = try? FileHandle(forWritingTo: self.claudeTranscript(relativePath)) else {
-            Harness.expect(false, "could not append to \(relativePath)")
-            return
+        self.appendLog(at: self.claudeTranscript(relativePath), lines: lines)
+    }
+
+    func writeLog(at file: URL, lines: [String]) {
+        do {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            Harness.expect(false, "could not write \(file.path): \(error)")
         }
-        defer { try? handle.close() }
-        _ = try? handle.seekToEnd()
-        try? handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+    }
+
+    func appendLog(at file: URL, lines: [String]) {
+        do {
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+        } catch {
+            Harness.expect(false, "could not append to \(file.path): \(error)")
+        }
     }
 
     func record(_ tab: UsageTab, rateCard: RateCard = RateCard()) {
