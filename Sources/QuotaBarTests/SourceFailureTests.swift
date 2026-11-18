@@ -13,7 +13,7 @@ enum SourceFailureTests {
     private static let rollout = "2026/09/01/rollout-2026-09-01T12-00-00-0199a000-0000-7000-8000-000000000103.jsonl"
 
     /// The Codex refresh still returns a cost snapshot when the Codex scan fails, and it shows
-    /// OpenCode, Pi Agent, and the Codex usage recorded before.
+    /// OpenCode and previously recorded Codex usage. Pi remains available through its own scan.
     private static func failedCodexScanStillYieldsASnapshot() async {
         let fixture = RecorderFixture(name: "failure-codex-refresh")
         defer { fixture.remove() }
@@ -123,19 +123,13 @@ enum SourceFailureTests {
         }
     }
 
-    /// OpenCode usage of 10 input tokens and Pi Agent usage of 5, both of the Codex account.
+    /// OpenCode usage from the Codex account and an independent Pi session.
     private static func writeExternalAgentUsage(_ fixture: RecorderFixture) {
         let milliseconds = Int64(Date().timeIntervalSince1970 * 1_000)
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a", created: milliseconds)
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [
             PiSessionFile.message("one", model: "gpt-5.6-terra", milliseconds: milliseconds, input: 5),
         ])
-        guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
-        db.stepFinish("part-1", created: milliseconds, model: "gpt-5.6-luna", input: 10)
-        db.close()
-        try? #"{"openai":{"type":"oauth","accountId":"account-a"}}"#.write(
-            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
     }
 
     private static var now: String { ISO8601DateFormatter().string(from: Date()) }

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Command Line Tools ship neither XCTest nor swift-testing, so the suite is a plain
-/// executable with a few assertions. `make test` runs it; a failure exits non-zero.
+/// Shared assertions for the executable run by `make test`. A failure exits nonzero.
 enum Harness {
     nonisolated(unsafe) private static var failures: [String] = []
     nonisolated(unsafe) private static var checks = 0

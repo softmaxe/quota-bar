@@ -222,9 +222,8 @@ enum UsageBackupTests {
     /// A restored disk gives the rollout a new inode. Whatever it reappears as, what it appended
     /// counts and nothing counts twice.
     private static func restoredCodexRolloutResumes() async {
-        let original = BackupFixture(name: "resume-original")
         let restored = BackupFixture(name: "resume-new")
-        defer { original.remove(); restored.remove() }
+        defer { restored.remove() }
         let lines = [
             CodexLine.turnContext(model: "gpt-5.6-sol"),
             CodexLine.tokenCount(input: 100, output: 10, total: 110),
@@ -238,9 +237,10 @@ enum UsageBackupTests {
             try? FileManager.default.removeItem(atPath: restored.logs.databaseURL.path + suffix)
         }
         restored.logs.writeCodexRollout(Self.rollout, lines: lines)
-        let fresh = BackupFixture(name: "resume-new", keeping: restored.logs)
+        let fresh = BackupFixture(keeping: restored.logs)
 
-        _ = await Self.importBackup(restored.backup, into: fresh)
+        let imported = await Self.importBackup(restored.backup, into: fresh)
+        Harness.expectEqual(imported?.added, 1, "the restored database starts empty and imports the saved rollout")
         await fresh.scan()
         Harness.expectEqual(fresh.logs.recorded(.codex)[Self.codexTier]?.input, 100, "the restored rollout is not doubled")
 
@@ -347,18 +347,24 @@ enum UsageBackupTests {
         await fixture.scan()
 
         let text = fixture.logs.root.appendingPathComponent("notes.sqlite")
-        try? Data(String(repeating: "not a database\n", count: 200).utf8).write(to: text)
         let foreign = fixture.logs.root.appendingPathComponent("foreign.sqlite")
-        try? TestDatabase(foreign).exec("CREATE TABLE notes (body TEXT)")
         let newer = fixture.logs.root.appendingPathComponent("newer.sqlite")
         await Self.export(fixture, to: newer)
-        try? TestDatabase(newer).exec("ALTER TABLE claude_message ADD COLUMN from_the_future INTEGER")
+        do {
+            try Data(String(repeating: "not a database\n", count: 200).utf8).write(to: text)
+            try TestDatabase(foreign).exec("CREATE TABLE notes (body TEXT)")
+            try TestDatabase(newer).exec("ALTER TABLE claude_message ADD COLUMN from_the_future INTEGER")
+        } catch {
+            Harness.expect(false, "could not create unusable backup fixtures: \(error)")
+            return
+        }
 
         await Self.expectRefused(text, by: fixture, "a file that is not a database")
         await Self.expectRefused(foreign, by: fixture, "another app's database")
-        await Self.expectRefused(newer, by: fixture, "a backup from a newer version")
+        await Self.expectRefused(newer, by: fixture, "a backup from a newer version", expected: UsageBackupError.newerVersion)
         await Self.expectRefused(
-            fixture.logs.root.appendingPathComponent("missing.sqlite"), by: fixture, "a file that is gone"
+            fixture.logs.root.appendingPathComponent("missing.sqlite"), by: fixture, "a file that is gone",
+            expected: CocoaError(.fileReadNoSuchFile)
         )
 
         Harness.expectEqual(fixture.logs.recorded(.claude)[Self.claudeTier]?.input, 7, "the saved usage is untouched")
@@ -399,7 +405,7 @@ enum UsageBackupTests {
         }
         await Self.export(original)
         _ = await Self.importBackup(original.backup, into: local)
-        let reopened = BackupFixture(name: "reopened", keeping: local.logs)
+        let reopened = BackupFixture(keeping: local.logs)
         await reopened.scan()
         Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 26,
                             "valid backup remains readable after reopening and scanning")
@@ -433,7 +439,7 @@ enum UsageBackupTests {
         }
         await Self.export(source)
         _ = await Self.importBackup(source.backup, into: target)
-        let reopened = BackupFixture(name: "reopened-valid-tokens", keeping: target.logs)
+        let reopened = BackupFixture(keeping: target.logs)
         await reopened.scan()
         Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 26,
                             "valid token import survives reopening")
@@ -452,7 +458,7 @@ enum UsageBackupTests {
         fixture.logs.appendClaudeTranscript("app/session.jsonl", lines: [
             ClaudeLine.assistant(id: "second", model: "claude-opus-5", input: 11, output: 3),
         ])
-        let reopened = BackupFixture(name: "reopened-corrupt", keeping: fixture.logs)
+        let reopened = BackupFixture(keeping: fixture.logs)
         await reopened.scan()
         Harness.expectEqual(reopened.logs.recorded(.claude)[Self.claudeTier]?.input, 18,
                             "an invalid existing cursor triggers a safe reparse after reopening")
@@ -465,23 +471,21 @@ enum UsageBackupTests {
         let fixture = BackupFixture(name: "pane")
         defer { fixture.remove() }
         let suite = "QuotaBarBackupTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suite) else { return }
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = EphemeralDefaults.make(suite)
+        defer { EphemeralDefaults.clear(suite) }
         fixture.logs.writeClaudeTranscript("app/session.jsonl", lines: [
             ClaudeLine.assistant(id: "msg", model: "claude-opus-5", input: 7, output: 3),
         ])
         await fixture.scan()
 
-        var scans = 0
+        var scannedTabs: Set<UsageTab> = []
         let settings = SettingsStore(defaults: defaults)
         let store = UsageStore(
             settings: settings,
             costService: fixture.service,
             fetchState: { _, _ in .signedOut("") },
-            fetchCost: { _ in
-                scans += 1
-                return nil
-            },
+            fetchCost: { scannedTabs.insert(UsageTab(provider: $0)); return nil },
+            fetchPiCost: { scannedTabs.insert(.pi); return nil },
             updateThirdPartyRates: { false },
             historyStore: UsageHistoryStore(fileURL: fixture.logs.root.appendingPathComponent("history.json")),
             recoveryDefaults: defaults
@@ -502,7 +506,7 @@ enum UsageBackupTests {
             .failed(UsageBackupError.unreadable.localizedDescription),
             "the pane says why a file was refused"
         )
-        Harness.expectEqual(scans, 0, "a refused file starts no scan")
+        Harness.expect(scannedTabs.isEmpty, "a refused file starts no scan")
 
         await model.importBackup(from: fixture.backup)
         Harness.expectEqual(
@@ -510,11 +514,8 @@ enum UsageBackupTests {
             .imported(UsageImportResult(added: 0, updated: 0)),
             "the pane reports what the import changed"
         )
-        let deadline = Date().addingTimeInterval(5)
-        while scans < Provider.allCases.count, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        Harness.expectEqual(scans, Provider.allCases.count, "an import scans every provider")
+        Harness.expect(await AsyncWait.wait { scannedTabs == Set(UsageTab.allCases) },
+                       "an import rescans every usage tab")
     }
 
     @MainActor
@@ -549,12 +550,17 @@ enum UsageBackupTests {
         Harness.expectEqual(model.summary, lastGood, "a later read failure preserves the last good summary")
     }
 
-    private static func expectRefused(_ file: URL, by fixture: BackupFixture, _ label: String) async {
+    private static func expectRefused(
+        _ file: URL, by fixture: BackupFixture, _ label: String, expected: Error = UsageBackupError.unreadable
+    ) async {
         do {
             _ = try await fixture.service.importBackup(from: file)
             Harness.expect(false, "\(label) was imported")
         } catch {
-            Harness.expect(true, "\(label) was refused")
+            let actual = error as NSError
+            let wanted = expected as NSError
+            Harness.expect(actual.domain == wanted.domain && actual.code == wanted.code,
+                           "\(label): expected \(wanted), got \(actual)")
         }
     }
 
@@ -582,11 +588,11 @@ private struct BackupFixture {
     let service: CostService
 
     init(name: String) {
-        self.init(name: "backup-\(name)", keeping: RecorderFixture(name: "backup-\(name)"))
+        self.init(keeping: RecorderFixture(name: "backup-\(name)"))
     }
 
     /// A service starting over on the logs of an earlier fixture.
-    init(name _: String, keeping logs: RecorderFixture) {
+    init(keeping logs: RecorderFixture) {
         self.logs = logs
         self.service = CostService(databaseURL: logs.databaseURL, env: logs.env, rateCard: RateCard())
     }

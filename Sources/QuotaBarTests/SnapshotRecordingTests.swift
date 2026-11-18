@@ -11,12 +11,12 @@ enum SnapshotRecordingTests {
         Self.fastRequestsAreRecordedAsFast()
         Self.ineligibleAccountIsRecordedButNotIncluded()
         Self.piSessionChangesAreDetected()
-        Self.codexProviderRecordsExternalAgents()
+        Self.codexRecordsOpenCodeAndLeavesPiForItsOwnScan()
         Self.rowsMissingFromALaterSnapshotAreKept()
         Self.nonOAuthSignInIsNotIncluded()
         Self.uncheckableSignInRecordsNothingUntilItRecovers()
         Self.openCodeSignOutKeepsHistoryAndResumesAutomatically()
-        Self.piSignOutKeepsHistoryAndResumesAutomatically()
+        Self.piRecordsWithoutSignInAndKeepsHistoryOnFailure()
         Self.excludedRowsStayExcluded()
         Self.unreadableSourceKeepsRecordedUsage()
         Self.removedSourceIsIdleAndKeepsRecordedUsage()
@@ -40,8 +40,7 @@ enum SnapshotRecordingTests {
             NSTimeZone.default = previousZone
         }
         setZone("UTC")
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("old", input: 10)])
         fixture.writeClaudeTranscript("app/session.jsonl", lines: [
             ClaudeLine.assistant(id: "old", model: "claude-opus-5", input: 10, output: 1),
@@ -124,7 +123,7 @@ enum SnapshotRecordingTests {
     private static func nonOAuthSignInIsNotIncluded() {
         let fixture = RecorderFixture(name: "snapshot-non-oauth")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         Self.signInOpenCode(fixture, #"{"openai":{"type":"api","accountId":"account-a"}}"#)
 
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
@@ -138,7 +137,7 @@ enum SnapshotRecordingTests {
     private static func uncheckableSignInRecordsNothingUntilItRecovers() {
         let fixture = RecorderFixture(name: "snapshot-uncheckable")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         Self.signInOpenCode(fixture, #"{"openai":null}"#)
 
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
@@ -158,7 +157,7 @@ enum SnapshotRecordingTests {
     private static func openCodeSignOutKeepsHistoryAndResumesAutomatically() {
         let fixture = RecorderFixture(name: "snapshot-opencode-sign-out")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         fixture.record(.codex)
         Harness.expectEqual(fixture.recorded(.codex)[Self.standard]?.input, 10, "OpenCode history is initially recorded")
 
@@ -189,8 +188,8 @@ enum SnapshotRecordingTests {
     }
 
     /// Pi usage depends on readable sessions, with no sign-in dependency.
-    private static func piSignOutKeepsHistoryAndResumesAutomatically() {
-        let fixture = RecorderFixture(name: "snapshot-pi-sign-out")
+    private static func piRecordsWithoutSignInAndKeepsHistoryOnFailure() {
+        let fixture = RecorderFixture(name: "snapshot-pi-without-auth")
         defer { fixture.remove() }
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
         fixture.record(.pi)
@@ -217,7 +216,7 @@ enum SnapshotRecordingTests {
     private static func excludedRowsStayExcluded() {
         let fixture = RecorderFixture(name: "snapshot-stay-excluded")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-b")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-b")
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
 
         Self.signInOpenCode(fixture, #"{"openai":{"type":"oauth","accountId":"account-a"}}"#)
@@ -237,7 +236,7 @@ enum SnapshotRecordingTests {
     private static func unreadableSourceKeepsRecordedUsage() {
         let fixture = RecorderFixture(name: "snapshot-unreadable")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
 
         guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
@@ -253,7 +252,6 @@ enum SnapshotRecordingTests {
     private static func removedSourceIsIdleAndKeepsRecordedUsage() {
         let fixture = RecorderFixture(name: "snapshot-removed")
         defer { fixture.remove() }
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
         fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
 
@@ -335,7 +333,7 @@ enum SnapshotRecordingTests {
     private static func ineligibleAccountIsRecordedButNotIncluded() {
         let fixture = RecorderFixture(name: "snapshot-ineligible")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-b")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-b")
 
         fixture.recorder?.record(OpenCodeAdapter(env: fixture.env), rateCard: RateCard())
 
@@ -352,7 +350,6 @@ enum SnapshotRecordingTests {
     private static func piSessionChangesAreDetected() {
         let fixture = RecorderFixture(name: "snapshot-pi-change")
         defer { fixture.remove() }
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-a")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 10)])
 
         let first = fixture.recorder?.record(PiAgentAdapter(env: fixture.env), rateCard: RateCard())
@@ -374,11 +371,10 @@ enum SnapshotRecordingTests {
     }
 
     /// Codex records OpenCode; Pi is scanned independently of Codex accounts.
-    private static func codexProviderRecordsExternalAgents() {
+    private static func codexRecordsOpenCodeAndLeavesPiForItsOwnScan() {
         let fixture = RecorderFixture(name: "snapshot-codex-provider")
         defer { fixture.remove() }
-        Self.writeOpenCodeUsage(fixture, openCodeAccount: "account-a")
-        PiSessionFile.signIn(root: fixture.root, piAccount: "account-b")
+        fixture.writeOpenCodeUsage(openCodeAccount: "account-a")
         PiSessionFile.write(root: fixture.root, "project/session.jsonl", lines: [PiSessionFile.message("one", input: 5)])
 
         fixture.record(.codex)
@@ -386,28 +382,12 @@ enum SnapshotRecordingTests {
         Harness.expectEqual(
             fixture.recorded(.codex)[Self.standard]?.input,
             10,
-            "recording Codex records OpenCode usage, and Pi Agent usage of another account is left out"
+            "the Codex tab includes OpenCode usage"
         )
+        Harness.expect(fixture.recorded(.pi).isEmpty, "a Codex scan leaves Pi sessions unrecorded")
         Harness.expectEqual(fixture.recorder?.scanStatus(of: .openCode), .idle, "OpenCode status after recording Codex")
-        Harness.expectEqual(
-            fixture.recorder?.scanStatus(of: .piAgent),
-            .idle,
-            "recording Codex leaves Pi status untouched"
-        )
-    }
-
-    private static func writeOpenCodeUsage(_ fixture: RecorderFixture, openCodeAccount: String) {
-        let codex = fixture.root.appendingPathComponent("codex")
-        try? FileManager.default.createDirectory(at: codex, withIntermediateDirectories: true)
-        try? #"{"tokens":{"account_id":"account-a"}}"#.write(
-            to: codex.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
-        guard let db = OpenCodeFixtureDatabase(at: fixture.root) else { return }
-        db.stepFinish("part-1", created: 1_788_264_000_000, model: "gpt-5.6-luna", input: 10)
-        db.close()
-        try? #"{"openai":{"type":"oauth","accountId":"\#(openCodeAccount)"}}"#.write(
-            to: db.url.deletingLastPathComponent().appendingPathComponent("auth.json"), atomically: true, encoding: .utf8
-        )
+        fixture.record(.pi)
+        Harness.expectEqual(fixture.recorded(.pi)[Self.standard]?.input, 5, "the Pi scan records the separate session")
     }
 }
 

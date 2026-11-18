@@ -27,6 +27,10 @@ final class TestDatabase {
     /// Runs `sql`, which may hold several statements. With bindings it must be one statement,
     /// and each `?` takes the next value, `nil` binding NULL.
     func exec(_ sql: String, _ bindings: String?...) throws {
+        try self.exec(sql, bindings: bindings)
+    }
+
+    func exec(_ sql: String, bindings: [String?]) throws {
         guard !bindings.isEmpty else {
             var message: UnsafeMutablePointer<CChar>?
             guard sqlite3_exec(self.db, sql, nil, nil, &message) == SQLITE_OK else {

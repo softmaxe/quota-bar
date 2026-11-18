@@ -1,4 +1,5 @@
 import Foundation
+@testable import QuotaBarApp
 
 /// The failure that stopped an app check.
 struct CheckFailure: Error, CustomStringConvertible {
@@ -22,7 +23,7 @@ enum AppCheck {
     static func waitDuringMenuTracking(until ready: () -> Bool, timeout: TimeInterval = 5) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !ready(), Date() < deadline {
-            _ = RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.01))
+            RunLoopDrain.run(for: 0.01, mode: .eventTracking)
             try? await Task.sleep(for: .milliseconds(1))
         }
         return ready()
