@@ -87,7 +87,7 @@ claude
 
 打开 QuotaBar，点击菜单栏图标，选择 Claude、Codex 或 Pi。在 [Settings](docs/images/settings-general.png) 中，可以从带实时额度的供应商卡片里选择菜单栏显示哪一个，选择刷新间隔或 **Manual**，[查看模型费率并开关 models.dev 计价](#模型费率)，或[备份已保存用量](#备份已保存用量)。
 
-未登录时，点击 **Copy command**，在终端中执行命令，登录后返回并点击 **Check sign-in**。
+未登录时，点击 **Copy** 复制命令，在终端中执行，登录后返回并点击 **Check sign-in**。
 
 QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.codex/auth.json`。Claude 凭据来自 macOS 钥匙串中的 `Claude Code-credentials` 条目。
 
@@ -103,7 +103,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 每个额度窗口显示剩余百分比和重置时间。点击重置时间并选择 **Show reset date** 或 **Show countdown**，可同时切换两个窗口的重置时间显示方式。无限额会话显示 **No limit**，额度用尽时显示 **Limit reached**。
 
-每条额度条上有一个节奏标记，表示按均匀速度此刻应剩下的位置。QuotaBar 会比较用量与已过时间。采样满几天后，周窗口会按你平时活跃的时段计时，而不是按钟点平均。会话停下来时，显示按之前速度还能用多久，而不是耗尽时刻。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
+每条额度条都有一个 **Expected remaining** 标记，表示按均匀速度此刻应剩下的位置。如果预计额度会提前耗尽，对应窗口下方会显示提醒。QuotaBar 会比较用量与已过时间。采样满几天后，周窗口会按你平时活跃的时段计时，而不是按钟点平均。会话停下来时，显示按之前速度还能用多久，而不是耗尽时刻。积累至少三个可比较的周窗口后，也会用这些历史记录估算每周节奏。额度采样保留 56 天。
 
 检测到额度重置后，打开卡片时会播放简短的额度条动画，标题显示新读数。应用遵循 macOS 的减弱动态效果设置。
 
@@ -111,7 +111,7 @@ QuotaBar 从 `$CODEX_HOME/auth.json` 读取 Codex 凭据，默认路径为 `~/.c
 
 在设置中选择手动刷新，或每 1、2、5、15、30 分钟刷新一次，默认 5 分钟。
 
-- 定时刷新、打开卡片和点击 **Refresh** 都只更新当前供应商。切换标签页时，会请求更新新选中的供应商。
+- 定时刷新和打开卡片都会请求刷新菜单栏当前显示的额度供应商。选择 Claude 或 Codex 会切换该供应商。选择 Pi 或重新打开 Pi 卡片时，应用会扫描本地 Pi 会话，菜单栏仍显示原来的额度供应商。
 - 每家额度供应商有独立的一分钟刷新冷却，服务端限流可能延长等待时间。Pi 只重新扫描本地会话，没有额度刷新冷却。
 - 手动触发 Claude 凭据恢复时可以跳过本地冷却，但仍受服务端限制。
 
@@ -157,7 +157,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 在图表上方选择 **Tokens** 或 **Cost**。图表显示最近 10 个日历日，摘要显示所选日期和最近 30 天的总计，下方小字是另一种单位的数值。
 
-悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。摘要的第一个数值跟随所选日期，未选其他日期时显示 **Today**。那一行下方的 **Cache hit** 显示当天输入中由提示缓存提供的比例，下面的条把当天 tokens 分为缓存读取、缓存写入、新输入和输出。点击图表下方那一行可展开当天的模型明细，并固定日期。每个模型前显示所用工具的图标，Fast 用量带闪电标记，下方的条表示它在当天所选单位中的占比。再次点击已固定的日期或重新打开卡片，可恢复悬停预览；切换单位会保留选中日期。
+悬停可预览某天，点击可固定日期，日期获得焦点后也可用左右方向键切换。摘要的第一个数值跟随所选日期，未选其他日期时显示 **Today**。点击图表下方的日期行可展开当天的模型明细，并固定日期。**Cache hit** 将当天的输入分为 **Cache read**（缓存命中）和 **Uncached**（未命中），悬停可查看缓存写入、新输入和输出的数量。每个模型下方的条表示它在当天所选单位中的占比，Fast 用量带闪电标记。Pi 的模型行会显示已知的上游供应商；其他来源在当天混用多种工具时显示工具名。再次点击已固定的日期或重新打开卡片，可恢复悬停预览；切换单位会保留选中日期。
 
 图表区分零用量和缺失数据：
 
@@ -168,7 +168,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 | Cost 视图中的 **—** | 已记录用量，但没有适用的费率。图表显示虚线短条。 |
 | 模型明细中的 **No price** | 该模型在当天没有费率。成本合计只包含有费率的用量，不计入它的 token。 |
 
-**Settings → Pricing** 列出每个模型的费率及其来源。未计价的通常是本地或免费模型、价格表尚未收录的新 Claude 或 OpenAI 模型，以及没有 Fast 倍率的 Fast 用量。
+**Settings → Pricing** 列出各模型可用的费率及其来源。内置价格表之外的模型也可能从 models.dev 获取费率。按费率估算 Fast 用量需要相应的 Fast 倍率。
 
 ### 数据来源
 
@@ -181,7 +181,7 @@ QuotaBar 统计本地会话日志中的 token，估算这些用量按 API 费率
 
 对于 OpenCode 的 `openai` 用量，QuotaBar 会将 OpenCode 当前的 OAuth 凭据与 Codex 账号匹配，匹配成功后计入 Codex 总计。其他供应商、API key 凭据和账号不匹配的数据不计入。这些总计不会改变额度条。
 
-Pi Agent 的用量显示在独立的 **Pi** 标签页。无论由哪个上游供应商提供、由订阅还是 API key 付费，每个请求都计入，并按模型的 API 价格计费。该标签页没有额度条。没有已知价格的模型使用 Pi 记录的费用。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
+Pi Agent 的用量显示在独立的 **Pi** 标签页。无论由哪个上游供应商提供、由订阅还是 API key 付费，每个请求都计入，并按模型的 API 价格计费。该标签页没有额度条。没有适用费率时，如果 Pi 记录了大于零的费用，QuotaBar 会采用该金额。OpenCode 历史认证方式变更的处理限制见[已知限制](#已知限制)。
 
 <p align="center">
   <img src="docs/images/pi-usage.png" width="280" alt="使用示例数据渲染的 Pi 用量卡片，展示上游供应商占比和本地用量">
@@ -189,19 +189,13 @@ Pi Agent 的用量显示在独立的 **Pi** 标签页。无论由哪个上游供
 
 ### 远程机器
 
-如需统计其他机器上的 Claude Code 和 Codex 会话，打开 **Settings → Usage**，点击 **Add host**，输入它的 SSH 主机或从 SSH 配置中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 后，只有添加主机和 **Sync now** 会发起连接。每一行都会显示上次同步时间或失败原因、日志中的用量记录数、其中新增的数量，以及复制的数据量。同步失败时可点击 **Retry**，也可以通过 **···** 菜单单独同步这台主机或停止同步。新增记录是指其他日志尚未记录过的部分，因此会话已在本机的主机即使同步成功，新增也可能很少甚至为零。机器关机只会推迟它自己的同步。
+如需统计其他机器上的 Claude Code 和 Codex 会话，打开 **Settings → Usage**，点击 **Add host**，输入它的 SSH 主机或从 SSH 配置中选择。QuotaBar 会在添加主机时、应用启动时、每 15 分钟以及点击 **Sync now** 时，通过 `ssh` 用 `rsync` 复制这台机器的 `.jsonl` 日志。关闭 **Sync automatically** 会停用启动时同步和定时同步。每一行显示同步状态和该主机关联的用量记录数。`unique` 表示首次从这台主机记录的条数，`cached` 表示日志副本目前在本机占用的空间。同步失败时可点击 **Retry**，也可以通过 **···** 菜单单独同步这台主机或停止同步。机器关机只会推迟它自己的同步。
 
 主机需要支持免交互的 SSH 密钥登录，并已安装 `rsync`。QuotaBar 读取这台机器上的 `~/.claude/projects`、`~/.config/claude/projects`、`~/.codex/sessions` 和 `~/.codex/archived_sessions`，不读取自定义的 `CLAUDE_CONFIG_DIR` 或 `CODEX_HOME` 路径。OpenCode 和 Pi Agent 仅统计本机数据。
 
 远程用量与本机用量合并到同一总计中，菜单和用量报告不按机器拆分。两边都有的会话只计一次。移除主机后不再同步，已记录的用量会保留。
 
-Remote log cache update: after a successful sync and scan, eligible local copies
-are removed once their recorded version has remained unchanged for 24 hours.
-`unique` describes this host's contribution; `cached` is the remaining local log
-size. Recorded usage stays in SQLite. Later syncs revalidate remote contents,
-skip unchanged evicted files, and resume growing sessions after their recorded
-portion. Incomplete, malformed, or unverifiable files remain cached. Remote
-originals are never deleted. See [Remote log cache](docs/remote-log-cache.md).
+成功同步并扫描后，已完整记录且至少 24 小时未变化的本地日志副本可自动清理。用量和扫描位置保存在 SQLite 中。后续同步会校验远端内容，跳过已清理且未变化的文件；会话增长时会重新下载文件，并从上次记录处继续扫描。未完成或扫描失败的文件会保留。历史内容被改写时，扫描会报错，已记录的用量会保留。清理只涉及本地副本，详见[远程日志缓存](docs/remote-log-cache.md)。
 
 ### 历史记录
 
@@ -229,11 +223,11 @@ Codex 和 Claude 从上次读到的字节继续扫描，OpenCode 和 Pi Agent �
 
 ### 计价规则
 
-- 所有成本都是按 API 公开价格的估算。
+- 有适用费率时，成本按 API 公开价格估算。Pi 请求还可能附带供应商报告或 Pi 自行估算的费用。
 - 官方当前价目表上的 Claude 和 OpenAI 模型使用内置[价格表](Sources/QuotaBarCore/Resources/Pricing/price-book.json)。价格表按生效日期分段记录费率，每天的用量使用当天的费率。
 - 其他模型（包括已退役的 Claude 和 OpenAI 模型）使用 [models.dev](https://models.dev) 的费率：模型厂商自己有报价时用厂商价，否则取各家供应商报价的中间值。QuotaBar 把这些费率缓存在本地，每天最多更新一次；价格变化后，之前的日期仍按旧费率计算。只有免费报价的模型保持未计价。可用 **Settings → Pricing** 中的 **models.dev** 开关关闭。
 - Fast 用量（Codex priority 层级和 Claude Fast mode）使用价格表中的费率乘以该时段的 Fast 倍率，缓存费率同样适用。没有 Fast 倍率的模型，以及使用 models.dev 计价的模型，其 Fast 用量保持未计价状态。QuotaBar 开始记录 Fast mode 之前扫描的 Claude 用量仍按 Standard 计价。
-- 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。QuotaBar 在扫描时记录这一归类，之后修改阈值不会重新归类已保存的用量。
+- 单次请求的输入和缓存 token 总数超过阈值时，使用长上下文费率。对于保存了请求上下文大小的 Claude、OpenCode 和 Pi 记录，QuotaBar 在读取用量时使用该模型在记录当日适用的阈值重新分档。Codex 汇总记录和缺少请求上下文大小的旧记录保留扫描时的档位。
 
 供应商计费规则、缓存计算方式和价格变化，都可能让估算结果与账单不同。更新内置费率的方法以及 models.dev 费率的选取方式见[维护价格表](docs/pricing.md)。
 
@@ -265,13 +259,7 @@ QuotaBar 会读取 CLI 凭据和本地会话记录，不会写入 CLI 的凭据�
 
 统计会使用时间、模型、token 数量、记录 ID，以及匹配 OAuth 会话所需的账号 ID。QuotaBar 不会将提示词、回复和推理文本写入用量历史或上传。
 
-[Remote machines](#远程机器) connect over SSH and copy complete session logs,
-including possible prompts and responses, into a directory only this user can
-read. QuotaBar sends sync commands and content-validation requests, without
-uploading conversation contents. Eligible old local copies are cleaned up after
-recording; recent or unverified copies may remain after removing a host. Delete
-`cost-usage/remote-logs` to remove remaining copies; recorded usage stays. The
-Usage database size excludes these cached JSONL files.
+添加[远程机器](#远程机器)后，QuotaBar 会通过 SSH 将完整会话日志复制到仅当前用户可读的目录。日志中可能包含提示词和回复。QuotaBar 向主机发送同步命令和内容校验请求，不会上传对话内容。记录用量后，符合条件的旧副本会自动清理；移除主机后，新近或尚未校验的副本可能保留。删除 `cost-usage/remote-logs` 可清除剩余副本，已记录的用量仍在数据库中。用量数据库显示的大小不包含这些 JSONL 缓存。
 
 <details>
 <summary>本地存储路径</summary>
@@ -294,7 +282,7 @@ Codex 额度请求会使用 `$CODEX_HOME/config.toml` 中的 `chatgpt_base_url`�
 
 构建需要完整的 Xcode 及 Swift 6 工具链。项目使用 Swift Package Manager。`Scripts/swift.sh` 默认使用 `/Applications/Xcode.app/Contents/Developer`，不会修改全局 `xcode-select` 设置。
 
-Rust kernels also require `rustup` and the toolchain pinned in `rust-toolchain.toml`. Install rustup with `brew install rustup` and add its `bin` directory to PATH as Homebrew instructs. Use `make` or `Scripts/swift.sh` for builds: the wrapper builds the matching Cargo profile, links the static library, and invalidates SwiftPM's cache when Rust changes. Bare `swift build` and opening the package directly in Xcode do not run this integration. Prebuilt app users do not need Rust. See [Rust core boundaries and validation](docs/rust-migration.md).
+从源码构建还需要 `rustup` 和 `rust-toolchain.toml` 指定的工具链。运行 `brew install rustup`，再按 Homebrew 提示将其 `bin` 目录加入 `PATH`。使用 `make` 或 `Scripts/swift.sh` 构建，脚本会按对应的 Cargo 配置编译并链接 Rust 静态库，Rust 代码变化时也会刷新 SwiftPM 缓存。直接运行 `swift build` 或在 Xcode 中打开包会跳过这些步骤。使用预编译应用无需安装 Rust。详见 [Rust 核心模块与验证](docs/rust-migration.md)。
 
 发布工作流要求 macOS 27 SDK，以支持 macOS 27 的原生菜单栏会话。使用较旧 SDK 的本地构建会采用旧版菜单栏处理方式。最低运行系统仍为 macOS 14。
 
@@ -321,7 +309,7 @@ make app
 | `make run` | 构建并在前台运行。 |
 | `make preview` | 打开隔离的示例界面，不会停止已安装的应用。 |
 | `make card-snapshot` | 将离屏卡片图生成到 `.build/screenshots/card`。 |
-| `make test` | 运行核心断言和界面、行为规则验证。 |
+| `make test` | 检查 Rust 格式，运行 Rust 测试和 Clippy，再运行 Swift 核心与应用断言。 |
 | `make probe` | 检查两家供应商的集成。 |
 | `make probe-cost` | 重新扫描本地日志并输出成本总计。 |
 | `make benchmark-startup` | 使用调试版本，离线测量菜单栏项目的创建耗时。 |
@@ -344,13 +332,13 @@ make app
 make preview
 ```
 
-设置 `PREVIEW_STATE=signed-out`、`stale` 或 `motion` 可以查看对应状态；默认是 `loaded`。预览使用隔离的偏好设置和临时历史记录，不读取凭据、不请求供应商接口，也不扫描真实日志。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
+设置 `PREVIEW_STATE=signed-out`、`stale` 或 `motion` 可以查看对应状态；默认是 `loaded`。额度卡片和用量报告使用示例数据。预览有独立的偏好设置和临时用量数据库。**Add host** 会启动真实的 SSH 同步，**Open at login** 会修改 macOS 登录项。通过预览中的 **Quit** 清理临时数据。与已安装的应用同时运行时，菜单栏会多出一个图标。
 
 `make card-snapshot` 会将离屏卡片图写到 `.build/screenshots/card`；设置 `SNAPSHOT_DIR` 可以改写到其他位置。
 
 `make readme-assets` 使用当前视图和示例数据，重新生成两版 README 共用的图片，包括深浅色卡片、登录和刷新失败状态。修改界面后应同步生成图片。
 
-生成图片需要 ffmpeg。报告截图还需要 Node.js，以及通过 `playwright-cli` 或 `PLAYWRIGHT_MODULE` 提供的 Playwright。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report.md#verification)和[渲染说明](docs/design-implementation.md)。
+生成图片需要 ffmpeg。生成报告截图前，在仓库根目录依次运行 `fnm install`、`fnm use` 和 `pnpm install --frozen-lockfile`。默认使用 Brave，也可通过 `CHROMIUM_PATH` 指定浏览器。详见[报告开发验证](docs/usage-report.md#verification)和[渲染说明](docs/design-implementation.md)。
 
 </details>
 
@@ -372,9 +360,9 @@ make preview
 | 供应商显示未登录 | 复制卡片中的命令，完成 CLI 登录后点击 **Check sign-in**。使用 `make probe` 查看原始错误。 |
 | 数据过期或刷新返回 HTTP 429 | 查看已保存额度上方的警告，等待倒计时结束后重试。服务端限制可能超过一分钟。 |
 | 本地扫描失败 | 查看本地用量区域的错误，点击 **Retry local scan**。确认 CLI 正在向上面的路径写入会话日志。 |
-| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。本地模型、免费模型，以及价格表之外模型的 Fast 用量，都保持未计价。其他模型请确认 **Settings → Pricing** 中的 **models.dev** 开关已开启，且 models.dev 收录了该模型。 |
+| 成本显示 — 或模型显示 No price | 在 **Settings → Pricing** 中查看该模型。内置价格表之外的 Standard 用量需要开启 **models.dev**，且其中有该模型的付费费率。按费率估算 Fast 用量需要 Fast 倍率。Pi 也可以采用其会话日志中大于零的费用。 |
 | 日期显示 Not scanned yet | 等待本地扫描完成。这表示该日期尚未被扫描覆盖，不代表零用量。 |
-| 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。在 **Settings → Pricing** 查看数据库或认证错误。 |
+| 缺少 OpenCode 用量 | 确认 OpenCode 使用 `openai` OAuth，且账号与 Codex 相同。任一账号信息无法读取时会暂停记录。**Settings → Pricing** 会显示账号不匹配、使用 API key 而被排除以及数据库错误。 |
 | 缺少 Pi Agent 用量 | 打开 **Pi** 标签页并选择 Refresh。确认会话位于上面列出的 Pi Agent 路径之一。 |
 
 ## 已知限制

@@ -191,5 +191,4 @@ standard library. Invoke it through `uv run --no-project python`, as shown in
 Launch and Doctor. `--help` lists its two commands. It deliberately wraps the
 repository's native verifier rather than recreating its assertions.
 
-Keep the feature map current with `/maintain-verification-skill` when app paths or
-verification preconditions change.
+Update the feature map when app paths or verification preconditions change.

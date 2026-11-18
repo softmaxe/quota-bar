@@ -27,7 +27,7 @@ Preconditions:
 - **Import.** Choose `Import…`; confirm the file panel is `Import Usage Backup`, select the synthetic backup, and choose `Import`. Capture the result and changed saved-record count. Repeat import and verify no duplicate records are added.
 - **Export.** With saved records present, choose `Export…` and save inside the evidence directory. Its suggested name is `QuotaBar-Backup-YYYY-MM-DD.sqlite`. Verify the file exists, is readable SQLite, passes a read-only integrity check, and contains the expected records; retain the file after cleanup.
 - **Add/cancel.** Choose `Add host`, resolve field `SSH host or alias` (placeholder `Search hosts or type devbox`), type the isolated host, then choose `Cancel`; no host row should be added.
-- **Add/sync.** Repeat and choose `Add`. Capture syncing followed by the host's recorded/new counts and copied bytes. Independently confirm the expected synthetic records reached the scratch database and mirrored logs stay under the owned scratch directory.
+- **Add/sync.** Repeat and choose `Add`. Capture syncing followed by the host's record count, unique contribution, and remaining cache size. Confirm the expected synthetic records reached the scratch database and any retained logs are under the owned scratch directory.
 - **Other sync entries.** Exercise `Sync now`, `Actions for <host>` → `Sync this host`, and `Retry` on a deliberately failed host separately. Each must complete or display an actionable failure.
 - **Remove.** Choose `Actions for <host>` → `Stop syncing`; its source row disappears while saved records remain.
 
