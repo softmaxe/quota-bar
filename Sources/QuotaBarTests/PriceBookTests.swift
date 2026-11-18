@@ -9,6 +9,7 @@ enum PriceBookTests {
         Self.reportsStaleSources()
         Self.publishedRates()
         Self.novemberPublishedRates()
+        Self.november17OpenAIRates()
         Self.rejectsMalformedBooks()
     }
 
@@ -322,6 +323,40 @@ enum PriceBookTests {
                 fast ? regular.scaled(by: 2) : regular,
                 "gpt-5.6-sol resumes regular rates on December 1, including Fast and long context"
             )
+        }
+    }
+
+    private static func november17OpenAIRates() {
+        let book = PriceBook.bundled
+        let astra = ModelPricing(
+            input: 8, output: 40, cacheWrite: 10, cacheRead: 0.4, thresholdTokens: 272_000,
+            inputAbove: 16, outputAbove: 60, cacheWriteAbove: 20, cacheReadAbove: 0.8
+        )
+        let sol = ModelPricing(
+            input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1, thresholdTokens: 272_000,
+            inputAbove: 4, outputAbove: 15, cacheWriteAbove: 5, cacheReadAbove: 0.2
+        )
+        for (id, expected) in [("gpt-6.2-astra", astra), ("gpt-6.2-sol", sol)] {
+            Harness.expectEqual(book.rates(for: id, provider: .codex, day: "2026-11-17"), expected,
+                                "\(id) Standard rates at launch")
+            Harness.expectEqual(book.rates(for: id, provider: .codex, day: "2026-11-17", fast: true),
+                                expected.scaled(by: 2), "\(id) Fast rates at launch")
+        }
+        let rosalind = ModelPricing(
+            input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1, thresholdTokens: 272_000,
+            inputAbove: 20, outputAbove: 75, cacheWriteAbove: 25, cacheReadAbove: 2
+        )
+        Harness.expectEqual(book.rates(for: "gpt-6-rosalind", provider: .codex, day: "2026-11-16"),
+                            rosalind.scaled(by: 1.5), "Rosalind retains its pre-promotion rates")
+        let law = ModelPricing(
+            input: 10, output: 50, cacheRead: 1, thresholdTokens: 272_000,
+            inputAbove: 20, outputAbove: 75, cacheReadAbove: 2
+        )
+        for (id, expected) in [("gpt-6-rosalind", rosalind), ("gpt-6-astra-law", law), ("gpt-6.2-astra-law", astra)] {
+            Harness.expectEqual(book.rates(for: id, provider: .codex, day: "2026-11-17"), expected,
+                                "\(id) promotional rates include the published long-context tier")
+            Harness.expect(book.rates(for: id, provider: .codex, day: "2026-11-17", fast: true) == nil,
+                           "\(id) has no published Fast rates")
         }
     }
 
