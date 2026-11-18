@@ -1,0 +1,12 @@
+{
+  "name": "quotabar-report-tools",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "report:image": "node Scripts/report_image.mjs",
+    "report:verify": "node Scripts/verify_usage_report.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.1"
+  }
+}

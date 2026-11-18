@@ -84,6 +84,22 @@ jobs:
         if: ${{ needs.changes.outputs.build == 'true' }}
         run: make test
 
+      - name: Verify the offline usage report
+        if: ${{ needs.changes.outputs.build == 'true' && matrix.os == 'macos-15' }}
+        env:
+          CHROMIUM_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          set -euo pipefail
+          command -v fnm >/dev/null || brew install fnm
+          eval "$(fnm env --shell bash)"
+          fnm install
+          fnm use
+          corepack pnpm install --frozen-lockfile
+          make build
+          .build/debug/QuotaBar --dump-usage-report "$RUNNER_TEMP/report"
+          corepack pnpm run report:verify --file "$RUNNER_TEMP/report/usage-report.html" --output "$RUNNER_TEMP/report/checks"
+
       # Release tags are permanent, so a broken packaging script must fail here, not on a tag.
       - name: Package app
         if: ${{ needs.changes.outputs.build == 'true' && matrix.os == 'xcode-27' }}
