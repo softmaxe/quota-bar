@@ -44,24 +44,22 @@ public struct DailyUsageRhythm: Sendable, Equatable {
         from records: [UsageHistoryRecord],
         timeZone: TimeZone = .current
     ) -> DailyUsageRhythm? {
+        let windows = Dictionary(grouping: records, by: \.windowKey)
+        return Self.learn(windows: windows.values, timeZone: timeZone)
+    }
+
+    static func learn(windows: some Sequence<[UsageHistoryRecord]>, timeZone: TimeZone) -> DailyUsageRhythm? {
         var usage = Array(repeating: 0.0, count: 24)
         var exposure = Array(repeating: 0.0, count: 24)
 
-        struct WindowKey: Hashable {
-            let resetsAt: Date
-            let windowMinutes: Int
-        }
-        let windows = Dictionary(grouping: records) {
-            WindowKey(resetsAt: $0.resetsAt, windowMinutes: $0.windowMinutes)
-        }
-        for samples in windows.values {
+        for samples in windows {
             let ordered = samples.sorted { $0.sampledAt < $1.sampledAt }
             for (earlier, later) in zip(ordered, ordered.dropFirst()) {
                 let gap = later.sampledAt.timeIntervalSince(earlier.sampledAt)
                 guard gap > 0 else { continue }
                 let rise = max(0, later.usedPercent - earlier.usedPercent)
                 if rise > 0, gap > Self.maximumRisingGap { continue }
-                Self.forEachHour(from: earlier.sampledAt, to: later.sampledAt, timeZone: timeZone) { hour, seconds in
+                Self.forEachHourSegment(from: earlier.sampledAt, to: later.sampledAt, timeZone: timeZone) { hour, seconds, _ in
                     exposure[hour] += seconds
                     // Spread evenly: the samples cannot say when within the gap it was used.
                     usage[hour] += rise * seconds / gap
@@ -88,9 +86,8 @@ public struct DailyUsageRhythm: Sendable, Equatable {
 
     /// Clock time between two dates, weighted by how active each hour usually is.
     public func activeSeconds(from start: Date, to end: Date) -> TimeInterval {
-        guard end > start else { return 0 }
         var total = 0.0
-        Self.forEachHour(from: start, to: end, timeZone: self.timeZone) { hour, seconds in
+        Self.forEachHourSegment(from: start, to: end, timeZone: self.timeZone) { hour, seconds, _ in
             total += self.hourlyWeights[hour] * seconds
         }
         return total
@@ -116,17 +113,6 @@ public struct DailyUsageRhythm: Sendable, Equatable {
     }
 
     // MARK: - Hour segments
-
-    private static func forEachHour(
-        from start: Date,
-        to end: Date,
-        timeZone: TimeZone,
-        _ body: (_ hour: Int, _ seconds: TimeInterval) -> Void
-    ) {
-        Self.forEachHourSegment(from: start, to: end, timeZone: timeZone) { hour, seconds, _ in
-            body(hour, seconds)
-        }
-    }
 
     /// Splits [start, end) at local hour boundaries and reports each piece's hour of day.
     private static func forEachHourSegment(
