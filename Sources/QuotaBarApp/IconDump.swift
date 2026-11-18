@@ -21,8 +21,8 @@ enum IconDump {
             )
             let url = root.appendingPathComponent("\(entry.name).png")
             guard Self.writePNG(image, to: url) else {
-                print("failed to write \(url.path)")
-                continue
+                fputs("failed to write \(url.path)\n", stderr)
+                exit(1)
             }
             print("wrote \(url.path)")
         }

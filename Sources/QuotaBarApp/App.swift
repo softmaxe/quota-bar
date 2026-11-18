@@ -40,14 +40,9 @@ public enum QuotaBarLaunch {
 #if DEBUG
         let arguments = CommandLine.arguments
 
-        /// `--flag <value>...`: the `count` arguments after `flag`, when the caller passed that
-        /// many. Nil for a flag that is absent or short of its arguments, which leaves the app to
-        /// launch normally rather than acting on half a request.
-        func values(after flag: String, count: Int) -> [String]? {
-            guard let index = arguments.firstIndex(of: flag), index + count < arguments.count else {
-                return nil
-            }
-            return Array(arguments[(index + 1)...(index + count)])
+        func value(after flag: String) -> String? {
+            guard let index = arguments.firstIndex(of: flag) else { return nil }
+            return arguments.dropFirst(index + 1).first
         }
 
         // Manual checks that need the real menu bar, and the README asset dumps, are launch
@@ -66,11 +61,11 @@ public enum QuotaBarLaunch {
             UsageReportDumps.previewLiveWindow()
         }
 
-        if let state = values(after: "--preview-interface", count: 1)?.first {
+        if let state = value(after: "--preview-interface") {
             InterfacePreview.run(state: state)
         }
 
-        // `Scripts/readme_assets.sh` drives these. Each writes its frames and exits.
+        // Documentation and development captures each accept one output directory.
         let dumps: [(flag: String, run: @MainActor (String) -> Void)] = [
             ("--dump-interaction-states", CardDump.dumpInteractionStates),
             ("--dump-icons", IconDump.run),
@@ -80,7 +75,7 @@ public enum QuotaBarLaunch {
             ("--dump-usage-window", UsageReportDumps.dumpUsageWindow),
         ]
         for dump in dumps {
-            if let directory = values(after: dump.flag, count: 1)?[0] {
+            if let directory = value(after: dump.flag) {
                 dump.run(directory)
                 return
             }

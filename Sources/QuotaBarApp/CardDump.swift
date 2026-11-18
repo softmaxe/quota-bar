@@ -208,7 +208,8 @@ enum CardDump {
         case let .written(url):
             print("wrote \(url.path) (\(Int(hosting.frame.width))x\(Int(hosting.frame.height)))")
         case let .failed(reason):
-            print(reason)
+            fputs("\(reason)\n", stderr)
+            exit(1)
         }
     }
 

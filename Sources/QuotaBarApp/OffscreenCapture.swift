@@ -6,9 +6,7 @@ import AppKit
 /// to build its view and name its file.
 @MainActor
 enum OffscreenCapture {
-    /// The real card sits on the menu's vibrant material, so the dumps are forced dark. But
-    /// `cacheDisplay` paints no window background, so the render also needs an opaque ground of its
-    /// own — without one the dark-mode text comes out white on white.
+    /// Opaque ground for dark captures. `cacheDisplay` omits the window background.
     private static let ground = NSColor(white: 0.13, alpha: 1)
 
     enum Outcome {
@@ -92,7 +90,12 @@ enum OffscreenCapture {
     /// `<dir>` as the dumps take it: tilde-expanded and created if it is not there yet.
     nonisolated static func directory(_ path: String) -> URL {
         let root = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            fputs("Could not create capture directory \(root.path): \(error.localizedDescription)\n", stderr)
+            exit(1)
+        }
         return root
     }
 }
