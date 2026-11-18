@@ -16,32 +16,28 @@ let package = Package(
         .target(
             name: "QuotaBarCore",
             dependencies: ["CQuotaBarRust"],
-            resources: [.copy("Resources/UsageReport"), .copy("Resources/Pricing")],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            resources: [.copy("Resources/UsageReport"), .copy("Resources/Pricing")]
         ),
         // Menu bar UI, as a library so the test runner can drive it.
         .target(
             name: "QuotaBarApp",
-            dependencies: ["QuotaBarCore"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["QuotaBarCore"]
         ),
         // The app's entry point, and nothing else.
         .executableTarget(
             name: "QuotaBar",
-            dependencies: ["QuotaBarApp"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["QuotaBarApp"]
         ),
         // Headless probe: prints what the providers return. Debugging aid, not shipped.
         .executableTarget(
             name: "QuotaBarProbe",
-            dependencies: ["QuotaBarCore"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["QuotaBarCore"]
         ),
         // Core and app regression checks use a plain assertion executable.
         .executableTarget(
             name: "QuotaBarTests",
-            dependencies: ["QuotaBarCore", "QuotaBarApp"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["QuotaBarCore", "QuotaBarApp"]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
