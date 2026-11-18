@@ -3,8 +3,36 @@
   "providers": {
     "codex": {
       "source": "https://developers.openai.com/api/docs/pricing",
-      "checkedAt": "2026-11-11",
+      "checkedAt": "2026-11-19",
       "models": [
+        {
+          "id": "gpt-6.2-astra",
+          "showInSettings": true,
+          "periods": [
+            {
+              "rates": {
+                "input": 8, "output": 40, "cacheWrite": 10, "cacheRead": 0.4,
+                "thresholdTokens": 272000,
+                "inputAbove": 16, "outputAbove": 60, "cacheWriteAbove": 20, "cacheReadAbove": 0.8
+              },
+              "fastMultiplier": 2
+            }
+          ]
+        },
+        {
+          "id": "gpt-6.2-sol",
+          "showInSettings": true,
+          "periods": [
+            {
+              "rates": {
+                "input": 2, "output": 10, "cacheWrite": 2.5, "cacheRead": 0.1,
+                "thresholdTokens": 272000,
+                "inputAbove": 4, "outputAbove": 15, "cacheWriteAbove": 5, "cacheReadAbove": 0.2
+              },
+              "fastMultiplier": 2
+            }
+          ]
+        },
         {
           "id": "gpt-6-astra",
           "showInSettings": true,
@@ -198,13 +226,21 @@
         },
         {
           "id": "gpt-6-rosalind",
-          "note": "Life-sciences model, limited to approved research.",
+          "note": "OpenAI first listed the promotional rates on 2026-11-17 and guarantees them at least through 2026-12-31.",
           "periods": [
             {
               "rates": {
                 "input": 15, "output": 75, "cacheWrite": 18.75, "cacheRead": 1.5,
                 "thresholdTokens": 272000,
                 "inputAbove": 30, "outputAbove": 112.5, "cacheWriteAbove": 37.5, "cacheReadAbove": 3
+              }
+            },
+            {
+              "from": "2026-11-17",
+              "rates": {
+                "input": 10, "output": 50, "cacheWrite": 12.5, "cacheRead": 1,
+                "thresholdTokens": 272000,
+                "inputAbove": 20, "outputAbove": 75, "cacheWriteAbove": 25, "cacheReadAbove": 2
               }
             }
           ]
@@ -224,10 +260,31 @@
           ]
         },
         {
-          "id": "gpt-6-astra-law",
-          "note": "Legal model configuration. Promotional pricing is available at least through 2026-12-31; no confirmed end date or subsequent rates. No published cache-write, long-context, or Fast rates.",
+          "id": "gpt-6.2-astra-law",
+          "note": "Promotional rates apply at least through 2026-12-31.",
           "periods": [
-            { "rates": { "input": 10, "output": 50, "cacheRead": 1 } }
+            {
+              "rates": {
+                "input": 8, "output": 40, "cacheWrite": 10, "cacheRead": 0.4,
+                "thresholdTokens": 272000,
+                "inputAbove": 16, "outputAbove": 60, "cacheWriteAbove": 20, "cacheReadAbove": 0.8
+              }
+            }
+          ]
+        },
+        {
+          "id": "gpt-6-astra-law",
+          "note": "Promotional rates apply at least through 2026-12-31. The 2026-11-17 price list includes a long-context tier.",
+          "periods": [
+            { "rates": { "input": 10, "output": 50, "cacheRead": 1 } },
+            {
+              "from": "2026-11-17",
+              "rates": {
+                "input": 10, "output": 50, "cacheRead": 1,
+                "thresholdTokens": 272000,
+                "inputAbove": 20, "outputAbove": 75, "cacheReadAbove": 2
+              }
+            }
           ]
         },
         {
@@ -240,7 +297,7 @@
     },
     "claude": {
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "checkedAt": "2026-11-11",
+      "checkedAt": "2026-11-19",
       "models": [
         {
           "id": "claude-fable-5-2",

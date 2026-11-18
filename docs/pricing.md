@@ -10,7 +10,7 @@ Claude and OpenAI models that are on their makers' current price lists and still
   "providers": {
     "codex": {
       "source": "https://developers.openai.com/api/docs/pricing",
-      "checkedAt": "2026-08-26",
+      "checkedAt": "2026-11-19",
       "models": [
         {
           "id": "gpt-5.6-sol",
@@ -23,7 +23,7 @@ Claude and OpenAI models that are on their makers' current price lists and still
                          "thresholdTokens": 272000, "inputAbove": 8, "outputAbove": 30 },
               "fastMultiplier": 2
             },
-            { "from": "2026-11-22", "rates": { "input": 5, "output": 30 } }
+            { "from": "2026-12-01", "rates": { "input": 5, "output": 30 } }
           ]
         }
       ]
@@ -44,8 +44,8 @@ A model has these keys:
 A period has these keys:
 
 - `from` is the first Gregorian day in the local time zone (`yyyy-MM-dd`) the rates apply to, regardless of the system calendar. Recording and query bounds use the same day keys. The first period has no `from` and covers every earlier day. Later periods need one, in ascending order.
-- `rates` are USD per million tokens. `input` and `output` are required. `cacheWrite` is the five-minute rate. Leave `cacheWrite1h` out when it is 2x input, which is Anthropic's published ratio. Rates ending in `Above` need `thresholdTokens`. The third-party rates cache uses the same keys and rules.
-- `fastMultiplier` prices Fast usage as that multiple of every rate in the period, cache rates included. It covers Codex's priority tier and Claude's Fast mode (`usage.speed: "fast"` in Claude Code transcripts). Leave it out and Fast usage of the model stays unpriced. Use `1` for a model that accepts Fast requests but bills them at Standard rates, such as Claude Opus 4.6.
+- `rates` are USD per million tokens. `input` and `output` are required. `cacheWrite` is the five-minute Claude rate or the 30-minute OpenAI rate. The book does not distinguish OpenAI's 12-hour writes. Leave `cacheWrite1h` out when it is 2x input, which is Anthropic's published ratio. Rates ending in `Above` need `thresholdTokens`. The third-party rates cache uses the same keys and rules.
+- `fastMultiplier` prices Fast usage as that multiple of every rate in the period, cache rates included. It covers Codex's Fast (priority) tier and Claude's Fast mode (`usage.speed: "fast"` in Claude Code transcripts). Leave it out and Fast usage of the model stays unpriced. Use `1` for a model that accepts Fast requests but bills them at Standard rates, such as Claude Opus 4.6. Codex logs marked Ultrafast currently resolve to Standard because the usage store distinguishes only Standard and Fast.
 
 ## Common changes
 
@@ -65,7 +65,7 @@ After any edit, update `checkedAt` for the provider or model you compared, then 
 make test
 ```
 
-`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It pins historical rates on 2026-09-25, the additions checked on 2026-11-11, and the GPT-5.6 Sol promotion ending on 2026-11-30, including Fast and long-context rates. Editing an old period fails; adding a new period does not. It prints a note when a provider was last checked more than 45 days ago.
+`PriceBookTests` loads the bundled book and fails on unknown keys, missing rates, unordered periods, duplicate names, or a listed model with no price today. It pins historical rates on 2026-09-25, the November additions, the 2026-11-17 Rosalind and Astra for Law rate changes, and the GPT-5.6 Sol promotion ending on 2026-11-30, including Fast and long-context rates. Editing an old period fails; adding a new period does not. It prints a note when a provider was last checked more than 45 days ago.
 
 ## Models outside the book
 
