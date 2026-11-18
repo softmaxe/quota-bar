@@ -28,17 +28,33 @@ package struct OpenCodeAdapter: SnapshotAdapter {
     private var databaseURL: URL { self.dataDirectory.appendingPathComponent("opencode.db") }
 
     package func survey() -> SnapshotSurvey<Stamp> {
-        let survey = ExternalAgentEligibility.survey(
-            installedAt: self.databaseURL,
-            authFile: self.dataDirectory.appendingPathComponent("auth.json"),
-            entry: "openai",
-            env: self.env,
-            stamp: self.stamp
-        )
-        // OpenCode can remain installed after sign-out. Keep recorded history quietly and
-        // recheck its sign-in on the next refresh so recording resumes automatically.
-        if case .failed(.auth) = survey { return .skipped }
-        return survey
+        guard FileManager.default.fileExists(atPath: self.databaseURL.path) else { return .absent }
+        guard let status = self.accountStatus() else { return .skipped }
+        return .present(stamp: self.stamp(), included: status == .idle, status: status)
+    }
+
+    private struct AuthFile: Decodable {
+        struct SignIn: Decodable {
+            let type: String?
+            let accountId: String?
+        }
+
+        let openai: SignIn?
+    }
+
+    /// A missing or unreadable sign-in pauses recording until it can be checked again.
+    private func accountStatus() -> ExternalAgentScanStatus? {
+        do {
+            let data = try Data(contentsOf: self.dataDirectory.appendingPathComponent("auth.json"))
+            let codexAccount = try CodexCredentialsStore.accountId(env: self.env)
+            guard let signIn = try JSONDecoder().decode(AuthFile.self, from: data).openai else { return nil }
+            guard signIn.type?.lowercased() == "oauth" else { return .nonOAuth }
+            guard let account = signIn.accountId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !account.isEmpty, let codexAccount, !codexAccount.isEmpty else { return nil }
+            return account == codexAccount ? .idle : .accountMismatch
+        } catch {
+            return nil
+        }
     }
 
     package func requests() throws -> [ObservedRequest] {

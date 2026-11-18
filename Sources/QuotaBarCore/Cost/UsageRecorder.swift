@@ -34,8 +34,6 @@ package struct ObservedRequest: Equatable {
 /// Why a Usage source could not be recorded this pass. Its raw value is the reason its scan
 /// status reports.
 package enum ScanFailure: String {
-    /// The source's sign-in could not be checked against the Codex account.
-    case auth
     /// The source's session files could not be listed or read.
     case sessions
     /// A database could not be opened or written.
@@ -222,7 +220,6 @@ private struct RecordedRow {
     let longContext: Bool
     let isFast: Bool
     let tokens: TokenTotals
-    var piRequest: ObservedRequest? = nil
 
     // The one-hour cache-write count is already part of cacheWrite; output never sets the tier.
     var contextInput: Int? {
@@ -289,7 +286,9 @@ extension UsageRecorder {
     }
 
     /// Merges a request from a snapshot. `included` is written only when the row is first seen.
-    private func merge(_ row: RecordedRow, from source: SnapshotSource, included: Bool) throws {
+    private func merge(_ request: ObservedRequest, from source: SnapshotSource, included: Bool, rateCard: RateCard) throws {
+        let provider = source.usageSource.pricingProvider(model: request.model ?? "", upstreamProvider: request.upstreamProvider)
+        let row = Self.row(for: request, provider: provider, rateCard: rateCard)
         switch source {
         case .openCode:
             // One row per part, rewritten only when its content changes. `included` is written
@@ -312,9 +311,8 @@ extension UsageRecorder {
                 day: row.day,
                 model: row.model,
                 longContext: row.longContext,
-                totals: row.tokens,
                 contextInput: row.contextInput,
-                request: row.piRequest
+                request: request
             )
         }
     }
@@ -372,8 +370,8 @@ package protocol AppendedLogAdapter {
     var source: AppendedLogSource { get }
     /// Every log file to consider this pass.
     func logFiles(onError: @escaping (Error) -> Void) -> [URL]
-    /// A byte-level prefilter run before a line is parsed. It sees at most a long line's first
-    /// 64KB, so it may reject a prefix only when it would reject every line starting with it.
+    /// A byte-level prefilter run before a line is parsed. It can see an incomplete prefix of
+    /// a long line, so it may reject a prefix only when it would reject every line starting with it.
     func isWanted(_ line: UnsafeRawBufferPointer) -> Bool
     /// A parser positioned at `offset` of `file`. `savedState` is what a parser's `savedState`
     /// returned when the cursor was last saved at that offset; it is nil when the file is read from
@@ -426,8 +424,9 @@ extension UsageRecorder {
         let versions = Dictionary(uniqueKeysWithValues: try self.cache.remoteVersions().map { ($0.path, $0) })
         var touched = 0
         for url in files {
-            if let host = RemoteLogMirror.host(ofLog: url.path), self.busyRemoteHosts.contains(host) { continue }
             let filePath = url.path
+            let mirrorHost = RemoteLogMirror.host(ofLog: filePath)
+            if let mirrorHost, self.busyRemoteHosts.contains(mirrorHost) { continue }
             let sessionID = adapter.sessionID(path: filePath)
             // Rows and cursor stay under the path a session was first stored at, so a moved or
             // copied log continues that session instead of counting it again.
@@ -435,7 +434,8 @@ extension UsageRecorder {
             if let host = RemoteLogMirror.host(ofLog: path), self.busyRemoteHosts.contains(host) { continue }
             let previous = self.cache.cursor(forPath: path)
             let version = versions[path]
-            let isRemote = RemoteLogMirror.host(ofLog: filePath) != nil
+            let isRemote = mirrorHost != nil
+            let verifyMirror = isRemote || version != nil
             if path != filePath, sessionID != nil, let previous,
                let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
                Int64(size) < previous.size { continue }
@@ -477,11 +477,9 @@ extension UsageRecorder {
                 }
                 continue
             }
-            let mirrorHost = RemoteLogMirror.host(ofLog: filePath)
-
             try self.cache.beginTransaction()
             do {
-                let beforeDigest = isRemote || version != nil
+                let beforeDigest = verifyMirror
                     ? try LogFileScanner.prefixDigest(of: url, byteCount: plan.cursor.size) : nil
                 if plan.requiresFullReparse, source.dropsRowsOnRewrite {
                     try self.cache.forget(path: path)
@@ -497,12 +495,13 @@ extension UsageRecorder {
                     of: url,
                     from: plan.cursor.offset,
                     upTo: plan.cursor.size,
-                    where: { isRemote || version != nil || adapter.isWanted($0) }
+                    where: { verifyMirror || adapter.isWanted($0) }
                 ) { line in
                     guard failure == nil else { return }
-                    if isRemote || version != nil,
-                       (try? JSONSerialization.jsonObject(with: Data(line))) == nil { validJSON = false }
-                    guard adapter.isWanted(line) else { return }
+                    if verifyMirror {
+                        if (try? JSONSerialization.jsonObject(with: Data(line))) == nil { validJSON = false }
+                        guard adapter.isWanted(line) else { return }
+                    }
                     do {
                         guard let request = try parser.request(in: line) else { return }
                         try self.merge(
@@ -722,10 +721,7 @@ extension UsageRecorder {
         try self.cache.beginTransaction()
         do {
             for request in requests {
-                let provider = source.usageSource.pricingProvider(model: request.model ?? "", upstreamProvider: request.upstreamProvider)
-                var row = Self.row(for: request, provider: provider, rateCard: rateCard)
-                if source == .piAgent { row.piRequest = request }
-                try self.merge(row, from: source, included: included)
+                try self.merge(request, from: source, included: included, rateCard: rateCard)
             }
             try self.cache.commit()
         } catch {

@@ -44,14 +44,19 @@ package struct PricedUsage: Equatable {
                 upstreamProvider: row.tier.upstreamProvider,
                 pricingProvider: provider
             )
-            let hasRate = rateCard.rates(for: key.model, provider: provider, day: key.day, fast: key.isFast) != nil
-            let fallback = row.tokens.total > 0 && !hasRate && key.source == .piAgent
+            let rates = rateCard.rates(for: key.model, provider: provider, day: key.day, fast: key.isFast)
+            let total = row.tokens.total
+            let fallback = total > 0 && rates == nil && key.source == .piAgent
                 && (row.loggedCostUSD.map { $0.isFinite && $0 > 0 } ?? false)
-            let cost = hasRate && row.tokens.total > 0
-                ? rateCard.cost(of: row.tokens, model: key.model, provider: provider, day: key.day,
-                                fast: key.isFast, longContext: key.longContext)
-                : (fallback ? row.loggedCostUSD : nil)
-            let unpriced = cost == nil ? row.tokens.total : (fallback ? row.tokens.total - row.loggedCostTokens : 0)
+            let cost: Double?
+            if total == 0 {
+                cost = nil
+            } else if fallback {
+                cost = row.loggedCostUSD
+            } else {
+                cost = rates?.cost(for: row.tokens, longContext: key.longContext)
+            }
+            let unpriced = cost == nil ? total : (fallback ? total - row.loggedCostTokens : 0)
             let previous = grouped[key]
             let combinedCost: Double? = cost == nil && previous?.cost == nil ? nil : (cost ?? 0) + (previous?.cost ?? 0)
             guard combinedCost?.isFinite ?? true else {

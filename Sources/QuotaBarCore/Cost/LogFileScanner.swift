@@ -82,8 +82,8 @@ package enum LogFileScanner {
     /// absolute byte offset and is never read past, even when it lands inside a line. The buffer
     /// passed to `handle` is valid only for that call and must not escape it.
     ///
-    /// Only lines `isWanted` accepts reach `handle`. A line longer than 64KB is first judged by
-    /// that prefix alone, and skipped to its newline unbuffered if rejected, so `isWanted` may
+    /// Only lines `isWanted` accepts reach `handle`. When an incomplete line spans reads and its
+    /// prefix reaches 64KB, a rejected prefix lets the scanner skip to its newline. `isWanted` may
     /// reject a prefix only when it would reject every line starting with it. Some logs carry
     /// irrelevant lines of tens of megabytes.
     package static func readLines(
